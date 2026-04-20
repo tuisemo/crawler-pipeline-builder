@@ -1,0 +1,20 @@
+commands:
+  install: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pip install -e .
+  test: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest -v
+  lint: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m py_compile server.py inspector.py llm_client.py main.py
+  typecheck: echo "No dedicated typecheck configured"
+
+services:
+  backend:
+    start: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe server.py
+    stop: powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
+    healthcheck: curl -sf http://localhost:8000
+    port: 8000
+    depends_on: []
+
+  frontend-dev:
+    start: echo "Frontend dev server to be introduced on port 3101 during React migration"
+    stop: powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3101 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
+    healthcheck: curl -sf http://localhost:3101
+    port: 3101
+    depends_on: [backend]
