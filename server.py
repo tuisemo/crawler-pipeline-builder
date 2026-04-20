@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.browser_session import page_session_mgr, stop_browser
 from backend.legacy_routes import router as legacy_router
+from backend.workflow_routes import router as workflow_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -30,6 +31,7 @@ def index():
     return Path("templates/index.html").read_text(encoding="utf-8")
 
 app.include_router(legacy_router)
+app.include_router(workflow_router)
 
 def main(port: int = 8000):
     print(f"[*] Starting Page Inspector at http://127.0.0.1:{port}")
