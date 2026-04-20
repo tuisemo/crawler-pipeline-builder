@@ -96,3 +96,37 @@ def test_from_legacy_config_valid():
     assert nodes[3]["data"]["pagination_selector"] == ".next"
     assert nodes[3]["data"]["pagination_strategy"] == "click_next"
     assert nodes[3]["data"]["max_pages"] == 5
+def test_to_prompt_missing_graph():
+    response = client.post("/api/workflows/to-prompt", json={})
+    assert response.status_code == 422 # Pydantic validation error
+
+def test_to_prompt_missing_url():
+    response = client.post("/api/workflows/to-prompt", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "select_list", "data": {"item_selector": ".item"}}
+            ],
+            "edges": []
+        }
+    })
+    assert response.status_code == 400
+    assert "URL and item_selector are required" in response.json()["error"]
+
+def test_to_prompt_valid():
+    response = client.post("/api/workflows/to-prompt", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1"}]}}
+            ],
+            "edges": []
+        }
+    })
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert "http://example.com" in data["prompt"]
+    assert ".item" in data["prompt"]
+    assert "title" in data["prompt"]

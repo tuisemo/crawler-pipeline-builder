@@ -9,8 +9,10 @@ from .workflow_schemas import (
     WorkflowNode,
     WorkflowEdge,
     NodeData,
-    ConversionWarning
+    ConversionWarning,
+    ToPromptRequest
 )
+from prompts import CrawlerPromptGenerator
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
@@ -94,3 +96,50 @@ def from_legacy_config(request: FromLegacyConfigRequest):
         graph=graph,
         warnings=warnings
     )
+
+@router.post("/to-prompt")
+def to_prompt(request: ToPromptRequest):
+    graph = request.graph
+    
+    url = ""
+    item_selector = ""
+    fields = []
+    pagination_selector = ""
+    pagination_strategy = "click_next"
+    max_pages = 50
+    html_fragment = ""
+    
+    for node in graph.nodes:
+        if node.type == "open_page":
+            url = node.data.url or ""
+        elif node.type == "select_list":
+            item_selector = node.data.item_selector or ""
+        elif node.type == "extract_field":
+            fields = node.data.fields or []
+            if node.data.html_fragment:
+                html_fragment = node.data.html_fragment
+        elif node.type == "paginate":
+            pagination_selector = node.data.pagination_selector or ""
+            if node.data.pagination_strategy:
+                pagination_strategy = node.data.pagination_strategy
+            if node.data.max_pages is not None:
+                max_pages = node.data.max_pages
+                
+    if not url or not item_selector:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "URL and item_selector are required to generate prompt"}
+        )
+        
+    generator = CrawlerPromptGenerator()
+    prompt = generator.generate_from_simple_config(
+        url=url,
+        item_selector=item_selector,
+        fields=fields,
+        pagination_selector=pagination_selector,
+        pagination_strategy=pagination_strategy,
+        max_pages=max_pages,
+        html_fragment=html_fragment
+    )
+    
+    return {"success": True, "prompt": prompt}
