@@ -276,7 +276,7 @@ button:hover,
   background: rgba(15, 23, 42, 0.48);
 }
 
-.dsl-editor textarea {
+.monaco-shell {
   width: 100%;
   min-height: 260px;
   max-height: 320px;
@@ -339,3 +339,4 @@ button:hover,
     grid-template-columns: 1fr;
   }
 }
+
