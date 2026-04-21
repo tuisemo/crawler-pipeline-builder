@@ -22,6 +22,7 @@ import {
   applyDslTextChange,
   getErrorMessage,
   toCanonicalGraph,
+  graphToFlowState,
   type DslStatus,
   type ExtractionField,
   type WorkflowEdge,
@@ -42,6 +43,21 @@ type PaletteItem = {
   type: WorkflowNodeType
   label: string
   detail: string
+}
+type LegacyConfigWarning = { message: string }
+
+type CompatibilityModalState = {
+  open: boolean
+  url: string
+  item_selector: string
+  pagination_selector: string
+  pagination_strategy: string
+  max_pages: string
+  html_fragment: string
+  fields: Array<{ name: string; selector: string; type: string }>
+  loading: boolean
+  warnings: string[]
+  error: string
 }
 
 const fallbackUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -233,6 +249,19 @@ function App() {
   const [dslText, setDslText] = useState(() => JSON.stringify(toCanonicalGraph(initialNodes, initialEdges), null, 2))
   const [dslStatus, setDslStatus] = useState<DslStatus>('synced')
   const [dslFeedback, setDslFeedback] = useState('Canvas and DSL are synchronized.')
+  const [compatModal, setCompatModal] = useState<CompatibilityModalState>({
+    open: false,
+    url: '',
+    item_selector: '',
+    pagination_selector: '',
+    pagination_strategy: 'click_next',
+    max_pages: '50',
+    html_fragment: '',
+    fields: [{ name: '', selector: '', type: 'text' }],
+    loading: false,
+    warnings: [],
+    error: '',
+  })
   const isApplyingDslRef = useRef(false)
   const dslValidationRequestIdRef = useRef(0)
 
@@ -450,6 +479,128 @@ function App() {
     updateSelectedNodeFields((fields) => fields.filter((_, fieldIndex) => fieldIndex !== index))
   }
 
+  function openCompatibilityModal() {
+    setCompatModal((prev) => ({
+      ...prev,
+      open: true,
+      warnings: [],
+      error: '',
+    }))
+  }
+
+  function closeCompatibilityModal() {
+    setCompatModal((prev) => ({ ...prev, open: false }))
+  }
+
+  function updateCompatField<K extends keyof CompatibilityModalState>(key: K, value: CompatibilityModalState[K]) {
+    setCompatModal((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function updateCompatFieldEntry(index: number, patch: Partial<{ name: string; selector: string; type: string }>) {
+    setCompatModal((prev) => {
+      const nextFields = [...prev.fields]
+      nextFields[index] = { ...nextFields[index], ...patch }
+      return { ...prev, fields: nextFields }
+    })
+  }
+
+  function addCompatField() {
+    setCompatModal((prev) => ({
+      ...prev,
+      fields: [...prev.fields, { name: '', selector: '', type: 'text' }],
+    }))
+  }
+
+  function removeCompatField(index: number) {
+    setCompatModal((prev) => ({
+      ...prev,
+      fields: prev.fields.filter((_, i) => i !== index),
+    }))
+  }
+
+  async function handleImportLegacyConfig() {
+    const payload = {
+      url: compatModal.url.trim(),
+      item_selector: compatModal.item_selector.trim(),
+      fields: compatModal.fields.filter((f) => f.name.trim() && f.selector.trim()),
+      pagination_selector: compatModal.pagination_selector.trim(),
+      pagination_strategy: compatModal.pagination_strategy || 'click_next',
+      max_pages: Number(compatModal.max_pages) || 50,
+      html_fragment: compatModal.html_fragment.trim(),
+    }
+
+    if (!payload.url) {
+      setCompatModal((prev) => ({ ...prev, error: 'URL is required.' }))
+      return
+    }
+    if (!payload.item_selector) {
+      setCompatModal((prev) => ({ ...prev, error: 'Item selector is required.' }))
+      return
+    }
+    if (payload.fields.length === 0) {
+      setCompatModal((prev) => ({ ...prev, error: 'At least one field with name and selector is required.' }))
+      return
+    }
+
+    setCompatModal((prev) => ({ ...prev, loading: true, error: '', warnings: [] }))
+
+    try {
+      const response = await fetch('/api/workflows/from-legacy-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data: unknown = await response.json()
+
+      if (!response.ok || (typeof data === 'object' && data !== null && !(data as Record<string, unknown>).success)) {
+        const errMsg = typeof data === 'object' && data !== null ? getErrorMessage(data) : `HTTP ${response.status}`
+        setCompatModal((prev) => ({ ...prev, loading: false, error: errMsg }))
+        return
+      }
+
+      const result = data as { success: boolean; graph?: WorkflowGraph; warnings?: LegacyConfigWarning[]; error?: string }
+
+      if (result.graph) {
+        const flowState = graphToFlowState(result.graph, [])
+        setNodes(flowState.nodes)
+        setEdges(flowState.edges)
+        if (flowState.nodes.length > 0) {
+          setSelectedNodeId(flowState.nodes[0].id)
+        }
+      }
+
+      setCompatModal((prev) => ({
+        ...prev,
+        loading: false,
+        open: false,
+        warnings: (result.warnings ?? []).map((w) => w.message),
+        error: '',
+      }))
+
+      if (result.warnings && result.warnings.length > 0) {
+        setResultState({
+          tone: 'validation-error',
+          title: 'Compatibility warnings',
+          message: 'Legacy config was imported but some features produced warnings.',
+          payload: { warnings: result.warnings },
+        })
+      } else {
+        setResultState({
+          tone: 'success',
+          title: 'Legacy config imported',
+          message: 'Legacy configuration has been converted to a DSL graph and loaded onto the canvas.',
+          payload: { graph: result.graph },
+        })
+      }
+    } catch (err) {
+      setCompatModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Failed to import legacy config.',
+      }))
+    }
+  }
+
   return (
     <main className="workbench-shell" aria-label="Sea Data React Workbench">
       <header className="toolbar" aria-label="Workbench toolbar">
@@ -471,6 +622,9 @@ function App() {
             Run Subflow Test
           </button>
           <span className="bounds-pill">max_items 5 / max_pages 2 / max_steps 20</span>
+          <button type="button" onClick={openCompatibilityModal}>
+            Import Legacy Config
+          </button>
           <a className="fallback-link" href={fallbackUrl} target="_blank" rel="noreferrer">
             Open legacy UI
           </a>
@@ -758,6 +912,150 @@ function App() {
           </div>
         </section>
       </div>
+
+      {compatModal.open && (
+        <div className="compat-overlay" role="dialog" aria-modal="true" aria-label="Import Legacy Configuration">
+          <div className="compat-panel">
+            <div className="compat-header">
+              <h2>Import Legacy Config</h2>
+              <button type="button" className="compat-close" onClick={closeCompatibilityModal} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <p className="compat-description">
+              Paste your legacy crawler configuration values below. The system will convert them into a DSL workflow graph.
+            </p>
+
+            <div className="compat-form">
+              <label className="compat-field">
+                Target URL *
+                <input
+                  type="url"
+                  placeholder="https://example.com"
+                  value={compatModal.url}
+                  onChange={(e) => updateCompatField('url', e.target.value)}
+                />
+              </label>
+
+              <label className="compat-field">
+                Item selector *
+                <input
+                  type="text"
+                  placeholder=".quote, .item, article"
+                  value={compatModal.item_selector}
+                  onChange={(e) => updateCompatField('item_selector', e.target.value)}
+                />
+              </label>
+
+              <div className="compat-field compat-pagination-row">
+                <label className="compat-field">
+                  Pagination selector
+                  <input
+                    type="text"
+                    placeholder=".next, [rel=next]"
+                    value={compatModal.pagination_selector}
+                    onChange={(e) => updateCompatField('pagination_selector', e.target.value)}
+                  />
+                </label>
+                <label className="compat-field compat-field--short">
+                  Strategy
+                  <select
+                    value={compatModal.pagination_strategy}
+                    onChange={(e) => updateCompatField('pagination_strategy', e.target.value)}
+                  >
+                    <option value="click_next">click_next</option>
+                    <option value="infinite_scroll">infinite_scroll</option>
+                    <option value="load_more">load_more</option>
+                    <option value="none">none</option>
+                  </select>
+                </label>
+                <label className="compat-field compat-field--short">
+                  Max pages
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={compatModal.max_pages}
+                    onChange={(e) => updateCompatField('max_pages', e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="compat-field">
+                <div className="compat-field-header">
+                  <span>Extraction fields *</span>
+                  <button type="button" className="compat-add-field" onClick={addCompatField}>
+                    + Add field
+                  </button>
+                </div>
+                {compatModal.fields.map((field, index) => (
+                  <div key={`compat-field-${index}`} className="compat-field-row">
+                    <input
+                      type="text"
+                      placeholder="name"
+                      value={field.name}
+                      onChange={(e) => updateCompatFieldEntry(index, { name: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      placeholder="selector"
+                      value={field.selector}
+                      onChange={(e) => updateCompatFieldEntry(index, { selector: e.target.value })}
+                    />
+                    <select
+                      value={field.type}
+                      onChange={(e) => updateCompatFieldEntry(index, { type: e.target.value })}
+                    >
+                      <option value="text">text</option>
+                      <option value="attr:href">attr:href</option>
+                      <option value="attr:src">attr:src</option>
+                      <option value="attr:href:abs">attr:href:abs</option>
+                      <option value="html">html</option>
+                      <option value="all(text)">all(text)</option>
+                      <option value="all(@href)">all(@href)</option>
+                    </select>
+                    {compatModal.fields.length > 1 && (
+                      <button type="button" className="compat-remove-field" onClick={() => removeCompatField(index)}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <label className="compat-field">
+                HTML fragment (optional)
+                <textarea
+                  placeholder="Paste HTML sample here if available..."
+                  value={compatModal.html_fragment}
+                  onChange={(e) => updateCompatField('html_fragment', e.target.value)}
+                  rows={3}
+                />
+              </label>
+
+              {compatModal.error && (
+                <div className="compat-error" role="alert">
+                  {compatModal.error}
+                </div>
+              )}
+            </div>
+
+            <div className="compat-actions">
+              <button type="button" className="compat-cancel" onClick={closeCompatibilityModal}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="compat-import"
+                disabled={compatModal.loading}
+                onClick={handleImportLegacyConfig}
+              >
+                {compatModal.loading ? 'Importing...' : 'Import and Convert'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
