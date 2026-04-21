@@ -1,40 +1,209 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Position,
+  ReactFlow,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
+  type Connection,
+  type Edge,
+  type EdgeChange,
+  type Node,
+  type NodeChange,
+  type NodeProps,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
 import './App.css'
 
 type BackendStatus = 'checking' | 'online' | 'offline'
 type ResultTone = 'idle' | 'success' | 'error'
+type WorkflowNodeType =
+  | 'open_page'
+  | 'select_list'
+  | 'loop'
+  | 'extract_field'
+  | 'condition'
+  | 'paginate'
+  | 'emit_record'
+  | 'end'
 
-const fallbackUrl = 'http://localhost:8000'
-
-const starterGraph = {
-  nodes: [
-    {
-      id: 'open-page-1',
-      type: 'open_page',
-      data: { url: 'https://quotes.toscrape.com/' },
-    },
-    {
-      id: 'select-list-1',
-      type: 'select_list',
-      data: { item_selector: '.quote' },
-    },
-    {
-      id: 'extract-field-1',
-      type: 'extract_field',
-      data: { fields: [{ name: 'text', selector: '.text', type: 'text' }] },
-    },
-  ],
-  edges: [
-    { id: 'edge-open-select', source: 'open-page-1', target: 'select-list-1' },
-    { id: 'edge-select-extract', source: 'select-list-1', target: 'extract-field-1' },
-  ],
+type ExtractionField = {
+  name: string
+  selector: string
+  type: string
 }
 
-const paletteItems = [
-  { type: 'open_page', label: 'Open page', detail: 'Set target URL' },
-  { type: 'select_list', label: 'Select list', detail: 'Choose item selector' },
-  { type: 'extract_field', label: 'Extract field', detail: 'Map output fields' },
+type WorkflowNodeData = {
+  label?: string
+  url?: string
+  item_selector?: string
+  fields?: ExtractionField[]
+  pagination_selector?: string
+  pagination_strategy?: string
+  max_pages?: number
+  max_items?: number
+  max_steps?: number
+  condition?: string
+  [key: string]: unknown
+}
+
+type WorkflowNode = Node<WorkflowNodeData, WorkflowNodeType>
+type WorkflowEdge = Edge
+
+type WorkflowGraph = {
+  nodes: Array<{ id: string; type: WorkflowNodeType; data: WorkflowNodeData }>
+  edges: Array<{ id: string; source: string; target: string }>
+}
+
+type PaletteItem = {
+  type: WorkflowNodeType
+  label: string
+  detail: string
+}
+
+const fallbackUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : window.location.origin
+
+function clampNumberInput(value: string, min: number, max: number, fallback: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, min), max)
+}
+
+const paletteItems: PaletteItem[] = [
+  { type: 'open_page', label: 'open_page', detail: 'Set target URL' },
+  { type: 'select_list', label: 'select_list', detail: 'Choose item selector' },
+  { type: 'loop', label: 'loop', detail: 'Bound list iteration' },
+  { type: 'extract_field', label: 'extract_field', detail: 'Legacy fields array' },
+  { type: 'condition', label: 'condition', detail: 'Branch by expression' },
+  { type: 'paginate', label: 'paginate', detail: 'Legacy pagination' },
+  { type: 'emit_record', label: 'emit_record', detail: 'Output record' },
+  { type: 'end', label: 'end', detail: 'Stop workflow' },
 ]
+
+const nodeTypeLabels: Record<WorkflowNodeType, string> = {
+  open_page: 'Open Page',
+  select_list: 'Select List',
+  loop: 'Loop',
+  extract_field: 'Extract Field',
+  condition: 'Condition',
+  paginate: 'Paginate',
+  emit_record: 'Emit Record',
+  end: 'End',
+}
+
+const initialNodes: WorkflowNode[] = [
+  {
+    id: 'open-page-1',
+    type: 'open_page',
+    position: { x: 60, y: 140 },
+    data: { label: 'Open Page', url: 'https://quotes.toscrape.com/', max_pages: 2, max_steps: 20 },
+  },
+  {
+    id: 'select-list-1',
+    type: 'select_list',
+    position: { x: 330, y: 140 },
+    data: { label: 'Select List', item_selector: '.quote', max_items: 5 },
+  },
+  {
+    id: 'extract-field-1',
+    type: 'extract_field',
+    position: { x: 600, y: 140 },
+    data: { label: 'Extract Field', fields: [{ name: 'text', selector: '.text', type: 'text' }] },
+  },
+]
+
+const initialEdges: WorkflowEdge[] = [
+  {
+    id: 'edge-open-select',
+    source: 'open-page-1',
+    target: 'select-list-1',
+    markerEnd: { type: MarkerType.ArrowClosed },
+  },
+  {
+    id: 'edge-select-extract',
+    source: 'select-list-1',
+    target: 'extract-field-1',
+    markerEnd: { type: MarkerType.ArrowClosed },
+  },
+]
+
+function createDefaultData(type: WorkflowNodeType): WorkflowNodeData {
+  switch (type) {
+    case 'open_page':
+      return { label: 'Open Page', url: '', max_pages: 2, max_steps: 20 }
+    case 'select_list':
+      return { label: 'Select List', item_selector: '', max_items: 5 }
+    case 'loop':
+      return { label: 'Loop', max_items: 5 }
+    case 'extract_field':
+      return { label: 'Extract Field', fields: [{ name: 'title', selector: '', type: 'text' }] }
+    case 'condition':
+      return { label: 'Condition', condition: '' }
+    case 'paginate':
+      return { label: 'Paginate', pagination_selector: '', pagination_strategy: 'click_next', max_pages: 2 }
+    case 'emit_record':
+      return { label: 'Emit Record' }
+    case 'end':
+      return { label: 'End' }
+  }
+}
+
+function nodeSummary(type: WorkflowNodeType, data: WorkflowNodeData) {
+  if (type === 'open_page') return String(data.url || 'Set target URL')
+  if (type === 'select_list') return String(data.item_selector || 'Set item selector')
+  if (type === 'extract_field') return `${data.fields?.length ?? 0} legacy field(s)`
+  if (type === 'paginate') return `${data.pagination_strategy || 'click_next'} ${data.max_pages ?? 1} page(s)`
+  if (type === 'loop') return `${data.max_items ?? 5} max item(s)`
+  if (type === 'condition') return String(data.condition || 'Set condition')
+  return 'Ready'
+}
+
+function WorkflowCanvasNode({ data, type, selected }: NodeProps<WorkflowNode>) {
+  const workflowType = type as WorkflowNodeType
+
+  return (
+    <div className={`canvas-node-card ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} />
+      <span className="node-type">{workflowType}</span>
+      <strong>{String(data.label || nodeTypeLabels[workflowType])}</strong>
+      <small>{nodeSummary(workflowType, data)}</small>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  )
+}
+
+const reactFlowNodeTypes = {
+  open_page: WorkflowCanvasNode,
+  select_list: WorkflowCanvasNode,
+  loop: WorkflowCanvasNode,
+  extract_field: WorkflowCanvasNode,
+  condition: WorkflowCanvasNode,
+  paginate: WorkflowCanvasNode,
+  emit_record: WorkflowCanvasNode,
+  end: WorkflowCanvasNode,
+}
+
+function toCanonicalGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowGraph {
+  return {
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      type: node.type ?? 'open_page',
+      data: node.data,
+    })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+    })),
+  }
+}
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
@@ -43,6 +212,9 @@ function App() {
   const [resultMessage, setResultMessage] = useState(
     'Select an action from the toolbar to show validation, prompt preview, node test, or subflow output here.',
   )
+  const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes)
+  const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges)
+  const [selectedNodeId, setSelectedNodeId] = useState(initialNodes[0].id)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -61,11 +233,43 @@ function App() {
         }
         setBackendStatus('offline')
         setBackendMessage(
-          'Legacy backend is not reachable. The workbench shell stays available, and the fallback link remains visible.',
+          'Legacy backend is not reachable. The workbench stays available, and the fallback link remains visible.',
         )
       })
 
     return () => controller.abort()
+  }, [])
+
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
+  const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [nodes, edges])
+  const canonicalGraphJson = useMemo(() => JSON.stringify(canonicalGraph, null, 2), [canonicalGraph])
+
+  const onNodesChange = useCallback((changes: NodeChange<WorkflowNode>[]) => {
+    setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
+  }, [])
+
+  const onEdgesChange = useCallback((changes: EdgeChange<WorkflowEdge>[]) => {
+    setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
+  }, [])
+
+  const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target || connection.source === connection.target) return
+
+    setEdges((currentEdges) => {
+      const edgeExists = currentEdges.some(
+        (edge) => edge.source === connection.source && edge.target === connection.target,
+      )
+      if (edgeExists) return currentEdges
+
+      return addEdge(
+        {
+          ...connection,
+          id: `edge-${connection.source}-${connection.target}-${currentEdges.length + 1}`,
+          markerEnd: { type: MarkerType.ArrowClosed },
+        },
+        currentEdges,
+      )
+    })
   }, [])
 
   function showShellResult(action: string) {
@@ -77,6 +281,55 @@ function App() {
 
     setResultTone('success')
     setResultMessage(`${action} is available in the shell. Backend integration is handled by the next React milestone.`)
+  }
+
+  function addPaletteNode(type: WorkflowNodeType) {
+    const existingSuffixes = nodes
+      .filter((node) => node.type === type)
+      .map((node) => Number(node.id.split('-').at(-1)))
+      .filter(Number.isFinite)
+    const nextCount = Math.max(0, ...existingSuffixes) + 1
+    const newNode: WorkflowNode = {
+      id: `${type.replaceAll('_', '-')}-${nextCount}`,
+      type,
+      position: { x: 120 + (nodes.length % 4) * 210, y: 80 + Math.floor(nodes.length / 4) * 150 },
+      data: createDefaultData(type),
+    }
+
+    setNodes((currentNodes) => [...currentNodes, newNode])
+    setSelectedNodeId(newNode.id)
+  }
+
+  function updateSelectedNodeData(patch: Partial<WorkflowNodeData>) {
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== selectedNodeId) return node
+        return { ...node, data: { ...node.data, ...patch } }
+      }),
+    )
+  }
+
+  function updateSelectedNodeFields(updater: (fields: ExtractionField[]) => ExtractionField[]) {
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== selectedNodeId) return node
+        return { ...node, data: { ...node.data, fields: updater(node.data.fields ?? []) } }
+      }),
+    )
+  }
+
+  function updateExtractField(index: number, patch: Partial<ExtractionField>) {
+    updateSelectedNodeFields((fields) =>
+      fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field)),
+    )
+  }
+
+  function addExtractField() {
+    updateSelectedNodeFields((fields) => [...fields, { name: '', selector: '', type: 'text' }])
+  }
+
+  function removeExtractField(index: number) {
+    updateSelectedNodeFields((fields) => fields.filter((_, fieldIndex) => fieldIndex !== index))
   }
 
   return (
@@ -96,6 +349,7 @@ function App() {
           <button type="button" onClick={() => showShellResult('Run Node Test')}>
             Run Node Test
           </button>
+          <span className="bounds-pill">max_items 5 / max_pages 2 / max_steps 20</span>
           <a className="fallback-link" href={fallbackUrl} target="_blank" rel="noreferrer">
             Open legacy UI
           </a>
@@ -110,56 +364,241 @@ function App() {
         <aside className="panel node-palette" aria-label="Node palette">
           <div className="panel-heading">
             <span>Node Palette</span>
-            <small>MVP list extraction</small>
+            <small>MVP workflow nodes</small>
           </div>
           <div className="palette-list">
             {paletteItems.map((item) => (
-              <button key={item.type} type="button" className="palette-card">
+              <button key={item.type} type="button" className="palette-card" onClick={() => addPaletteNode(item.type)}>
                 <span>{item.label}</span>
                 <small>{item.detail}</small>
               </button>
             ))}
           </div>
           <p className="scope-note">
-            Detail-page scraping and complex nested loops are intentionally not required for this MVP shell.
+            Detail-page scraping and complex nested loops are intentionally not required for this MVP workbench.
           </p>
         </aside>
 
         <section className="panel canvas-region" aria-label="Workflow canvas region">
           <div className="panel-heading">
             <span>Canvas</span>
-            <small>Visual graph placeholder</small>
+            <small>Add, drag, select, and connect nodes</small>
           </div>
           <div className="canvas-surface">
-            {starterGraph.nodes.map((node, index) => (
-              <article key={node.id} className="workflow-node">
-                <span className="node-index">{index + 1}</span>
-                <div>
-                  <strong>{node.type}</strong>
-                  <code>{node.id}</code>
-                </div>
-              </article>
-            ))}
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={reactFlowNodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+              onPaneClick={() => setSelectedNodeId('')}
+              fitView
+            >
+              <Background />
+              <MiniMap pannable zoomable />
+              <Controls />
+            </ReactFlow>
           </div>
         </section>
 
         <aside className="panel properties-panel" aria-label="Property panel">
           <div className="panel-heading">
             <span>Property Panel</span>
-            <small>Selected node</small>
+            <small>{selectedNode ? selectedNode.id : 'No node selected'}</small>
           </div>
-          <label>
-            Node type
-            <input value="open_page" readOnly />
-          </label>
-          <label>
-            Target URL
-            <input value="https://quotes.toscrape.com/" readOnly />
-          </label>
-          <label>
-            Item selector
-            <input value=".quote" readOnly />
-          </label>
+
+          {selectedNode ? (
+            <div className="property-form">
+              <label>
+                Node type
+                <input value={selectedNode.type} readOnly />
+              </label>
+              <label>
+                Label
+                <input
+                  value={String(selectedNode.data.label ?? '')}
+                  onChange={(event) => updateSelectedNodeData({ label: event.target.value })}
+                />
+              </label>
+
+              {selectedNode.type === 'open_page' && (
+                <>
+                  <label>
+                    Target URL
+                    <input
+                      aria-label="Target URL"
+                      value={String(selectedNode.data.url ?? '')}
+                      onChange={(event) => updateSelectedNodeData({ url: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Max pages
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      value={Number(selectedNode.data.max_pages ?? 2)}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          max_pages: clampNumberInput(event.target.value, 1, 5, Number(selectedNode.data.max_pages ?? 2)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Max steps
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={Number(selectedNode.data.max_steps ?? 20)}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          max_steps: clampNumberInput(event.target.value, 1, 50, Number(selectedNode.data.max_steps ?? 20)),
+                        })
+                      }
+                    />
+                  </label>
+                </>
+              )}
+
+              {selectedNode.type === 'select_list' && (
+                <>
+                  <label>
+                    Item selector
+                    <input
+                      aria-label="Item selector"
+                      value={String(selectedNode.data.item_selector ?? '')}
+                      onChange={(event) => updateSelectedNodeData({ item_selector: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Max items
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={Number(selectedNode.data.max_items ?? 5)}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          max_items: clampNumberInput(event.target.value, 1, 20, Number(selectedNode.data.max_items ?? 5)),
+                        })
+                      }
+                    />
+                  </label>
+                </>
+              )}
+
+              {selectedNode.type === 'extract_field' && (
+                <div className="field-editor">
+                  <div className="field-editor-heading">
+                    <strong>Legacy fields</strong>
+                    <button type="button" onClick={addExtractField}>
+                      Add field
+                    </button>
+                  </div>
+                  {(selectedNode.data.fields ?? []).map((field, index) => (
+                    <div className="field-row" key={`${selectedNode.id}-field-${index}`}>
+                      <input
+                        aria-label={`Field ${index + 1} name`}
+                        placeholder="name"
+                        value={field.name}
+                        onChange={(event) => updateExtractField(index, { name: event.target.value })}
+                      />
+                      <input
+                        aria-label={`Field ${index + 1} selector`}
+                        placeholder="selector"
+                        value={field.selector}
+                        onChange={(event) => updateExtractField(index, { selector: event.target.value })}
+                      />
+                      <select
+                        aria-label={`Field ${index + 1} type`}
+                        value={field.type}
+                        onChange={(event) => updateExtractField(index, { type: event.target.value })}
+                      >
+                        <option value="text">text</option>
+                        <option value="attr:href">attr:href</option>
+                        <option value="attr:src">attr:src</option>
+                        <option value="attr:href:abs">attr:href:abs</option>
+                        <option value="html">html</option>
+                        <option value="all(text)">all(text)</option>
+                        <option value="all(@href)">all(@href)</option>
+                      </select>
+                      <button type="button" onClick={() => removeExtractField(index)}>
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {selectedNode.type === 'paginate' && (
+                <>
+                  <label>
+                    Pagination selector
+                    <input
+                      aria-label="Pagination selector"
+                      value={String(selectedNode.data.pagination_selector ?? '')}
+                      onChange={(event) => updateSelectedNodeData({ pagination_selector: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Pagination strategy
+                    <select
+                      value={String(selectedNode.data.pagination_strategy ?? 'click_next')}
+                      onChange={(event) => updateSelectedNodeData({ pagination_strategy: event.target.value })}
+                    >
+                      <option value="click_next">click_next</option>
+                      <option value="infinite_scroll">infinite_scroll</option>
+                      <option value="load_more">load_more</option>
+                      <option value="none">none</option>
+                    </select>
+                  </label>
+                  <label>
+                    Max pages
+                    <input
+                      type="number"
+                      min="1"
+                      max="5"
+                      value={Number(selectedNode.data.max_pages ?? 2)}
+                      onChange={(event) =>
+                        updateSelectedNodeData({
+                          max_pages: clampNumberInput(event.target.value, 1, 5, Number(selectedNode.data.max_pages ?? 2)),
+                        })
+                      }
+                    />
+                  </label>
+                </>
+              )}
+
+              {selectedNode.type === 'loop' && (
+                <label>
+                  Max items
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={Number(selectedNode.data.max_items ?? 5)}
+                    onChange={(event) => updateSelectedNodeData({ max_items: Number(event.target.value) })}
+                  />
+                </label>
+              )}
+
+              {selectedNode.type === 'condition' && (
+                <label>
+                  Condition
+                  <input
+                    value={String(selectedNode.data.condition ?? '')}
+                    onChange={(event) => updateSelectedNodeData({ condition: event.target.value })}
+                  />
+                </label>
+              )}
+            </div>
+          ) : (
+            <p className="empty-selection">Select a canvas node to edit canonical node data.</p>
+          )}
         </aside>
 
         <section className="panel dsl-editor" aria-label="DSL editor region">
@@ -167,7 +606,7 @@ function App() {
             <span>DSL Editor</span>
             <small>Canonical graph JSON</small>
           </div>
-          <textarea aria-label="Workflow DSL JSON" value={JSON.stringify(starterGraph, null, 2)} readOnly />
+          <textarea aria-label="Workflow DSL JSON" value={canonicalGraphJson} readOnly />
         </section>
 
         <section className="panel results-area" aria-label="Bottom result area">
