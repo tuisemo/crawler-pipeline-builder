@@ -1,73 +1,87 @@
-# React + TypeScript + Vite
+# Frontend - React Workbench
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Visual DSL workflow designer powered by React, ReactFlow, and Monaco Editor.
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev    # http://127.0.0.1:3101
+npm run build  # Production build
+npm run test   # Vitest unit tests
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Architecture
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **React 19** + **TypeScript** - UI framework
+- **@xyflow/react 12** - Visual node graph canvas
+- **@monaco-editor/react 4** - JSON DSL editor with live syntax highlighting
+- **Zustand** (available) - State management (currently using React hooks)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/App.tsx` | Workbench shell, toolbar, canvas, property panel, result area |
+| `src/App.css` | All workbench styles + compatibility modal CSS |
+| `src/workflowState.ts` | DSL types, canvas↔Monaco sync, graph validation |
+| `src/main.tsx` | React entry point |
+| `vite.config.ts` | Dev server with `/api` proxy to backend |
+
+## Proxy Configuration
+
+The Vite dev server proxies API calls to the backend:
+
 ```
+/api/*          → http://127.0.0.1:8000
+/legacy-health  → http://127.0.0.1:8000 (returns legacy UI root)
+```
+
+## DSL State Management
+
+`workflowState.ts` handles bidirectional sync between:
+1. **Canvas state**: ReactFlow nodes and edges
+2. **DSL text**: Monaco editor JSON representation
+3. **Backend validation**: Real-time validation via `/api/workflows/validate`
+
+### Key Functions
+
+- `toCanonicalGraph()` - Convert canvas state to canonical DSL graph
+- `graphToFlowState()` - Convert DSL graph back to canvas state
+- `validateGraphShape()` - Parse and validate DSL JSON structure
+- `applyDslTextChange()` - Apply Monaco edits with backend validation
+
+## Node Types
+
+| Type | Description |
+|------|-------------|
+| `open_page` | Navigate to URL |
+| `select_list` | Select repeated item container |
+| `loop` | Bound list iteration |
+| `extract_field` | Extract fields from items |
+| `condition` | Conditional branch |
+| `paginate` | Pagination handling |
+| `emit_record` | Output record |
+| `end` | Stop workflow |
+
+## Backend Integration
+
+Workflow actions POST to these endpoints:
+
+| Action | Endpoint | Request |
+|--------|----------|---------|
+| Validate DSL | `POST /api/workflows/validate` | `{ graph }` |
+| Preview Prompt | `POST /api/workflows/to-prompt` | `{ graph }` |
+| Run Node Test | `POST /api/workflows/test-node` | `{ graph, node_id, max_items, max_steps }` |
+| Run Subflow Test | `POST /api/workflows/test-subflow` | `{ graph, boundary }` |
+| Import Legacy | `POST /api/workflows/from-legacy-config` | `{ url, item_selector, fields, ... }` |
+
+## Testing
+
+```bash
+npm run test        # Run vitest
+npm run test:watch  # Watch mode
+```
+
+Test files co-located with source:
+- `src/workflowState.test.ts`
