@@ -327,14 +327,14 @@ async def test_subflow_unexpected_failure_preserves_partial_outputs(monkeypatch)
     session = FakeSession()
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
 
-    original_execute_node = WorkflowExecutor._execute_node
+    original_execute_node = WorkflowExecutor._execute_node_sync
 
-    async def fail_after_open(self, workflow_node, ctx):
+    def fail_after_open(self, workflow_node, ctx):
         if workflow_node.id == "boom":
             raise RuntimeError("boom after open")
-        return await original_execute_node(self, workflow_node, ctx)
+        return original_execute_node(self, workflow_node, ctx)
 
-    monkeypatch.setattr(WorkflowExecutor, "_execute_node", fail_after_open)
+    monkeypatch.setattr(WorkflowExecutor, "_execute_node_sync", fail_after_open)
     request = TestSubflowRequest.model_validate({
         "graph": graph(
             [

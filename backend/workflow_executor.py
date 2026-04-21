@@ -13,6 +13,7 @@ from .workflow_schemas import (
     TestSubflowRequest, TestSubflowResponse,
     SubflowBoundary
 )
+from .async_bridge import run_blocking
 from .browser_session import PageSession, page_session_mgr
 from extraction.selector_tester import SelectorTester
 
@@ -127,8 +128,9 @@ class WorkflowExecutor:
 
         return []
 
-    async def _execute_node(self, node: WorkflowNode, ctx: ExecutionContext) -> NodeResult:
-        """Execute a single node and return its result."""
+
+    def _execute_node_sync(self, node: WorkflowNode, ctx: ExecutionContext) -> NodeResult:
+        """Execute a single node synchronously and return its result."""
         start_time = time.time()
         ctx.add_log(LogLevel.INFO, f"Executing node: {node.id} ({node.type})", node_id=node.id)
 
@@ -147,15 +149,15 @@ class WorkflowExecutor:
             ctx.increment_step()
 
             if node.type == "open_page":
-                await self._execute_open_page(node, ctx, result)
+                self._execute_open_page_sync(node, ctx, result)
             elif node.type == "select_list":
-                await self._execute_select_list(node, ctx, result)
+                self._execute_select_list_sync(node, ctx, result)
             elif node.type == "extract_field":
-                await self._execute_extract_field(node, ctx, result)
+                self._execute_extract_field_sync(node, ctx, result)
             elif node.type == "paginate":
-                await self._execute_paginate(node, ctx, result)
+                self._execute_paginate_sync(node, ctx, result)
             elif node.type == "emit_record":
-                await self._execute_emit_record(node, ctx, result)
+                self._execute_emit_record_sync(node, ctx, result)
             else:
                 result.error = f"Unsupported node type: {node.type}"
                 result.result = {"status": "unsupported", "node_type": node.type}
@@ -173,7 +175,7 @@ class WorkflowExecutor:
 
         return result
 
-    async def _execute_open_page(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+    def _execute_open_page_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
         """Execute open_page node."""
         url = node.data.url
         if not url:
@@ -188,7 +190,7 @@ class WorkflowExecutor:
             result.error = f"Failed to navigate to URL: {e}"
             raise
 
-    async def _execute_select_list(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+    def _execute_select_list_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
         """Execute select_list node."""
         selector = node.data.item_selector
         if not selector:
@@ -214,7 +216,7 @@ class WorkflowExecutor:
             result.error = f"Failed to select items: {e}"
             raise
 
-    async def _execute_extract_field(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+    def _execute_extract_field_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
         """Execute extract_field node."""
         fields = node.data.fields
         item_selector = ctx.state.get("item_selector")
@@ -246,7 +248,7 @@ class WorkflowExecutor:
             result.error = f"Failed to extract fields: {e}"
             raise
 
-    async def _execute_paginate(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+    def _execute_paginate_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
         """Execute paginate node (bounded for testing)."""
         selector = node.data.pagination_selector
         strategy = node.data.pagination_strategy or "click_next"
@@ -273,7 +275,7 @@ class WorkflowExecutor:
             result.error = f"Failed to check pagination: {e}"
             raise
 
-    async def _execute_emit_record(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+    def _execute_emit_record_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
         """Execute emit_record node."""
         records = ctx.state.get("extracted_records", [])
 
@@ -284,8 +286,34 @@ class WorkflowExecutor:
         }
         ctx.add_log(LogLevel.INFO, f"Emitted {len(records)} records", node_id=node.id)
 
+    async def _execute_node(self, node: WorkflowNode, ctx: ExecutionContext) -> NodeResult:
+        return await run_blocking(lambda: self._execute_node_sync(node, ctx))
+
+    async def _execute_open_page(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+        await run_blocking(lambda: self._execute_open_page_sync(node, ctx, result))
+
+    async def _execute_select_list(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+        await run_blocking(lambda: self._execute_select_list_sync(node, ctx, result))
+
+    async def _execute_extract_field(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+        await run_blocking(lambda: self._execute_extract_field_sync(node, ctx, result))
+
+    async def _execute_paginate(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+        await run_blocking(lambda: self._execute_paginate_sync(node, ctx, result))
+
+    async def _execute_emit_record(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
+        await run_blocking(lambda: self._execute_emit_record_sync(node, ctx, result))
+
     async def test_node(self, request: TestNodeRequest) -> TestNodeResponse:
         """Test a single node with minimal prerequisites."""
+        return await run_blocking(lambda: self._test_node_sync(request))
+
+    async def test_subflow(self, request: TestSubflowRequest) -> TestSubflowResponse:
+        """Test a subflow within graph boundaries."""
+        return await run_blocking(lambda: self._test_subflow_sync(request))
+
+    def _test_node_sync(self, request: TestNodeRequest) -> TestNodeResponse:
+        """Synchronously test a single node with minimal prerequisites."""
         ctx = None
 
         try:
@@ -342,13 +370,13 @@ class WorkflowExecutor:
                 if prereq_node.id in ctx.executed_nodes:
                     continue
                 try:
-                    await self._execute_node(prereq_node, ctx)
+                    self._execute_node_sync(prereq_node, ctx)
                 except Exception as e:
                     ctx.add_log(LogLevel.WARNING, f"Prerequisite {prereq_node.id} failed: {e}")
                     # Continue anyway - test-node should be lenient on prerequisites
 
             # Execute the target node
-            node_result = await self._execute_node(target_node, ctx)
+            node_result = self._execute_node_sync(target_node, ctx)
 
             return TestNodeResponse(
                 success=node_result.success,
@@ -376,8 +404,8 @@ class WorkflowExecutor:
                 session_expired=False
             )
 
-    async def test_subflow(self, request: TestSubflowRequest) -> TestSubflowResponse:
-        """Test a subflow within graph boundaries."""
+    def _test_subflow_sync(self, request: TestSubflowRequest) -> TestSubflowResponse:
+        """Synchronously test a subflow within graph boundaries."""
         ctx = None
 
         try:
@@ -441,7 +469,7 @@ class WorkflowExecutor:
                     continue
 
                 try:
-                    node_result = await self._execute_node(node, ctx)
+                    node_result = self._execute_node_sync(node, ctx)
                     if not node_result.success:
                         failed_node_ids.add(node_id)
                         if node_result.error and "Max steps" in node_result.error:
