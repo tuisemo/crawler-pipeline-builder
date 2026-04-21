@@ -17,15 +17,45 @@ from .workflow_schemas import (
 def validate_graph(request: ValidateWorkflowRequest):
     graph = request.graph
     if not graph.nodes:
-        return JSONResponse({"error": "Workflow must have at least one node."}, status_code=400)
+        return _validation_error("workflow_empty", "Workflow must have at least one node.")
 
+    duplicate_node_ids = _find_duplicates(node.id for node in graph.nodes)
+    if duplicate_node_ids:
+        return _validation_error(
+            "duplicate_node_ids",
+            f"Workflow node ids must be unique: {', '.join(duplicate_node_ids)}.",
+        )
+
+    duplicate_edge_ids = _find_duplicates(edge.id for edge in graph.edges)
+    if duplicate_edge_ids:
+        return _validation_error(
+            "duplicate_edge_ids",
+            f"Workflow edge ids must be unique: {', '.join(duplicate_edge_ids)}.",
+        )
+
+    # MVP validation is intentionally structural: node/edge schemas, stable ids, and one entry node.
+    # Unknown node types and dangling edges are left to runtime/test endpoints for now.
     entry_nodes = [node for node in graph.nodes if node.type == "open_page"]
     if not entry_nodes:
-        return JSONResponse({"error": "Workflow must have an 'open_page' entry node."}, status_code=400)
+        return _validation_error("entry_node_missing", "Workflow must have an 'open_page' entry node.")
     if len(entry_nodes) > 1:
-        return JSONResponse({"error": "Workflow can only have one 'open_page' entry node."}, status_code=400)
+        return _validation_error("entry_node_multiple", "Workflow can only have one 'open_page' entry node.")
 
     return {"success": True, "message": "Workflow is valid"}
+
+
+def _validation_error(error_code: str, error: str) -> JSONResponse:
+    return JSONResponse({"success": False, "error_code": error_code, "error": error}, status_code=400)
+
+
+def _find_duplicates(values) -> list[str]:
+    seen = set()
+    duplicates = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates
 
 
 def convert_legacy_config(request: FromLegacyConfigRequest):
