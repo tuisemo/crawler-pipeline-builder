@@ -15,7 +15,7 @@ services:
     depends_on: []
 
   frontend-dev:
-    start: echo "Frontend dev server to be introduced on port 3101 during React migration"
+    start: npm run dev --prefix D:\WY-DATASETS\sea-data\frontend -- --host 127.0.0.1 --port 3101 --strictPort
     stop: powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3101 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
     healthcheck: curl -sf http://127.0.0.1:3101/
     port: 3101
