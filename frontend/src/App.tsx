@@ -12,60 +12,28 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
-  type Edge,
   type EdgeChange,
-  type Node,
   type NodeChange,
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './App.css'
-
+import {
+  applyDslTextChange,
+  getErrorMessage,
+  toCanonicalGraph,
+  type DslStatus,
+  type ExtractionField,
+  type WorkflowEdge,
+  type WorkflowGraph,
+  type WorkflowNode,
+  type WorkflowNodeData,
+  type WorkflowNodeType,
+} from './workflowState'
 loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
 type BackendStatus = 'checking' | 'online' | 'offline'
 type ResultTone = 'idle' | 'success' | 'error'
-type DslStatus = 'synced' | 'parse-error' | 'schema-error'
-type WorkflowNodeType =
-  | 'open_page'
-  | 'select_list'
-  | 'loop'
-  | 'extract_field'
-  | 'condition'
-  | 'paginate'
-  | 'emit_record'
-  | 'end'
-
-type ExtractionField = {
-  name: string
-  selector: string
-  type: string
-}
-
-type WorkflowNodeData = {
-  label?: string
-  url?: string
-  item_selector?: string
-  fields?: ExtractionField[]
-  pagination_selector?: string
-  pagination_strategy?: string
-  max_pages?: number
-  max_items?: number
-  max_steps?: number
-  condition?: string
-  [key: string]: unknown
-}
-
-type WorkflowNode = Node<WorkflowNodeData, WorkflowNodeType>
-type WorkflowEdge = Edge
-type CanonicalWorkflowEdge = { id: string; source: string; target: string }
-type CanonicalWorkflowNode = { id: string; type: WorkflowNodeType; data: WorkflowNodeData }
-
-type WorkflowGraph = {
-  nodes: CanonicalWorkflowNode[]
-  edges: CanonicalWorkflowEdge[]
-}
-
 type PaletteItem = {
   type: WorkflowNodeType
   label: string
@@ -92,8 +60,6 @@ const paletteItems: PaletteItem[] = [
   { type: 'emit_record', label: 'emit_record', detail: 'Output record' },
   { type: 'end', label: 'end', detail: 'Stop workflow' },
 ]
-
-const workflowNodeTypes = new Set<WorkflowNodeType>(paletteItems.map((item) => item.type))
 
 const nodeTypeLabels: Record<WorkflowNodeType, string> = {
   open_page: 'Open Page',
@@ -198,94 +164,6 @@ const reactFlowNodeTypes = {
   end: WorkflowCanvasNode,
 }
 
-function toCanonicalGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowGraph {
-  return {
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      type: node.type ?? 'open_page',
-      data: node.data,
-    })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-    })),
-  }
-}
-
-function getErrorMessage(payload: unknown) {
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
-    if (typeof record.error === 'string') return record.error
-    if (typeof record.detail === 'string') return record.detail
-    if (Array.isArray(record.detail)) return record.detail.map((item) => JSON.stringify(item)).join('; ')
-  }
-  return 'Workflow schema validation failed.'
-}
-
-function isWorkflowNodeType(value: unknown): value is WorkflowNodeType {
-  return typeof value === 'string' && workflowNodeTypes.has(value as WorkflowNodeType)
-}
-
-function validateGraphShape(value: unknown): WorkflowGraph {
-  if (!value || typeof value !== 'object') {
-    throw new Error('DSL must be a JSON object with nodes and edges arrays.')
-  }
-
-  const graph = value as { nodes?: unknown; edges?: unknown }
-  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
-    throw new Error('DSL graph requires nodes and edges arrays.')
-  }
-
-  const nodes = graph.nodes.map((node, index) => {
-    if (!node || typeof node !== 'object') {
-      throw new Error(`Node ${index + 1} must be an object.`)
-    }
-    const candidate = node as Record<string, unknown>
-    if (typeof candidate.id !== 'string' || !candidate.id.trim()) {
-      throw new Error(`Node ${index + 1} requires a non-empty string id.`)
-    }
-    if (!isWorkflowNodeType(candidate.type)) {
-      throw new Error(`Node ${candidate.id} has unsupported type ${String(candidate.type)}.`)
-    }
-    if (!candidate.data || typeof candidate.data !== 'object' || Array.isArray(candidate.data)) {
-      throw new Error(`Node ${candidate.id} requires object data.`)
-    }
-    return { id: candidate.id, type: candidate.type, data: candidate.data as WorkflowNodeData }
-  })
-
-  const edges = graph.edges.map((edge, index) => {
-    if (!edge || typeof edge !== 'object') {
-      throw new Error(`Edge ${index + 1} must be an object.`)
-    }
-    const candidate = edge as Record<string, unknown>
-    if (typeof candidate.id !== 'string' || !candidate.id.trim()) {
-      throw new Error(`Edge ${index + 1} requires a non-empty string id.`)
-    }
-    if (typeof candidate.source !== 'string' || !candidate.source.trim()) {
-      throw new Error(`Edge ${candidate.id} requires a non-empty string source.`)
-    }
-    if (typeof candidate.target !== 'string' || !candidate.target.trim()) {
-      throw new Error(`Edge ${candidate.id} requires a non-empty string target.`)
-    }
-    return { id: candidate.id, source: candidate.source, target: candidate.target }
-  })
-
-  return { nodes, edges }
-}
-
-function graphToFlowState(graph: WorkflowGraph, previousNodes: WorkflowNode[]): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
-  const previousById = new Map(previousNodes.map((node) => [node.id, node]))
-  return {
-    nodes: graph.nodes.map((node, index) => ({
-      id: node.id,
-      type: node.type,
-      data: node.data,
-      position: previousById.get(node.id)?.position ?? { x: 80 + (index % 4) * 230, y: 100 + Math.floor(index / 4) * 150 },
-    })),
-    edges: graph.edges.map((edge) => ({ ...edge, markerEnd: { type: MarkerType.ArrowClosed } })),
-  }
-}
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
   const [backendMessage, setBackendMessage] = useState('Checking legacy backend at localhost:8000...')
@@ -385,40 +263,25 @@ function App() {
     const nextText = value ?? ''
     setDslText(nextText)
 
-    let nextGraph: WorkflowGraph
-    try {
-      nextGraph = validateGraphShape(JSON.parse(nextText))
-    } catch (error) {
-      setDslStatus(error instanceof SyntaxError ? 'parse-error' : 'schema-error')
-      setDslFeedback(error instanceof Error ? error.message : 'Invalid DSL JSON.')
-      return
+    const result = await applyDslTextChange(
+      { nodes, edges, selectedNodeId },
+      nextText,
+      dslValidationRequestIdRef,
+      validateGraphWithBackend,
+    )
+
+    if (result.requestId !== dslValidationRequestIdRef.current) return
+
+    if (result.applied) {
+      isApplyingDslRef.current = true
+      setNodes(result.nodes)
+      setEdges(result.edges)
+      setSelectedNodeId(result.selectedNodeId)
     }
 
-    const requestId = dslValidationRequestIdRef.current + 1
-    dslValidationRequestIdRef.current = requestId
-
-    try {
-      await validateGraphWithBackend(nextGraph)
-    } catch (error) {
-      if (requestId !== dslValidationRequestIdRef.current) return
-      setDslStatus('schema-error')
-      setDslFeedback(error instanceof Error ? error.message : 'Backend validation rejected this workflow graph.')
-      return
-    }
-
-    if (requestId !== dslValidationRequestIdRef.current) return
-
-    const nextFlowState = graphToFlowState(nextGraph, nodes)
-    isApplyingDslRef.current = true
-    setDslText(JSON.stringify(nextGraph, null, 2))
-    setNodes(nextFlowState.nodes)
-    setEdges(nextFlowState.edges)
-    setSelectedNodeId((currentSelectedId) => {
-      if (nextFlowState.nodes.some((node) => node.id === currentSelectedId)) return currentSelectedId
-      return nextFlowState.nodes[0]?.id ?? ''
-    })
-    setDslStatus('synced')
-    setDslFeedback('Valid DSL applied to the canvas and property panel.')
+    setDslText(result.dslText)
+    setDslStatus(result.dslStatus)
+    setDslFeedback(result.dslFeedback)
   }
   function showShellResult(action: string) {
     if (backendStatus === 'offline') {
@@ -784,6 +647,9 @@ function App() {
 }
 
 export default App
+
+
+
 
 
 
