@@ -1,17 +1,6 @@
-# Sea Data - AI-Powered Web Scraping & Workflow Designer
+# Sea Data - AI-Powered Web Scraping Workflow Designer
 
-A dual-interface web scraping tool combining a legacy inspector UI with a modern React-based DSL workflow designer. Supports visual workflow authoring, DSL validation, prompt preview, and bounded execution testing.
-
-## Two Interfaces
-
-| Interface | URL | Purpose |
-|-----------|-----|---------|
-| **Legacy Inspector** | `http://localhost:8000` | Original page inspection, auto-detection, crawler generation via LLM |
-| **React Workbench** | `http://localhost:3101` | Visual DSL workflow designer with canvas, Monaco editor, and execution testing |
-
-Both interfaces share the same FastAPI backend (`server.py`) on port 8000. The React workbench proxies API calls to the backend via Vite's dev server.
-
----
+A modern DSL-based web scraping workflow designer. Supports visual workflow authoring, DSL validation, prompt preview, and bounded execution testing via the React workbench.
 
 ## Quick Start
 
@@ -52,7 +41,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .factory\start_backend.ps1
 
 Backend runs at `http://127.0.0.1:8000`.
 
-### 4. Start React Workbench (Optional)
+### 4. Start React Workbench
 
 ```bash
 cd frontend
@@ -60,7 +49,7 @@ npm install
 npm run dev
 ```
 
-React workbench runs at `http://127.0.0.1:3101` and proxies `/api` and `/legacy-health` requests to the backend.
+React workbench runs at `http://127.0.0.1:3101` and proxies API calls to the backend via Vite's dev server.
 
 ---
 
@@ -68,22 +57,19 @@ React workbench runs at `http://127.0.0.1:3101` and proxies `/api` and `/legacy-
 
 ```
 sea-data/
-├── server.py                    # FastAPI entry point, mounts legacy + DSL routers
+├── server.py                    # FastAPI entry point, serves DSL workflow API
 ├── backend/
 │   ├── browser_session.py       # Playwright singleton, PageSession, SessionManager
-│   ├── legacy_routes.py          # /api/* legacy inspector endpoints
-│   ├── legacy_services.py       # Legacy business logic (visit, detect, generate)
 │   ├── workflow_routes.py       # /api/workflows/* DSL endpoints
 │   ├── workflow_services.py     # DSL validation, conversion, prompt generation
 │   ├── workflow_executor.py      # Bounded workflow execution engine
 │   ├── workflow_schemas.py       # Pydantic request/response schemas
-│   ├── schemas.py               # Legacy Pydantic schemas
 │   ├── js_snippets.py           # JavaScript snippets for browser injection
 │   └── __init__.py
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx               # React workbench shell
-│   │   ├── App.css               # Workbench styles + compatibility modal
+│   │   ├── App.css               # Workbench styles
 │   │   ├── workflowState.ts      # DSL state management, canvas↔Monaco sync
 │   │   ├── main.tsx              # React entry point
 │   │   └── index.css
@@ -100,12 +86,9 @@ sea-data/
 │   ├── test_workflow_api.py      # DSL API endpoint tests
 │   ├── test_workflow_dsl_validation.py  # DSL structural validation tests
 │   ├── test_workflow_executor.py  # Workflow executor tests
-│   ├── test_legacy_api_regression.py   # Legacy API regression tests
 │   ├── test_async_bridge.py       # Blocking/async bridge tests
 │   └── test_mission_services_manifest.py  # services.yaml test
-├── templates/
-│   └── index.html               # Legacy inspector HTML (served at /)
-├── static/                       # Static assets for legacy UI
+├── static/                       # Static assets
 ├── .factory/
 │   ├── start_backend.ps1        # Windows background backend start script
 │   └── services.yaml            # Service manifest (ports, commands)
@@ -118,23 +101,6 @@ sea-data/
 ---
 
 ## API Reference
-
-### Legacy Inspector Endpoints (`/api/*`)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/visit` | Navigate to URL and scan elements |
-| `POST` | `/api/auto-detect` | Auto-detect list container, fields, pagination |
-| `POST` | `/api/test-selector` | Validate a CSS selector against the current page |
-| `POST` | `/api/test-fields` | Test extraction fields |
-| `POST` | `/api/page-html` | Extract HTML fragment |
-| `POST` | `/api/generate-crawler` | Generate Playwright crawler script via LLM |
-| `POST` | `/api/picker-enable` | Enable interactive element picker |
-| `POST` | `/api/picker-read` | Read picked element |
-| `POST` | `/api/picker-disable` | Disable picker |
-| `POST` | `/api/clear-highlights` | Remove page highlights |
-| `POST` | `/api/session/close` | Close a browser session |
-| `POST` | `/api/session/keep-alive` | Keep session alive |
 
 ### DSL Workflow Endpoints (`/api/workflows/*`)
 
@@ -203,8 +169,6 @@ The workbench (port 3101) provides:
   - **Preview Prompt**: Generate crawler prompt from graph
   - **Run Node Test**: Execute single node with prerequisites
   - **Run Subflow Test**: Execute bounded subflow with execution limits
-- **Import Legacy Config**: Modal to paste legacy config and convert to DSL graph
-- **Backend Status Banner**: Shows whether backend is reachable
 - **Property Panel**: Edit selected node properties
 - **Result Panel**: Shows action output (logs, records, raw JSON)
 
@@ -220,7 +184,6 @@ The workbench (port 3101) provides:
 
 # Run specific test suite
 .venv\Scripts\python.exe -m pytest tests\test_workflow_api.py -v
-.venv\Scripts\python.exe -m pytest tests\test_legacy_api_regression.py -v
 
 # Lint / compile check
 .venv\Scripts\python.exe -m py_compile server.py backend\workflow_*.py
@@ -267,7 +230,7 @@ npm run test
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Backend | 8000 | FastAPI server (legacy UI + API) |
+| Backend | 8000 | FastAPI server (DSL workflow API) |
 | React Workbench | 3101 | Vite dev server (workflow designer) |
 
 ---
@@ -293,23 +256,14 @@ npm run test
 
 The React workbench uses:
 - `fetch('/api/workflows/*')` → proxied by Vite to `http://127.0.0.1:8000`
-- `fetch('/legacy-health')` → probes whether backend is reachable
 - Backend returns structured JSON with logs, records, and error details
-
-### Legacy Compatibility
-
-The system maintains two modes:
-1. **Legacy mode**: Direct crawler configuration, LLM script generation
-2. **DSL mode**: Visual workflow authoring, execution testing
-
-Users can import legacy configurations into the DSL canvas via the "Import Legacy Config" modal.
 
 ---
 
 ## Testing
 
 ```bash
-# All tests (45+ tests)
+# All tests
 .venv\Scripts\python.exe -m pytest tests\ -v
 
 # With coverage
