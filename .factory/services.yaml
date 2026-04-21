@@ -8,7 +8,7 @@ commands:
 
 services:
   backend:
-    start: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe server.py --port 8000
+    start: powershell -NoProfile -ExecutionPolicy Bypass -File D:\WY-DATASETS\sea-data\.factory\start_backend.ps1
     stop: powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
     healthcheck: curl -sf http://127.0.0.1:8000/
     port: 8000
