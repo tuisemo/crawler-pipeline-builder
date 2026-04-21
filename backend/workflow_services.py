@@ -59,7 +59,7 @@ def _find_duplicates(values) -> list[str]:
 
 
 def convert_legacy_config(request: FromLegacyConfigRequest):
-    if not request.url or not request.item_selector:
+    if not request.url.strip() or not request.item_selector.strip():
         return JSONResponse(
             status_code=400,
             content={"success": False, "error": "URL and item_selector are required for legacy conversion"},
