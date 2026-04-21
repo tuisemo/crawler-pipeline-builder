@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Page Inspector", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def index():
     return {"message": "Sea Data API - use /api/workflows/* for DSL endpoints"}
 
