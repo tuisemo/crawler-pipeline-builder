@@ -33,7 +33,7 @@ import {
 loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
 type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
-type WorkbenchAction = 'validate' | 'prompt' | 'test-node' | 'test-subflow'
+type WorkbenchAction = 'validate' | 'prompt' | 'test-node' | 'test-subflow' | 'generate-script'
 type ResultState = { tone: ResultTone; title: string; message: string; payload?: unknown }
 type ExecutionLog = { level?: string; message?: string; node_id?: string | null; [key: string]: unknown }
 type NodeExecutionResult = { node_id?: string; node_type?: string; success?: boolean; error?: string | null; result?: unknown; logs?: ExecutionLog[] }
@@ -167,6 +167,9 @@ function ResultDetails({ payload }: { payload?: unknown }) {
   if (!payload) return null
   const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
   const prompt = typeof record.prompt === 'string' ? record.prompt : ''
+  const script = typeof record.script === 'string' ? record.script : ''
+  const filename = typeof record.filename === 'string' ? record.filename : 'crawler.py'
+  const model = typeof record.model === 'string' ? record.model : ''
   const logs = Array.isArray(record.logs) ? record.logs as ExecutionLog[] : []
   const nodeResults = Array.isArray(record.node_results)
     ? record.node_results as NodeExecutionResult[]
@@ -178,6 +181,24 @@ function ResultDetails({ payload }: { payload?: unknown }) {
   return (
     <div className="result-details">
       {prompt && <pre className="prompt-preview">{prompt}</pre>}
+      {script && (
+        <section>
+          <h3>Generated Script {model && <small className="model-badge">via {model}</small>}</h3>
+          <div className="script-actions">
+            <button type="button" onClick={() => navigator.clipboard.writeText(script)}>Copy</button>
+            <button type="button" onClick={() => {
+              const blob = new Blob([script], { type: 'text/plain' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = filename
+              a.click()
+              URL.revokeObjectURL(url)
+            }}>Download</button>
+          </div>
+          <pre className="script-preview">{script}</pre>
+        </section>
+      )}
       {logs.length > 0 && (
         <section>
           <h3>Logs</h3>
@@ -335,6 +356,7 @@ function App() {
       prompt: 'Preview Prompt',
       'test-node': 'Run Node Test',
       'test-subflow': 'Run Subflow Test',
+      'generate-script': 'Generate Script',
     }
     const previousPayload = resultState.payload
     setRunningAction(action)
@@ -352,7 +374,9 @@ function App() {
           ? '/api/workflows/to-prompt'
           : action === 'test-node'
             ? '/api/workflows/test-node'
-            : '/api/workflows/test-subflow'
+            : action === 'generate-script'
+              ? '/api/workflows/generate-crawler'
+              : '/api/workflows/test-subflow'
       const { response, payload } = await postWorkflowAction(path, requestBody)
       setResultState({
         tone: classifyResult(action, response.ok, payload),
@@ -434,6 +458,9 @@ function App() {
           </button>
           <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('test-subflow')}>
             Run Subflow Test
+          </button>
+          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('generate-script')}>
+            生成爬虫脚本
           </button>
           <span className="bounds-pill">max_items 5 / max_pages 2 / max_steps 20</span>
         </nav>
