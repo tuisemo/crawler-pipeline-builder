@@ -5,6 +5,7 @@ import logging
 from collections import deque
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass, field
+from copy import deepcopy
 
 from .workflow_schemas import (
     WorkflowGraph, WorkflowNode, WorkflowEdge, NodeData,
@@ -29,6 +30,7 @@ class ExecutionContext:
     node_results: List[NodeResult] = field(default_factory=list)
     records: List[Dict[str, Any]] = field(default_factory=list)
     executed_nodes: Set[str] = field(default_factory=set)
+    node_state_fingerprints: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     steps_executed: int = 0
     start_time: float = field(default_factory=time.time)
 
@@ -128,6 +130,33 @@ class WorkflowExecutor:
 
         return []
 
+    def _capture_revisit_fingerprint(self, ctx: ExecutionContext) -> Dict[str, Any]:
+        """Capture execution state that indicates whether revisiting can do new work."""
+        state = deepcopy(ctx.state)
+        if "extracted_records" in state:
+            state["extracted_records"] = state["extracted_records"][:ctx.max_items]
+        return {
+            "state": state,
+            "records": deepcopy(ctx.records[:ctx.max_items]),
+            "current_url": getattr(ctx.session.page, "url", None),
+        }
+
+    def _should_requeue_successors(self, node: WorkflowNode, ctx: ExecutionContext) -> bool:
+        """Return False when a successful revisit leaves execution state unchanged."""
+        fingerprint = self._capture_revisit_fingerprint(ctx)
+        previous = ctx.node_state_fingerprints.get(node.id)
+        ctx.node_state_fingerprints[node.id] = fingerprint
+
+        if previous is None or previous != fingerprint:
+            return True
+
+        ctx.add_log(
+            LogLevel.INFO,
+            f"Skipped revisit of {node.id}; execution state did not advance",
+            node_id=node.id,
+            details={"reason": "state_not_advanced"},
+        )
+        return False
 
     def _execute_node_sync(self, node: WorkflowNode, ctx: ExecutionContext) -> NodeResult:
         """Execute a single node synchronously and return its result."""
@@ -511,7 +540,7 @@ class WorkflowExecutor:
                         steps_executed=ctx.steps_executed
                     )
 
-                if node_id not in failed_node_ids:
+                if node_id not in failed_node_ids and self._should_requeue_successors(node, ctx):
                     for next_node_id in adj_map.get(node_id, []):
                         if boundary.end_node_id and next_node_id == boundary.end_node_id:
                             ctx.add_log(LogLevel.INFO, f"Reached boundary node: {next_node_id}", node_id=next_node_id)

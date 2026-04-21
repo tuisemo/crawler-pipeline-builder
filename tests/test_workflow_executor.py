@@ -151,6 +151,37 @@ async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch
     assert response.logs[-1].level.value == "warning"
 
 @pytest.mark.anyio
+async def test_subflow_revisit_cycle_stops_when_state_does_not_advance(monkeypatch):
+    session = FakeSession()
+    session.page._selectors[".item"] = [FakeElement(text="One")]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item"}),
+                node("extract", "extract_field", {"fields": [{"name": "title", "selector": ".", "type": "text"}]}),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "list"},
+                {"id": "e2", "source": "list", "target": "extract"},
+                {"id": "e3", "source": "extract", "target": "list"},
+            ],
+        ),
+        "boundary": {"max_items": 1, "max_steps": 10},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert response.partial is False
+    assert response.steps_executed < 10
+    assert [result.node_id for result in response.node_results] == ["open", "list", "extract", "list", "extract"]
+    assert any("Skipped revisit" in log.message for log in response.logs)
+
+
+@pytest.mark.anyio
 async def test_subflow_executes_emit_record_and_paginate_smoke(monkeypatch):
     session = FakeSession()
     item_one = FakeElement(text="One", children={".name": [FakeElement(text="One")], "*": [FakeElement(text="One")]})
