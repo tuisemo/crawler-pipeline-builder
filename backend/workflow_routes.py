@@ -4,6 +4,8 @@ from .workflow_executor import executor
 from .workflow_schemas import (
     FromLegacyConfigRequest,
     FromLegacyConfigResponse,
+    GenerateCrawlerRequest,
+    GenerateCrawlerResponse,
     TestNodeRequest,
     TestNodeResponse,
     TestSubflowRequest,
@@ -11,7 +13,7 @@ from .workflow_schemas import (
     ToPromptRequest,
     ValidateWorkflowRequest,
 )
-from .workflow_services import convert_legacy_config, graph_to_prompt, validate_graph
+from .workflow_services import convert_legacy_config, generate_crawler, graph_to_prompt, validate_graph
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
@@ -26,6 +28,19 @@ def from_legacy_config(request: FromLegacyConfigRequest):
 @router.post("/to-prompt")
 def to_prompt(request: ToPromptRequest):
     return graph_to_prompt(request)
+
+
+@router.post("/generate-crawler", response_model=GenerateCrawlerResponse)
+def generate_crawler_endpoint(request: GenerateCrawlerRequest):
+    """Generate a Playwright crawler script from a DSL workflow graph.
+
+    This endpoint:
+    1. Receives a WorkflowGraph (nodes + edges)
+    2. Calls existing CrawlerPromptGenerator to generate prompt
+    3. Calls LLM via llm_client.py to generate the crawler script
+    4. Returns {success, prompt, script, filename, model, usage} or error
+    """
+    return generate_crawler(request)
 
 
 @router.post("/test-node")

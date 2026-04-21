@@ -1,5 +1,7 @@
+import re
 from fastapi.responses import JSONResponse
 
+from llm_client import get_default_client, CRAWLER_SYSTEM_PROMPT
 from prompts import CrawlerPromptGenerator
 
 from .workflow_schemas import (
@@ -11,6 +13,8 @@ from .workflow_schemas import (
     WorkflowEdge,
     WorkflowGraph,
     WorkflowNode,
+    GenerateCrawlerRequest,
+    GenerateCrawlerResponse,
 )
 
 
@@ -149,3 +153,60 @@ def _extract_prompt_config(graph: WorkflowGraph) -> dict:
                 config["max_pages"] = data.max_pages
 
     return config
+
+
+def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse:
+    """Generate a Playwright crawler script from a DSL workflow graph.
+
+    1. Extracts configuration from the graph nodes
+    2. Generates a prompt using CrawlerPromptGenerator
+    3. Calls LLM to generate the crawler script
+    4. Returns {success, prompt, script, filename, model, usage} or error
+    """
+    config = _extract_prompt_config(request.graph)
+
+    # Validate required inputs
+    if not config["url"] or not config["item_selector"]:
+        return GenerateCrawlerResponse(
+            success=False,
+            error="URL and item_selector are required to generate crawler script"
+        )
+
+    # Generate prompt
+    prompt = CrawlerPromptGenerator().generate_from_simple_config(**config)
+
+    # Call LLM
+    try:
+        client = get_default_client()
+        response = client.generate_with_system(
+            system=CRAWLER_SYSTEM_PROMPT,
+            user=prompt
+        )
+
+        if response.error:
+            return GenerateCrawlerResponse(
+                success=False,
+                error=response.error
+            )
+
+        # Extract filename from script content if present
+        filename = "crawler.py"
+        script_content = response.content
+        # Try to find a filename like crawler_*.py in the content
+        filename_match = re.search(r'crawler_\w+\.py', script_content)
+        if filename_match:
+            filename = filename_match.group(0)
+
+        return GenerateCrawlerResponse(
+            success=True,
+            prompt=prompt,
+            script=script_content,
+            filename=filename,
+            model=response.model,
+            usage=response.usage,
+        )
+    except Exception as e:
+        return GenerateCrawlerResponse(
+            success=False,
+            error=str(e)
+        )

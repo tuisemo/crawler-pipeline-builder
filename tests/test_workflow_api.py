@@ -184,6 +184,60 @@ def test_to_prompt_valid():
 
 
 # ----------------------------------------------------------------------
+# Generate Crawler tests
+# ----------------------------------------------------------------------
+
+
+def test_generate_crawler_missing_graph():
+    response = client.post("/api/workflows/generate-crawler", json={})
+    assert response.status_code == 422  # Pydantic validation error
+
+def test_generate_crawler_missing_url():
+    response = client.post("/api/workflows/generate-crawler", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "select_list", "data": {"item_selector": ".item"}}
+            ],
+            "edges": []
+        }
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "URL and item_selector are required" in data["error"]
+
+def test_generate_crawler_missing_item_selector():
+    response = client.post("/api/workflows/generate-crawler", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}}
+            ],
+            "edges": []
+        }
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "URL and item_selector are required" in data["error"]
+
+def test_generate_crawler_valid_without_llm():
+    """Test that generate-crawler works without LLM (prompt generation only)."""
+    response = client.post("/api/workflows/generate-crawler", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1", "type": "text"}]}}
+            ],
+            "edges": []
+        }
+    })
+    data = response.json()
+    assert "success" in data
+    assert "prompt" in data
+
+
+# ----------------------------------------------------------------------
 # DSL Validation tests (more detailed error_code checks)
 # ----------------------------------------------------------------------
 

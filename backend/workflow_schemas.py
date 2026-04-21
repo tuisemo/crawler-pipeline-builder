@@ -117,3 +117,19 @@ class TestSubflowResponse(BaseModel):
     error: Optional[str] = None
     session_expired: bool = False
     steps_executed: int = 0
+
+
+class GenerateCrawlerRequest(BaseModel):
+    """Request to generate a Playwright crawler script from a DSL workflow graph."""
+    graph: WorkflowGraph
+
+
+class GenerateCrawlerResponse(BaseModel):
+    """Response containing the generated crawler script and metadata."""
+    success: bool
+    prompt: Optional[str] = None
+    script: Optional[str] = None
+    filename: Optional[str] = None
+    model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    error: Optional[str] = None
