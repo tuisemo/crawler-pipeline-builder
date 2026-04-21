@@ -26,7 +26,8 @@ Use for backend modularization, legacy compatibility contracts, workflow schema 
 5. Implement through clear module boundaries. Prefer routers, schemas, services, and executor helpers over adding new monolithic logic to `server.py`.
 6. When touching workflow execution, verify all bounds and safety rules the feature claims: required node data, step/item/page limits, session-expired behavior, partial failure preservation, and structured logs/results.
 7. When touching prompt preview or generation, keep LLM-unavailable behavior non-blocking for authoring/test flows and preserve JSON error contracts.
-8. Run feature-scoped tests first, then repo validation commands from `.factory/services.yaml`. If the feature changes browser-visible behavior, add one bounded live smoke or `agent-browser` check.
+8. If your feature fulfills assertions from `validation-contract.md`, restate those assertion IDs in the handoff and verify each one with a concrete command or interactive check.
+9. Run feature-scoped tests first, then repo validation commands from `.factory/services.yaml`. Prefer `test-legacy` and `test-workflow` for scoped backend work before the full `test` command. If the feature changes browser-visible behavior, add one bounded live smoke or `agent-browser` check.
 9. Record exact commands, observed results, assertion coverage, and any discovered compatibility risks in the handoff. Vague statements like "tested it" are not acceptable.
 
 ## Example Handoff

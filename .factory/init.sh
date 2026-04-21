@@ -10,3 +10,7 @@ if [ ! -x "$VENV_PY" ]; then
 fi
 
 "$VENV_PY" -m pip install -e "$ROOT"
+
+if [ ! -d "$ROOT/frontend" ]; then
+  echo "React workbench not present yet; skipping frontend setup"
+fi

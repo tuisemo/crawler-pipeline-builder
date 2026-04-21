@@ -13,7 +13,8 @@ Guidance for practical validation during the compatibility-first migration.
 ## Validation Concurrency
 
 - Browser-backed validation: max concurrent validators = 1
-- Rationale: the backend uses shared Playwright browser/session resources and headful desktop execution; concurrent browser tests risk cross-run interference.
+- API-only validation: max concurrent validators = 2 when tests do not share a live browser session
+- Rationale: the backend uses shared Playwright browser/session resources and headful desktop execution; concurrent browser tests risk cross-run interference. Pure API checks can run with limited parallelism as long as they do not start overlapping browser-backed execution.
 
 ## Minimum Validation Expectations
 

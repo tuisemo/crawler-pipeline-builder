@@ -19,6 +19,15 @@ Compatibility-first migration guide for `sea-data`: preserve the legacy FastAPI 
 - React workbench: planned React + TypeScript + Vite UI on port `3101`, with canvas, node palette, property panel, DSL editor, prompt preview, and execution result panes.
 - Generation path: prompt preview should work without LLM; real script generation uses LLM only when configured.
 
+## MVP Delivery Sequence
+
+- M1 freezes the legacy browser/API/generation contract and keeps the fallback path stable while backend boundaries are cleaned up.
+- M2 establishes the DSL contract, the legacy-to-DSL adapter, and DSL-to-prompt preview as the compatibility bridge.
+- M3 delivers the bounded executor runtime and workflow testing surfaces, with explicit structured outputs and explicit unsupported handling for any still-unimplemented node semantics.
+- M4 introduces the React shell, canvas, properties, and DSL synchronization without taking away the legacy UI.
+- M5 wires React into the backend workflow APIs and compatibility import flow so the new workbench can cover the primary MVP authoring path.
+- M6 hardens the combined system with fallback, regression, and degraded-generation checks while keeping MVP exclusions intact.
+
 ## Planned React Route And Fallback Semantics
 
 - Keep `/` as the legacy fallback page until the React workbench is explicitly promoted.

@@ -25,8 +25,9 @@ Use for the React workbench shell, route/fallback behavior, canvas authoring, pr
 4. Treat the workflow graph as canonical UI state. Canvas, DSL editor, property panel, prompt preview inputs, and result views must stay synchronized.
 5. Add targeted frontend tests where the stack supports them. If the stack is still being introduced, rely on explicit `agent-browser` checks plus minimal non-watch build/test commands.
 6. Validate both happy paths and failure paths: invalid DSL, missing URL/item selector, backend 400/422/500 responses, unsupported legacy compatibility inputs, session-expired responses, and generation-unavailable states.
-7. Keep browser checks bounded. Use simple example workflows and small max item/page/step values to avoid stressing the shared backend browser runtime.
-8. Run applicable frontend build or test commands, then repo validation commands from `.factory/services.yaml` where relevant to the touched surface.
+7. For every feature that fulfills UI or cross-area assertions, cite the fulfilled assertion IDs in the handoff and pair them with concrete browser actions and observations.
+8. Keep browser checks bounded. Use simple example workflows and small max item/page/step values to avoid stressing the shared backend browser runtime.
+9. Run applicable frontend build or test commands, then repo validation commands from `.factory/services.yaml` where relevant to the touched surface.
 9. Record exact browser flows, screenshots/observations, request/response outcomes, and any fallback breakage or synchronization drift in the handoff.
 
 ## Example Handoff

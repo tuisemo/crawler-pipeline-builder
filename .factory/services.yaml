@@ -3,6 +3,8 @@ commands:
   test: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest -v
   lint: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m py_compile server.py inspector.py llm_client.py main.py backend\workflow_routes.py backend\workflow_executor.py backend\legacy_routes.py backend\workflow_schemas.py
   typecheck: echo "No dedicated typecheck configured"
+  test-workflow: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest tests\test_workflow_api.py -v
+  test-legacy: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest tests\test_legacy_api_regression.py -v
 
 services:
   backend:
