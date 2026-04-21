@@ -285,7 +285,7 @@ async def test_test_node_runs_prerequisites_in_entry_order(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_subflow_executes_boundary_end_node(monkeypatch):
+async def test_subflow_stops_before_boundary_end_node(monkeypatch):
     session = FakeSession()
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
 
@@ -299,6 +299,59 @@ async def test_subflow_executes_boundary_end_node(monkeypatch):
 
     response = await WorkflowExecutor().test_subflow(request)
 
+    assert response.success is True
+    assert [result.node_id for result in response.node_results] == ["open"]
+    assert all(result.node_id != "loop" for result in response.node_results)
+
+
+@pytest.mark.anyio
+async def test_test_node_unknown_session_reports_expired(monkeypatch):
+    from backend.workflow_schemas import TestNodeRequest
+
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.get", lambda session_id: None)
+    request = TestNodeRequest.model_validate({
+        "graph": graph([node("open", "open_page", {"url": "http://example.com"})], []),
+        "node_id": "open",
+        "session_id": "missing-session",
+    })
+
+    response = await WorkflowExecutor().test_node(request)
+
     assert response.success is False
-    assert [result.node_id for result in response.node_results] == ["open", "loop"]
-    assert "Unsupported node type: loop" in response.node_results[-1].error
+    assert response.session_expired is True
+    assert "Session not found" in response.error
+
+
+@pytest.mark.anyio
+async def test_subflow_unexpected_failure_preserves_partial_outputs(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    original_execute_node = WorkflowExecutor._execute_node
+
+    async def fail_after_open(self, workflow_node, ctx):
+        if workflow_node.id == "boom":
+            raise RuntimeError("boom after open")
+        return await original_execute_node(self, workflow_node, ctx)
+
+    monkeypatch.setattr(WorkflowExecutor, "_execute_node", fail_after_open)
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com"}),
+                node("boom", "select_list", {"item_selector": ".item"}),
+                node("after", "select_list", {"item_selector": ".item"}),
+            ],
+            [{"id": "e1", "source": "open", "target": "boom"}, {"id": "e2", "source": "boom", "target": "after"}],
+        ),
+        "boundary": {"max_steps": 5},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is False
+    assert response.partial is True
+    assert response.node_results[0].node_id == "open"
+    assert all(result.node_id != "after" for result in response.node_results)
+    assert "boom after open" in response.error
+    assert any("boom after open" in log.message for log in response.logs)

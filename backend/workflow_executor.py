@@ -471,14 +471,24 @@ class WorkflowExecutor:
                         )
                     raise
                 except Exception as e:
-                    ctx.add_log(LogLevel.ERROR, f"Failed to execute node {node_id}: {e}", node_id=node_id)
-
-                if boundary.end_node_id and node_id == boundary.end_node_id:
-                    ctx.add_log(LogLevel.INFO, f"Reached boundary node: {node_id}", node_id=node_id)
-                    break
+                    ctx.add_log(LogLevel.ERROR, f"Failed to execute node {node_id}: {e}", node_id=node_id, details={"exception": str(e)})
+                    return TestSubflowResponse(
+                        success=False,
+                        partial=True,
+                        node_results=ctx.node_results,
+                        logs=ctx.logs,
+                        records=ctx.records[:ctx.max_items],
+                        error=str(e),
+                        session_expired=False,
+                        steps_executed=ctx.steps_executed
+                    )
 
                 if node_id not in failed_node_ids:
-                    pending_nodes.extend(adj_map.get(node_id, []))
+                    for next_node_id in adj_map.get(node_id, []):
+                        if boundary.end_node_id and next_node_id == boundary.end_node_id:
+                            ctx.add_log(LogLevel.INFO, f"Reached boundary node: {next_node_id}", node_id=next_node_id)
+                            continue
+                        pending_nodes.append(next_node_id)
 
             return TestSubflowResponse(
                 success=not any(r.error for r in ctx.node_results),
@@ -493,6 +503,8 @@ class WorkflowExecutor:
 
         except Exception as e:
             logger.exception("test_subflow failed")
+            if ctx:
+                ctx.add_log(LogLevel.ERROR, f"Subflow execution failed: {e}", details={"exception": str(e)})
             return TestSubflowResponse(
                 success=False,
                 partial=True,
