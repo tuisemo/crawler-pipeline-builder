@@ -199,11 +199,8 @@ class SessionManager:
 page_session_mgr = SessionManager(ttl_seconds=600)
 
 def get_active_session():
-    """Get the most recently used session, or create a new one."""
-    session = page_session_mgr.get_most_recent()
-    if session is None:
-        session = page_session_mgr.create()
-    return session
+    """Return the most recently used session, if one exists."""
+    return page_session_mgr.get_most_recent()
 
 def classify_error(e: Exception) -> dict:
     """Classify error into user-friendly categories."""
