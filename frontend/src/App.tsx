@@ -33,7 +33,11 @@ import {
 loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
 type BackendStatus = 'checking' | 'online' | 'offline'
-type ResultTone = 'idle' | 'success' | 'error'
+type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
+type WorkbenchAction = 'validate' | 'prompt' | 'test-node' | 'test-subflow'
+type ResultState = { tone: ResultTone; title: string; message: string; payload?: unknown }
+type ExecutionLog = { level?: string; message?: string; node_id?: string | null; [key: string]: unknown }
+type NodeExecutionResult = { node_id?: string; node_type?: string; success?: boolean; error?: string | null; result?: unknown; logs?: ExecutionLog[] }
 type PaletteItem = {
   type: WorkflowNodeType
   label: string
@@ -164,13 +168,65 @@ const reactFlowNodeTypes = {
   end: WorkflowCanvasNode,
 }
 
+function ResultDetails({ payload }: { payload?: unknown }) {
+  if (!payload) return null
+  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const prompt = typeof record.prompt === 'string' ? record.prompt : ''
+  const logs = Array.isArray(record.logs) ? record.logs as ExecutionLog[] : []
+  const nodeResults = Array.isArray(record.node_results)
+    ? record.node_results as NodeExecutionResult[]
+    : record.result && typeof record.result === 'object'
+      ? [record.result as NodeExecutionResult]
+      : []
+  const records = Array.isArray(record.records) ? record.records : []
+
+  return (
+    <div className="result-details">
+      {prompt && <pre className="prompt-preview">{prompt}</pre>}
+      {logs.length > 0 && (
+        <section>
+          <h3>Logs</h3>
+          {logs.map((log, index) => (
+            <div className="result-row" key={`log-${index}`}>
+              <strong>{log.level ?? 'info'}</strong>
+              <span>{log.node_id ? `${log.node_id}: ` : ''}{log.message ?? JSON.stringify(log)}</span>
+            </div>
+          ))}
+        </section>
+      )}
+      {nodeResults.length > 0 && (
+        <section>
+          <h3>Node Results</h3>
+          {nodeResults.map((nodeResult, index) => (
+            <div className="result-row" key={`${nodeResult.node_id ?? 'node'}-${index}`}>
+              <strong>{nodeResult.node_id ?? 'node'} ({nodeResult.node_type ?? 'unknown'})</strong>
+              <span>{nodeResult.success === false ? `Error: ${nodeResult.error ?? 'failed'}` : 'Success'}</span>
+            </div>
+          ))}
+        </section>
+      )}
+      {records.length > 0 && (
+        <section>
+          <h3>Sample Records</h3>
+          <pre>{JSON.stringify(records, null, 2)}</pre>
+        </section>
+      )}
+      <details>
+        <summary>Raw JSON</summary>
+        <pre>{JSON.stringify(payload, null, 2)}</pre>
+      </details>
+    </div>
+  )
+}
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking')
   const [backendMessage, setBackendMessage] = useState('Checking legacy backend at localhost:8000...')
-  const [resultTone, setResultTone] = useState<ResultTone>('idle')
-  const [resultMessage, setResultMessage] = useState(
-    'Select an action from the toolbar to show validation, prompt preview, node test, or subflow output here.',
-  )
+  const [resultState, setResultState] = useState<ResultState>({
+    tone: 'idle',
+    title: 'Idle',
+    message: 'Select an action from the toolbar to show validation, prompt preview, node test, or subflow output here.',
+  })
+  const [runningAction, setRunningAction] = useState<WorkbenchAction | null>(null)
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes)
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges)
   const [selectedNodeId, setSelectedNodeId] = useState(initialNodes[0].id)
@@ -283,17 +339,68 @@ function App() {
     setDslStatus(result.dslStatus)
     setDslFeedback(result.dslFeedback)
   }
-  function showShellResult(action: string) {
+  async function postWorkflowAction(path: string, body: unknown) {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const payload: unknown = await response.json().catch(() => ({}))
+    return { response, payload }
+  }
+
+  function classifyResult(action: WorkbenchAction, responseOk: boolean, payload: unknown): ResultTone {
+    const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+    if (record.session_expired === true) return 'session-expired'
+    if (record.partial === true) return 'partial'
+    if (responseOk && record.success !== false) return 'success'
+    if (action === 'validate' || action === 'prompt') return 'validation-error'
+    return 'runtime-error'
+  }
+
+  async function runWorkflowAction(action: WorkbenchAction) {
+    if ((action === 'test-node' || action === 'test-subflow') && runningAction) return
     if (backendStatus === 'offline') {
-      setResultTone('error')
-      setResultMessage(`${action} cannot reach the backend. Keep authoring locally or open the legacy UI directly.`)
+      setResultState({ tone: 'runtime-error', title: 'Backend offline', message: 'Cannot reach workflow APIs. Keep authoring locally or open the legacy UI directly.' })
       return
     }
 
-    setResultTone('success')
-    setResultMessage(`${action} is available in the shell. Backend integration is handled by the next React milestone.`)
-  }
+    const actionLabel: Record<WorkbenchAction, string> = {
+      validate: 'Validate DSL',
+      prompt: 'Preview Prompt',
+      'test-node': 'Run Node Test',
+      'test-subflow': 'Run Subflow Test',
+    }
+    const previousPayload = resultState.payload
+    setRunningAction(action)
+    setResultState({ tone: 'loading', title: `${actionLabel[action]} running`, message: previousPayload ? 'Loading new result; previous output remains below.' : 'Loading workflow result...', payload: previousPayload })
 
+    try {
+      const requestBody = action === 'test-node'
+        ? { graph: canonicalGraph, node_id: selectedNodeId || canonicalGraph.nodes[0]?.id || '', max_items: 5, max_steps: 20 }
+        : action === 'test-subflow'
+          ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined, max_items: 5, max_pages: 2, max_steps: 20 } }
+          : { graph: canonicalGraph }
+      const path = action === 'validate'
+        ? '/api/workflows/validate'
+        : action === 'prompt'
+          ? '/api/workflows/to-prompt'
+          : action === 'test-node'
+            ? '/api/workflows/test-node'
+            : '/api/workflows/test-subflow'
+      const { response, payload } = await postWorkflowAction(path, requestBody)
+      setResultState({
+        tone: classifyResult(action, response.ok, payload),
+        title: actionLabel[action],
+        message: response.ok ? 'Workflow action completed. Inspect the structured output below.' : getErrorMessage(payload),
+        payload,
+      })
+    } catch (error) {
+      setResultState({ tone: 'runtime-error', title: `${actionLabel[action]} failed`, message: error instanceof Error ? error.message : 'Workflow action failed.', payload: previousPayload })
+    } finally {
+      setRunningAction(null)
+    }
+  }
   function addPaletteNode(type: WorkflowNodeType) {
     const existingSuffixes = nodes
       .filter((node) => node.type === type)
@@ -351,14 +458,17 @@ function App() {
           <h1>Workflow Designer</h1>
         </div>
         <nav className="toolbar-actions" aria-label="Workbench actions">
-          <button type="button" onClick={() => showShellResult('Validate DSL')}>
+          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('validate')}>
             Validate DSL
           </button>
-          <button type="button" onClick={() => showShellResult('Preview Prompt')}>
+          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('prompt')}>
             Preview Prompt
           </button>
-          <button type="button" onClick={() => showShellResult('Run Node Test')}>
+          <button type="button" disabled={runningAction !== null || !selectedNodeId} onClick={() => runWorkflowAction('test-node')}>
             Run Node Test
+          </button>
+          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('test-subflow')}>
+            Run Subflow Test
           </button>
           <span className="bounds-pill">max_items 5 / max_pages 2 / max_steps 20</span>
           <a className="fallback-link" href={fallbackUrl} target="_blank" rel="noreferrer">
@@ -637,8 +747,14 @@ function App() {
             <span>Results</span>
             <small>Validation and execution feedback</small>
           </div>
-          <div className={`result-placeholder ${resultTone}`} aria-live="polite">
-            {resultMessage}
+          <div className={`result-placeholder ${resultState.tone}`} aria-live="polite">
+            <div className="result-status">
+              <span className="result-badge">{resultState.tone}</span>
+              <strong>{resultState.title}</strong>
+              <p>{resultState.message}</p>
+              {runningAction && <small>Browser-backed execution is serialized until this action finishes.</small>}
+            </div>
+            <ResultDetails payload={resultState.payload} />
           </div>
         </section>
       </div>
@@ -647,6 +763,11 @@ function App() {
 }
 
 export default App
+
+
+
+
+
 
 
 
