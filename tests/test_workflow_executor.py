@@ -149,3 +149,156 @@ async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch
     assert "Max steps" in response.error
     assert response.node_results[0].node_id == "open"
     assert response.logs[-1].level.value == "warning"
+
+@pytest.mark.anyio
+async def test_subflow_executes_emit_record_and_paginate_smoke(monkeypatch):
+    session = FakeSession()
+    item_one = FakeElement(text="One", children={".name": [FakeElement(text="One")], "*": [FakeElement(text="One")]})
+    item_two = FakeElement(text="Two", children={".name": [FakeElement(text="Two")], "*": [FakeElement(text="Two")]})
+    session.page._selectors[".item"] = [item_one, item_two]
+    session.page._selectors["a.next"] = [FakeElement(text="Next")]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item"}),
+                node("extract", "extract_field", {"fields": [{"name": "name", "selector": ".name", "type": "text"}]}),
+                node("emit", "emit_record"),
+                node("page", "paginate", {"pagination_selector": "a.next", "pagination_strategy": "click_next"}),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "list"},
+                {"id": "e2", "source": "list", "target": "extract"},
+                {"id": "e3", "source": "extract", "target": "emit"},
+                {"id": "e4", "source": "emit", "target": "page"},
+            ],
+        ),
+        "boundary": {"max_items": 1, "max_steps": 10},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert [result.node_id for result in response.node_results] == ["open", "list", "extract", "emit", "page"]
+    assert response.records == [{"_index": 0, "name": "One"}]
+    assert response.node_results[3].result == {"emitted_count": 1, "records": [{"_index": 0, "name": "One"}]}
+    assert response.node_results[4].result["found"] is True
+    assert "single-page testing" in response.node_results[4].result["message"]
+
+
+@pytest.mark.anyio
+async def test_runtime_reports_required_data_and_unsupported_nodes(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    cases = [
+        (node("list", "select_list"), "item_selector is required"),
+        (node("extract", "extract_field"), "fields are required"),
+        (node("page", "paginate"), "pagination_selector is required"),
+        (node("loop", "loop"), "Unsupported node type: loop"),
+        (node("condition", "condition"), "Unsupported node type: condition"),
+        (node("end", "end"), "Unsupported node type: end"),
+        (node("custom", "custom_detail"), "Unsupported node type: custom_detail"),
+    ]
+
+    for test_node, expected_error in cases:
+        request = TestSubflowRequest.model_validate({
+            "graph": graph([node("open", "open_page", {"url": "http://example.com"}), test_node], [{"id": "e", "source": "open", "target": test_node["id"]}]),
+            "boundary": {"start_node_id": test_node["id"], "max_steps": 2},
+        })
+
+        response = await WorkflowExecutor().test_subflow(request)
+
+        assert response.success is False
+        failed_result = response.node_results[-1]
+        assert failed_result.success is False
+        assert expected_error in failed_result.error
+        if expected_error.startswith("Unsupported"):
+            assert failed_result.result["status"] == "unsupported"
+            assert response.logs[-1].level.value == "error"
+
+
+@pytest.mark.anyio
+async def test_extract_field_requires_select_list_context(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph([node("open", "open_page", {"url": "http://example.com"}), node("extract", "extract_field", {"fields": [{"name": "title", "selector": "h2", "type": "text"}]})], [{"id": "e", "source": "open", "target": "extract"}]),
+        "boundary": {"start_node_id": "extract", "max_steps": 1},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is False
+    assert "item_selector not found in context" in response.node_results[0].error
+
+
+@pytest.mark.anyio
+async def test_paginate_reports_absent_selector_without_crawling(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph([node("open", "open_page", {"url": "http://example.com"}), node("page", "paginate", {"pagination_selector": "a.next"})], [{"id": "e", "source": "open", "target": "page"}]),
+        "boundary": {"start_node_id": "page", "max_steps": 1},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert response.node_results[0].result["found"] is False
+    assert session.navigated == []
+
+
+@pytest.mark.anyio
+async def test_test_node_runs_prerequisites_in_entry_order(monkeypatch):
+    session = FakeSession()
+    item = FakeElement(text="Item", children={".name": [FakeElement(text="Item")]})
+    session.page._selectors[".item"] = [item]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = {
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item"}),
+                node("extract", "extract_field", {"fields": [{"name": "name", "selector": ".name", "type": "text"}]}),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "list"},
+                {"id": "e2", "source": "list", "target": "extract"},
+            ],
+        ),
+        "node_id": "extract",
+        "max_items": 1,
+    }
+
+    from backend.workflow_schemas import TestNodeRequest
+    response = await WorkflowExecutor().test_node(TestNodeRequest.model_validate(request))
+
+    assert response.success is True
+    assert [result.node_id for result in response.logs if result.message.startswith("Executing node")] == ["open", "list", "extract"]
+    assert response.result.result["records"] == [{"_index": 0, "name": "Item"}]
+
+
+@pytest.mark.anyio
+async def test_subflow_executes_boundary_end_node(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [node("open", "open_page", {"url": "http://example.com"}), node("loop", "loop")],
+            [{"id": "e", "source": "open", "target": "loop"}],
+        ),
+        "boundary": {"end_node_id": "loop", "max_steps": 2},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is False
+    assert [result.node_id for result in response.node_results] == ["open", "loop"]
+    assert "Unsupported node type: loop" in response.node_results[-1].error
