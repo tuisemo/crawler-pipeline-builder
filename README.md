@@ -53,6 +53,45 @@ React workbench runs at `http://127.0.0.1:3101` and proxies API calls to the bac
 
 ---
 
+## 使用流程
+
+### 设计 DSL 工作流
+
+1. **访问目标页面**：在浏览器中打开 `http://localhost:3101`
+2. **设计工作流**：
+   - 添加 `open_page` 节点，设置目标 URL
+   - 添加 `select_list` 节点，设置商品列表 CSS 选择器
+   - 添加 `extract_field` 节点，配置要提取的字段
+   - 添加 `paginate` 节点，配置分页策略
+3. **预览 Prompt**：点击「Preview Prompt」查看生成的提示词
+4. **生成爬虫脚本**：点击「生成爬虫脚本」调用 LLM 生成完整脚本
+5. **保存脚本**：复制或下载生成的 Playwright 爬虫脚本
+
+### 示例工作流
+
+```json
+{
+  "nodes": [
+    { "id": "open-page-1", "type": "open_page", "data": { "url": "https://example.com/products" } },
+    { "id": "select-list-1", "type": "select_list", "data": { "item_selector": ".product-item" } },
+    { "id": "extract-field-1", "type": "extract_field", "data": { "fields": [
+      { "name": "title", "selector": "h2.title", "type": "text" },
+      { "name": "image", "selector": "img", "type": "attr:src:abs" },
+      { "name": "manufacturer", "selector": ".manufacturer", "type": "text" },
+      { "name": "link", "selector": "a.detail", "type": "attr:href:abs" }
+    ]}},
+    { "id": "paginate-1", "type": "paginate", "data": { "pagination_selector": "a.next", "pagination_strategy": "click_next", "max_pages": 10 } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "open-page-1", "target": "select-list-1" },
+    { "id": "e2", "source": "select-list-1", "target": "extract-field-1" },
+    { "id": "e3", "source": "extract-field-1", "target": "paginate-1" }
+  ]
+}
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -84,7 +123,6 @@ sea-data/
 │   └── crawler_prompt.py         # LLM prompt templates for crawler generation
 ├── tests/
 │   ├── test_workflow_api.py      # DSL API endpoint tests
-│   ├── test_workflow_dsl_validation.py  # DSL structural validation tests
 │   ├── test_workflow_executor.py  # Workflow executor tests
 │   ├── test_async_bridge.py       # Blocking/async bridge tests
 │   └── test_mission_services_manifest.py  # services.yaml test
@@ -93,8 +131,6 @@ sea-data/
 │   ├── start_backend.ps1        # Windows background backend start script
 │   └── services.yaml            # Service manifest (ports, commands)
 ├── llm_client.py                # OpenAI/Anthropic/vLLM client
-├── inspector.py                  # Page inspection core
-├── main.py                      # CLI entry
 └── pyproject.toml               # Python dependencies
 ```
 
@@ -111,6 +147,7 @@ sea-data/
 | `POST` | `/api/workflows/to-prompt` | Generate crawler prompt from DSL graph |
 | `POST` | `/api/workflows/test-node` | Test a single node with prerequisites |
 | `POST` | `/api/workflows/test-subflow` | Test a bounded subflow within graph |
+| `POST` | `/api/workflows/generate-crawler` | Generate Playwright crawler script via LLM |
 
 ---
 
@@ -169,6 +206,7 @@ The workbench (port 3101) provides:
   - **Preview Prompt**: Generate crawler prompt from graph
   - **Run Node Test**: Execute single node with prerequisites
   - **Run Subflow Test**: Execute bounded subflow with execution limits
+  - **Generate Crawler Script**: Generate complete Playwright crawler script via LLM
 - **Property Panel**: Edit selected node properties
 - **Result Panel**: Shows action output (logs, records, raw JSON)
 
