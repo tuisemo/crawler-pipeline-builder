@@ -278,7 +278,7 @@ npm run test
 ### Browser Management
 
 `backend/browser_session.py` manages a singleton Playwright Chromium instance with:
-- **Shared context**: All sessions share one browser context (new tabs per session)
+- **Isolated contexts**: Each session has its own browser context (cookies, localStorage, sessionStorage are NOT shared)
 - **TTL cleanup**: Sessions auto-expire after 600 seconds of inactivity
 - **Thread-safe**: Uses locks for concurrent access
 

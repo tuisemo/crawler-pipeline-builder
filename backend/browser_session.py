@@ -6,12 +6,15 @@ from playwright.sync_api import sync_playwright
 _playwright = None
 _browser = None
 _browser_lock = threading.Lock()
-_global_context = None
-_global_context_lock = threading.Lock()
-_shared_context_browser_id = None
+
 
 def get_browser():
-    global _playwright, _browser, _global_context, _shared_context_browser_id
+    """Get or create the singleton Playwright Chromium browser instance.
+    
+    The browser process is shared across all sessions for efficiency,
+    but each session gets its own isolated browser context.
+    """
+    global _playwright, _browser
     with _browser_lock:
         if _browser is None or not _browser.is_connected():
             if _browser is not None:
@@ -25,46 +28,12 @@ def get_browser():
                 headless=False,
                 args=["--start-maximized", "--no-sandbox", "--disable-dev-shm-usage"],
             )
-            # Browser instance changed, so shared context must be recreated.
-            _global_context = None
-            _shared_context_browser_id = None
         return _browser
 
-def _context_alive(context) -> bool:
-    if context is None:
-        return False
-    try:
-        # Accessing pages on a closed context raises, which lets us detect stale refs.
-        context.pages
-        return True
-    except Exception:
-        return False
-
-def get_shared_context():
-    """Get or create the global shared browser context."""
-    global _global_context, _shared_context_browser_id
-    with _global_context_lock:
-        browser = get_browser()
-        browser_id = id(browser)
-        if (
-            _global_context is None
-            or _shared_context_browser_id != browser_id
-            or not _context_alive(_global_context)
-        ):
-            _global_context = browser.new_context(no_viewport=True)
-            _shared_context_browser_id = browser_id
-        return _global_context
 
 def stop_browser():
-    global _playwright, _browser, _global_context, _shared_context_browser_id
-    with _global_context_lock:
-        if _global_context is not None:
-            try:
-                _global_context.close()
-            except Exception:
-                pass
-            _global_context = None
-            _shared_context_browser_id = None
+    """Stop the Playwright browser and associated playwright instance."""
+    global _playwright, _browser
     with _browser_lock:
         if _browser:
             try:
@@ -81,12 +50,19 @@ def stop_browser():
 
 
 class PageSession:
-    """Holds a dedicated browser context + page for a user session."""
+    """Holds an isolated browser context + page for a user session.
+    
+    Each PageSession has its own browser context, ensuring complete isolation:
+    - Cookies are NOT shared between sessions
+    - localStorage and sessionStorage are NOT shared between sessions
+    - Closing one session does not affect other sessions' pages or contexts
+    """
 
-    def __init__(self, browser, context=None):
+    def __init__(self, browser):
         self.id = str(uuid.uuid4())[:8]
         self.browser = browser
-        self.context = context or browser.new_context(no_viewport=True)
+        # Each session creates its own isolated context
+        self.context = browser.new_context(no_viewport=True)
         self.page = self.context.new_page()
         self.created_at = time.time()
         self.last_used = time.time()
@@ -106,9 +82,18 @@ class PageSession:
             return False
 
     def close(self):
+        """Close the session's page and context.
+        
+        This properly cleans up both the page and the isolated context,
+        ensuring no resource leaks. Safe to call multiple times.
+        """
         self._closed = True
         try:
             self.page.close()
+        except Exception:
+            pass
+        try:
+            self.context.close()
         except Exception:
             pass
 
@@ -127,8 +112,8 @@ class PageSession:
 class SessionManager:
     """Thread-safe session registry with TTL-based cleanup.
 
-    Each session has its own page but shares the global context,
-    so operations open new tabs (not new windows).
+    Each session has its own isolated browser context and page.
+    Sessions do NOT share contexts, ensuring complete isolation.
     """
 
     def __init__(self, ttl_seconds: int = 600):
@@ -150,6 +135,7 @@ class SessionManager:
         self._timer = t
 
     def cleanup(self):
+        """Remove expired sessions and close their resources."""
         now = time.time()
         with self._lock:
             expired = [sid for sid, s in self._sessions.items()
@@ -168,14 +154,16 @@ class SessionManager:
             return s
 
     def create(self) -> PageSession:
+        """Create a new session with its own isolated browser context."""
         self._schedule_cleanup()
-        ctx = get_shared_context()
-        session = PageSession(get_browser(), context=ctx)
+        # Each session gets its own context from the shared browser process
+        session = PageSession(get_browser())
         with self._lock:
             self._sessions[session.id] = session
         return session
 
     def close(self, session_id: str) -> bool:
+        """Close and remove a session by ID. Returns True if session was found."""
         with self._lock:
             s = self._sessions.pop(session_id, None)
         if s:
@@ -184,6 +172,7 @@ class SessionManager:
         return False
 
     def close_all(self):
+        """Close all sessions and clear the registry."""
         with self._lock:
             for s in self._sessions.values():
                 s.close()
@@ -196,11 +185,14 @@ class SessionManager:
                 return None
             return max(self._sessions.values(), key=lambda s: s.last_used)
 
+
 page_session_mgr = SessionManager(ttl_seconds=600)
+
 
 def get_active_session():
     """Return the most recently used session, if one exists."""
     return page_session_mgr.get_most_recent()
+
 
 def classify_error(e: Exception) -> dict:
     """Classify error into user-friendly categories."""
