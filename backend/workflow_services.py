@@ -1,5 +1,11 @@
+"""Workflow services - domain logic layer for workflow operations.
+
+This module contains pure business logic without HTTP concerns.
+HTTP protocol handling (JSONResponse construction) is handled by workflow_routes.py.
+"""
+
 import re
-from fastapi.responses import JSONResponse
+from dataclasses import dataclass
 
 from llm_client import get_default_client, CRAWLER_SYSTEM_PROMPT
 from prompts import CrawlerPromptGenerator
@@ -18,38 +24,80 @@ from .workflow_schemas import (
 )
 
 
-def validate_graph(request: ValidateWorkflowRequest):
+# ----------------------------------------------------------------------
+# Domain Exceptions - raised by service layer, caught by routes layer
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class WorkflowValidationError(Exception):
+    """Raised when workflow validation fails."""
+    error_code: str
+    error: str
+
+    def __str__(self):
+        return f"{self.error_code}: {self.error}"
+
+
+@dataclass
+class WorkflowConversionError(Exception):
+    """Raised when legacy config conversion fails."""
+    error: str
+
+    def __str__(self):
+        return self.error
+
+
+@dataclass
+class PromptGenerationError(Exception):
+    """Raised when prompt generation fails."""
+    error: str
+
+    def __str__(self):
+        return self.error
+
+
+def validate_graph(request: ValidateWorkflowRequest) -> dict:
+    """Validate a workflow graph and return domain result.
+    
+    Raises WorkflowValidationError if validation fails.
+    """
     graph = request.graph
     if not graph.nodes:
-        return _validation_error("workflow_empty", "Workflow must have at least one node.")
+        raise WorkflowValidationError(
+            error_code="workflow_empty",
+            error="Workflow must have at least one node."
+        )
 
     duplicate_node_ids = _find_duplicates(node.id for node in graph.nodes)
     if duplicate_node_ids:
-        return _validation_error(
-            "duplicate_node_ids",
-            f"Workflow node ids must be unique: {', '.join(duplicate_node_ids)}.",
+        raise WorkflowValidationError(
+            error_code="duplicate_node_ids",
+            error=f"Workflow node ids must be unique: {', '.join(duplicate_node_ids)}."
         )
 
     duplicate_edge_ids = _find_duplicates(edge.id for edge in graph.edges)
     if duplicate_edge_ids:
-        return _validation_error(
-            "duplicate_edge_ids",
-            f"Workflow edge ids must be unique: {', '.join(duplicate_edge_ids)}.",
+        raise WorkflowValidationError(
+            error_code="duplicate_edge_ids",
+            error=f"Workflow edge ids must be unique: {', '.join(duplicate_edge_ids)}."
         )
 
     # MVP validation is intentionally structural: node/edge schemas, stable ids, and one entry node.
     # Unknown node types and dangling edges are left to runtime/test endpoints for now.
     entry_nodes = [node for node in graph.nodes if node.type == "open_page"]
     if not entry_nodes:
-        return _validation_error("entry_node_missing", "Workflow must have an 'open_page' entry node.")
+        raise WorkflowValidationError(
+            error_code="entry_node_missing",
+            error="Workflow must have an 'open_page' entry node."
+        )
     if len(entry_nodes) > 1:
-        return _validation_error("entry_node_multiple", "Workflow can only have one 'open_page' entry node.")
+        raise WorkflowValidationError(
+            error_code="entry_node_multiple",
+            error="Workflow can only have one 'open_page' entry node."
+        )
 
     return {"success": True, "message": "Workflow is valid"}
-
-
-def _validation_error(error_code: str, error: str) -> JSONResponse:
-    return JSONResponse({"success": False, "error_code": error_code, "error": error}, status_code=400)
 
 
 def _find_duplicates(values) -> list[str]:
@@ -62,11 +110,14 @@ def _find_duplicates(values) -> list[str]:
     return duplicates
 
 
-def convert_legacy_config(request: FromLegacyConfigRequest):
+def convert_legacy_config(request: FromLegacyConfigRequest) -> FromLegacyConfigResponse:
+    """Convert a legacy config to a workflow DSL graph.
+    
+    Raises WorkflowConversionError if required fields are missing/blank.
+    """
     if not request.url.strip() or not request.item_selector.strip():
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "error": "URL and item_selector are required for legacy conversion"},
+        raise WorkflowConversionError(
+            error="URL and item_selector are required for legacy conversion"
         )
 
     nodes = [
@@ -112,12 +163,15 @@ def convert_legacy_config(request: FromLegacyConfigRequest):
     )
 
 
-def graph_to_prompt(request: ToPromptRequest):
+def graph_to_prompt(request: ToPromptRequest) -> dict:
+    """Convert a workflow graph to a prompt for LLM generation.
+    
+    Raises PromptGenerationError if required config is missing.
+    """
     config = _extract_prompt_config(request.graph)
     if not config["url"] or not config["item_selector"]:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "error": "URL and item_selector are required to generate prompt"},
+        raise PromptGenerationError(
+            error="URL and item_selector are required to generate prompt"
         )
 
     prompt = CrawlerPromptGenerator().generate_from_simple_config(**config)

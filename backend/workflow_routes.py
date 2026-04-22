@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from .workflow_executor import executor
 from .workflow_schemas import (
@@ -13,21 +14,51 @@ from .workflow_schemas import (
     ToPromptRequest,
     ValidateWorkflowRequest,
 )
-from .workflow_services import convert_legacy_config, generate_crawler, graph_to_prompt, validate_graph
+from .workflow_services import (
+    convert_legacy_config,
+    generate_crawler,
+    graph_to_prompt,
+    validate_graph,
+    WorkflowValidationError,
+    WorkflowConversionError,
+    PromptGenerationError,
+)
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
+
 @router.post("/validate")
 def validate_workflow(request: ValidateWorkflowRequest):
-    return validate_graph(request)
+    """Validate a workflow DSL graph."""
+    try:
+        return validate_graph(request)
+    except WorkflowValidationError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error_code": e.error_code, "error": e.error}
+        )
 
 @router.post("/from-legacy-config", response_model=FromLegacyConfigResponse)
 def from_legacy_config(request: FromLegacyConfigRequest):
-    return convert_legacy_config(request)
+    """Convert a legacy config to a workflow DSL graph."""
+    try:
+        return convert_legacy_config(request)
+    except WorkflowConversionError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": str(e)}
+        )
 
 @router.post("/to-prompt")
 def to_prompt(request: ToPromptRequest):
-    return graph_to_prompt(request)
+    """Convert a workflow DSL graph to a prompt for LLM generation."""
+    try:
+        return graph_to_prompt(request)
+    except PromptGenerationError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": str(e)}
+        )
 
 
 @router.post("/generate-crawler", response_model=GenerateCrawlerResponse)
