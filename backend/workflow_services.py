@@ -14,6 +14,11 @@ from .workflow_schemas import (
     FromLegacyConfigRequest,
     FromLegacyConfigResponse,
     NodeData,
+    OpenPageData,
+    SelectListData,
+    ExtractFieldData,
+    PaginateData,
+    FieldSchema,
     ToPromptRequest,
     ValidateWorkflowRequest,
     WorkflowEdge,
@@ -57,6 +62,63 @@ class PromptGenerationError(Exception):
         return self.error
 
 
+def validate_node_data(node: WorkflowNode) -> None:
+    """Validate required fields for a core node type.
+
+    Raises WorkflowValidationError if a required field is missing or blank
+    for any of the four core node types (open_page, select_list, extract_field, paginate).
+    Unknown node types and nodes that are already optional (e.g. open_page with no url)
+    are allowed to pass silently for MVP compatibility.
+    """
+    node_type = node.type
+    data = node.data
+
+    if node_type == "open_page":
+        if not (data.url and data.url.strip()):
+            raise WorkflowValidationError(
+                error_code="open_page_requires_url",
+                error="open_page node requires a non-empty url field."
+            )
+    elif node_type == "select_list":
+        if not (data.item_selector and data.item_selector.strip()):
+            raise WorkflowValidationError(
+                error_code="select_list_requires_item_selector",
+                error="select_list node requires a non-empty item_selector field."
+            )
+    elif node_type == "extract_field":
+        raw_fields = data.fields
+        if not raw_fields:
+            raise WorkflowValidationError(
+                error_code="extract_field_requires_fields",
+                error="extract_field node requires a non-empty fields list."
+            )
+        if not isinstance(raw_fields, list):
+            raise WorkflowValidationError(
+                error_code="extract_field_requires_fields_list",
+                error="extract_field node fields must be a list."
+            )
+        if len(raw_fields) == 0:
+            raise WorkflowValidationError(
+                error_code="extract_field_requires_fields",
+                error="extract_field node requires at least one field."
+            )
+        # Validate each field with FieldSchema (allow extra keys for legacy compat)
+        for i, raw_field in enumerate(raw_fields):
+            try:
+                FieldSchema.model_validate(raw_field)
+            except Exception as e:
+                raise WorkflowValidationError(
+                    error_code="extract_field_invalid_field",
+                    error=f"extract_field field[{i}] validation failed: {e}."
+                )
+    elif node_type == "paginate":
+        if not (data.pagination_selector and data.pagination_selector.strip()):
+            raise WorkflowValidationError(
+                error_code="paginate_requires_pagination_selector",
+                error="paginate node requires a non-empty pagination_selector field."
+            )
+
+
 def validate_graph(request: ValidateWorkflowRequest) -> dict:
     """Validate a workflow graph and return domain result.
     
@@ -96,6 +158,12 @@ def validate_graph(request: ValidateWorkflowRequest) -> dict:
             error_code="entry_node_multiple",
             error="Workflow can only have one 'open_page' entry node."
         )
+
+    # Phase 1 schema hardening: validate required fields per node type.
+    # This catches missing url, item_selector, fields, and pagination_selector
+    # at validation time rather than deferring to runtime.
+    for node in graph.nodes:
+        validate_node_data(node)
 
     return {"success": True, "message": "Workflow is valid"}
 

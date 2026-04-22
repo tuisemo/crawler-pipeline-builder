@@ -1,9 +1,107 @@
-from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from typing import List, Dict, Any, Optional, Annotated
 from enum import Enum
 
+
+# ----------------------------------------------------------------------
+# Field extraction schema (used by extract_field)
+# ----------------------------------------------------------------------
+
+
+class FieldSchema(BaseModel):
+    """Strongly-typed field definition for extract_field nodes.
+
+    Supports legacy-compatible field shapes so that FromLegacyConfigRequest.fields
+    and DSL extract_field.fields use the same schema. At minimum, each field needs
+    a name and a selector; the extraction_type defaults to "text" if not provided.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    # Preferred names
+    name: Optional[str] = None
+    selector: Optional[str] = None
+    type: Optional[str] = None
+
+    # Legacy aliases (field_name, css, extraction_type)
+    field_name: Optional[str] = None
+    css: Optional[str] = None
+    extraction_type: Optional[str] = None
+
+    @field_validator("name", "field_name")
+    @classmethod
+    def _coerce_blank_to_none(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    def resolved_name(self) -> Optional[str]:
+        return self.name or self.field_name
+
+    def resolved_selector(self) -> Optional[str]:
+        return self.selector or self.css
+
+    def resolved_type(self) -> Optional[str]:
+        return self.type or self.extraction_type or "text"
+
+
+# ----------------------------------------------------------------------
+# Node-level data models (one per core node type)
+# ----------------------------------------------------------------------
+
+
+class OpenPageData(BaseModel):
+    """Data model for open_page nodes. URL is required at validation time."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str = ""  # Required; empty string triggers validation error
+    max_steps: Optional[int] = None
+    max_items: Optional[int] = None
+
+
+class SelectListData(BaseModel):
+    """Data model for select_list nodes. item_selector is required at validation time."""
+
+    model_config = ConfigDict(extra="allow")
+
+    item_selector: str = ""  # Required; empty string triggers validation error
+    max_items: Optional[int] = None
+
+
+class ExtractFieldData(BaseModel):
+    """Data model for extract_field nodes. fields list is required at validation time."""
+
+    model_config = ConfigDict(extra="allow")
+
+    fields: Optional[List[Dict[str, Any]]] = None  # Replaced by strong FieldSchema in validate
+    html_fragment: Optional[str] = None
+    max_items: Optional[int] = None
+
+
+class PaginateData(BaseModel):
+    """Data model for paginate nodes. pagination_selector is required at validation time."""
+
+    model_config = ConfigDict(extra="allow")
+
+    pagination_selector: str = ""  # Required; empty string triggers validation error
+    pagination_strategy: Optional[str] = None
+    max_pages: Optional[int] = None
+
+
+# ----------------------------------------------------------------------
+# Legacy-compatible NodeData (still used by WorkflowNode for backward compatibility)
+# ----------------------------------------------------------------------
+
+
 class NodeData(BaseModel):
-    """MVP node data keeps legacy-compatible fields optional by design."""
+    """MVP node data keeps legacy-compatible fields optional by design.
+
+    This class is preserved for backward compatibility with the existing
+    WorkflowNode model. New validation code should use the dedicated
+    data models (OpenPageData, SelectListData, ExtractFieldData, PaginateData)
+    and call `validate_node_data` below.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -17,15 +115,23 @@ class NodeData(BaseModel):
     max_items: Optional[int] = None
     max_steps: Optional[int] = None
 
+
+# ----------------------------------------------------------------------
+# Node / Edge / Graph
+# ----------------------------------------------------------------------
+
+
 class WorkflowNode(BaseModel):
     id: StrictStr
-    type: StrictStr # e.g. "open_page", "select_list", "extract_field", "paginate"
+    type: StrictStr  # e.g. "open_page", "select_list", "extract_field", "paginate"
     data: NodeData
+
 
 class WorkflowEdge(BaseModel):
     id: StrictStr
     source: StrictStr
     target: StrictStr
+
 
 class WorkflowGraph(BaseModel):
     nodes: List[WorkflowNode]

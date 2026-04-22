@@ -317,7 +317,10 @@ def test_validate_rejects_duplicate_node_and_edge_ids_with_machine_errors():
 
 
 def test_validate_minimal_valid_graph_succeeds():
-    response = post_validate({"nodes": [{"id": "n1", "type": "open_page", "data": {}}], "edges": []})
+    response = post_validate({
+        "nodes": [{"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}}],
+        "edges": []
+    })
     assert response.status_code == 200
     assert response.json() == {"success": True, "message": "Workflow is valid"}
 
@@ -347,3 +350,195 @@ def test_validate_mvp_accepts_structural_graph_with_optional_legacy_data_and_unk
     })
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+# ----------------------------------------------------------------------
+# Phase 1 schema hardening: node-level required field validation
+# ----------------------------------------------------------------------
+
+
+def test_validate_open_page_requires_url():
+    """open_page node without url is rejected at validation time."""
+    response = post_validate({
+        "nodes": [{"id": "n1", "type": "open_page", "data": {}}],
+        "edges": [],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "open_page_requires_url"
+
+    # Also reject explicit blank url
+    response = post_validate({
+        "nodes": [{"id": "n1", "type": "open_page", "data": {"url": "   "}}],
+        "edges": [],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "open_page_requires_url"
+
+
+def test_validate_select_list_requires_item_selector():
+    """select_list node without item_selector is rejected at validation time."""
+    # Need open_page entry first so we reach select_list validation
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {}},
+        ],
+        "edges": [{"id": "e1", "source": "n1", "target": "n2"}],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "select_list_requires_item_selector"
+
+    # Also reject explicit blank item_selector
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ""}},
+        ],
+        "edges": [{"id": "e1", "source": "n1", "target": "n2"}],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "select_list_requires_item_selector"
+
+
+def test_validate_extract_field_requires_fields_list():
+    """extract_field node without fields is rejected at validation time."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "extract_field_requires_fields"
+
+
+def test_validate_extract_field_rejects_empty_fields_list():
+    """extract_field node with empty fields list is rejected."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {"fields": []}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "extract_field_requires_fields"
+
+
+def test_validate_extract_field_accepts_valid_fields():
+    """extract_field node with valid fields list passes validation."""
+    response = post_validate({
+        "nodes": [
+            {
+                "id": "n1", "type": "open_page",
+                "data": {"url": "http://example.com"}
+            },
+            {
+                "id": "n2", "type": "select_list",
+                "data": {"item_selector": ".item"}
+            },
+            {
+                "id": "n3",
+                "type": "extract_field",
+                "data": {
+                    "fields": [
+                        {"name": "title", "selector": "h1", "type": "text"},
+                        {"field_name": "link", "css": "a", "extraction_type": "attr:href"},
+                    ]
+                }
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+def test_validate_extract_field_accepts_legacy_field_aliases():
+    """extract_field fields using legacy aliases (field_name, css, extraction_type) pass validation."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {
+                "id": "n3",
+                "type": "extract_field",
+                "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 200
+
+
+def test_validate_paginate_requires_pagination_selector():
+    """paginate node without pagination_selector is rejected at validation time."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1"}]}},
+            {"id": "n4", "type": "paginate", "data": {}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+            {"id": "e3", "source": "n3", "target": "n4"},
+        ],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "paginate_requires_pagination_selector"
+
+
+def test_validate_paginate_accepts_valid_pagination_selector():
+    """paginate node with valid pagination_selector passes validation."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1"}]}},
+            {
+                "id": "n4", "type": "paginate",
+                "data": {"pagination_selector": ".next", "pagination_strategy": "click_next", "max_pages": 5}
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+            {"id": "e3", "source": "n3", "target": "n4"},
+        ],
+    })
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+def test_validate_unknown_node_types_are_allowed():
+    """Unknown node types (loop, condition, end) pass validation even if they lack data."""
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "loop", "data": {}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    # Unknown types pass for now (MVP behavior)
+    assert response.status_code == 200
