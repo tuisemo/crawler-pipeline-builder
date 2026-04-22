@@ -1,4 +1,10 @@
-"""Workflow executor for MVP node types with scoped side-effect safety."""
+"""Workflow executor for MVP node types with scoped side-effect safety.
+
+Architecture note:
+- workflow_graph.py: graph traversal algorithms (node map, adjacency map, entry node finding)
+- workflow_handlers.py: individual node type handlers (open_page, select_list, etc.)
+- This module: orchestration of graph traversal + node execution, plus ExecutionContext
+"""
 
 import time
 import logging
@@ -16,7 +22,14 @@ from .workflow_schemas import (
 )
 from .async_bridge import run_blocking
 from .browser_session import PageSession, page_session_mgr
-from extraction.selector_tester import SelectorTester
+from .workflow_graph import (
+    build_node_map,
+    build_adjacency_map,
+    find_entry_node,
+    find_node_by_id,
+    get_prerequisite_nodes,
+)
+from .workflow_handlers import node_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -77,58 +90,7 @@ class WorkflowExecutor:
     }
 
     def __init__(self):
-        self.selector_tester = SelectorTester()
-
-    def _build_node_map(self, graph: WorkflowGraph) -> Dict[str, WorkflowNode]:
-        """Build a map from node ID to node."""
-        return {node.id: node for node in graph.nodes}
-
-    def _build_adjacency_map(self, graph: WorkflowGraph) -> Dict[str, List[str]]:
-        """Build adjacency map for graph traversal."""
-        adj = {node.id: [] for node in graph.nodes}
-        for edge in graph.edges:
-            if edge.source in adj:
-                adj[edge.source].append(edge.target)
-        return adj
-
-    def _find_entry_node(self, graph: WorkflowGraph) -> Optional[WorkflowNode]:
-        """Find the open_page entry node."""
-        for node in graph.nodes:
-            if node.type == "open_page":
-                return node
-        return None
-
-    def _find_node_by_id(self, graph: WorkflowGraph, node_id: str) -> Optional[WorkflowNode]:
-        """Find a node by ID."""
-        for node in graph.nodes:
-            if node.id == node_id:
-                return node
-        return None
-
-    def _get_prerequisite_nodes(self, graph: WorkflowGraph, node_id: str, adj_map: Dict[str, List[str]]) -> List[WorkflowNode]:
-        """Return prerequisite nodes in execution order from entry to target."""
-        entry_node = self._find_entry_node(graph)
-        if not entry_node or entry_node.id == node_id:
-            return []
-
-        queue = deque([(entry_node.id, [entry_node])])
-        visited = set()
-        while queue:
-            current_id, path = queue.popleft()
-            if current_id in visited:
-                continue
-            visited.add(current_id)
-
-            for next_id in adj_map.get(current_id, []):
-                next_node = self._find_node_by_id(graph, next_id)
-                if not next_node or next_node.type == "end":
-                    continue
-                next_path = path + [next_node]
-                if next_id == node_id:
-                    return path
-                queue.append((next_id, next_path))
-
-        return []
+        pass
 
     def _capture_revisit_fingerprint(self, ctx: ExecutionContext) -> Dict[str, Any]:
         """Capture execution state that indicates whether revisiting can do new work."""
@@ -177,17 +139,9 @@ class WorkflowExecutor:
         try:
             ctx.increment_step()
 
-            if node.type == "open_page":
-                self._execute_open_page_sync(node, ctx, result)
-            elif node.type == "select_list":
-                self._execute_select_list_sync(node, ctx, result)
-            elif node.type == "extract_field":
-                self._execute_extract_field_sync(node, ctx, result)
-            elif node.type == "paginate":
-                self._execute_paginate_sync(node, ctx, result)
-            elif node.type == "emit_record":
-                self._execute_emit_record_sync(node, ctx, result)
-            else:
+            # Delegate to handlers module; unsupported types fall through to error
+            handled = node_handlers.dispatch(node, ctx, result)
+            if not handled:
                 result.error = f"Unsupported node type: {node.type}"
                 result.result = {"status": "unsupported", "node_type": node.type}
                 ctx.add_log(LogLevel.ERROR, result.error, node_id=node.id)
@@ -204,134 +158,8 @@ class WorkflowExecutor:
 
         return result
 
-    def _execute_open_page_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        """Execute open_page node."""
-        url = node.data.url
-        if not url:
-            result.error = "URL is required for open_page node"
-            return
-
-        try:
-            ctx.session.navigate(url, timeout=30000)
-            ctx.add_log(LogLevel.INFO, f"Navigated to: {url}", node_id=node.id)
-            result.result = {"url": url, "status": "navigated"}
-        except Exception as e:
-            result.error = f"Failed to navigate to URL: {e}"
-            raise
-
-    def _execute_select_list_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        """Execute select_list node."""
-        selector = node.data.item_selector
-        if not selector:
-            result.error = "item_selector is required for select_list node"
-            return
-
-        try:
-            test_result = self.selector_tester.test_selector(
-                ctx.session.page,
-                selector,
-                max_samples=ctx.max_items
-            )
-
-            result.result = {
-                "match_count": test_result.match_count,
-                "samples": test_result.sample_items
-            }
-            ctx.state["item_selector"] = selector
-            ctx.state["item_count"] = test_result.match_count
-            ctx.add_log(LogLevel.INFO, f"Found {test_result.match_count} items", node_id=node.id)
-
-        except Exception as e:
-            result.error = f"Failed to select items: {e}"
-            raise
-
-    def _execute_extract_field_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        """Execute extract_field node."""
-        fields = node.data.fields
-        item_selector = ctx.state.get("item_selector")
-
-        if not fields:
-            result.error = "fields are required for extract_field node"
-            return
-
-        if not item_selector:
-            result.error = "item_selector not found in context (need select_list first)"
-            return
-
-        try:
-            records = self.selector_tester.extract_fields_from_items(
-                ctx.session.page,
-                item_selector,
-                fields
-            )[:ctx.max_items]
-
-            result.result = {
-                "extracted_count": len(records),
-                "records": records
-            }
-            ctx.records.extend(records)
-            ctx.state["extracted_records"] = ctx.records
-            ctx.add_log(LogLevel.INFO, f"Extracted {len(records)} records", node_id=node.id)
-
-        except Exception as e:
-            result.error = f"Failed to extract fields: {e}"
-            raise
-
-    def _execute_paginate_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        """Execute paginate node (bounded for testing)."""
-        selector = node.data.pagination_selector
-        strategy = node.data.pagination_strategy or "click_next"
-
-        if not selector:
-            result.error = "pagination_selector is required for paginate node"
-            return
-
-        try:
-            # For testing, we just check if the selector exists
-            elements = ctx.session.page.query_selector_all(selector)
-            exists = len(elements) > 0
-
-            message = "Pagination selector found" if exists else "Pagination selector not found"
-            result.result = {
-                "selector": selector,
-                "strategy": strategy,
-                "found": exists,
-                "message": f"{message} (limited to single-page testing)"
-            }
-            ctx.add_log(LogLevel.INFO, f"Pagination check: {'found' if exists else 'not found'}", node_id=node.id)
-
-        except Exception as e:
-            result.error = f"Failed to check pagination: {e}"
-            raise
-
-    def _execute_emit_record_sync(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        """Execute emit_record node."""
-        records = ctx.state.get("extracted_records", [])
-
-        bounded_records = records[:ctx.max_items]
-        result.result = {
-            "emitted_count": len(bounded_records),
-            "records": bounded_records
-        }
-        ctx.add_log(LogLevel.INFO, f"Emitted {len(records)} records", node_id=node.id)
-
     async def _execute_node(self, node: WorkflowNode, ctx: ExecutionContext) -> NodeResult:
         return await run_blocking(lambda: self._execute_node_sync(node, ctx))
-
-    async def _execute_open_page(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        await run_blocking(lambda: self._execute_open_page_sync(node, ctx, result))
-
-    async def _execute_select_list(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        await run_blocking(lambda: self._execute_select_list_sync(node, ctx, result))
-
-    async def _execute_extract_field(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        await run_blocking(lambda: self._execute_extract_field_sync(node, ctx, result))
-
-    async def _execute_paginate(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        await run_blocking(lambda: self._execute_paginate_sync(node, ctx, result))
-
-    async def _execute_emit_record(self, node: WorkflowNode, ctx: ExecutionContext, result: NodeResult):
-        await run_blocking(lambda: self._execute_emit_record_sync(node, ctx, result))
 
     async def test_node(self, request: TestNodeRequest) -> TestNodeResponse:
         """Test a single node with minimal prerequisites."""
@@ -347,7 +175,7 @@ class WorkflowExecutor:
 
         try:
             # Validate node exists
-            target_node = self._find_node_by_id(request.graph, request.node_id)
+            target_node = find_node_by_id(request.graph, request.node_id)
             if not target_node:
                 return TestNodeResponse(
                     success=False,
@@ -391,8 +219,8 @@ class WorkflowExecutor:
             )
 
             # For test-node, execute only prerequisites + target node
-            adj_map = self._build_adjacency_map(request.graph)
-            prerequisites = self._get_prerequisite_nodes(request.graph, request.node_id, adj_map)
+            adj_map = build_adjacency_map(request.graph)
+            prerequisites = get_prerequisite_nodes(request.graph, request.node_id, adj_map)
 
             # Execute prerequisites first (bounded)
             for prereq_node in prerequisites:
@@ -439,7 +267,7 @@ class WorkflowExecutor:
 
         try:
             # Find entry node
-            entry_node = self._find_entry_node(request.graph)
+            entry_node = find_entry_node(request.graph)
             if not entry_node:
                 return TestSubflowResponse(
                     success=False,
@@ -482,7 +310,7 @@ class WorkflowExecutor:
             )
 
             # Build traversal map
-            adj_map = self._build_adjacency_map(request.graph)
+            adj_map = build_adjacency_map(request.graph)
             failed_node_ids = set()
 
             # Execute from start node (or entry if not specified). Requeue repeated
@@ -492,7 +320,7 @@ class WorkflowExecutor:
 
             while pending_nodes:
                 node_id = pending_nodes.popleft()
-                node = self._find_node_by_id(request.graph, node_id)
+                node = find_node_by_id(request.graph, node_id)
                 if not node:
                     ctx.add_log(LogLevel.WARNING, f"Node {node_id} not found", node_id=node_id)
                     continue
