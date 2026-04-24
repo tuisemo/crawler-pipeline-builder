@@ -1,46 +1,32 @@
 # Architecture
 
-Compatibility-first migration guide for `sea-data`: preserve the legacy FastAPI inspector and generation flow while progressively adding a DSL-backed workflow executor and React workbench.
+Current architecture summary for `sea-data`.
 
 ## Current Surfaces
 
-- Legacy UI: `GET /` serves `templates/index.html` from `server.py` and remains the fallback page.
-- Legacy API: `backend/legacy_routes.py` exposes `/api/visit`, `/api/auto-detect`, `/api/test-selector`, `/api/test-fields`, `/api/page-html`, `/api/generate-crawler`, `/api/picker-*`, and `/api/session/*`.
-- Workflow API: `backend/workflow_routes.py` exposes `/api/workflows/validate`, `/api/workflows/from-legacy-config`, `/api/workflows/to-prompt`, `/api/workflows/test-node`, and `/api/workflows/test-subflow`.
-- Browser runtime: `backend/browser_session.py` owns shared Playwright browser/session lifecycle.
-- Extraction and prompt helpers: `extraction/*` performs detection/testing/html extraction; `prompts/crawler_prompt.py` builds legacy-compatible crawler prompts.
-- Static frontend assets are minimal today; no React/Vite workbench exists yet in the current repo.
+- Backend API: `server.py` mounts `backend/workflow_routes.py` and `backend/assist_routes.py`
+- Workflow API: `/api/workflows/*` covers validation, conversion, prompt generation, plan compilation, bounded execution, skeleton generation, crawler generation, formatting, and saving
+- Assist API: `/api/assist/*` covers auto-detect, HTML extraction, field inference, selector optimization, pagination analysis, and data cleaning
+- Browser runtime: `backend/browser_session.py` manages Playwright browser and page sessions
+- Frontend workbench: `frontend/` contains the React + Vite authoring UI
+- Active design and architecture documents live in `README.md`, `DESIGN.md`, and `docs/`
 
-## Target Components
+## Active Components
 
-- Legacy fallback: existing template UI and legacy endpoints stay black-box compatible during the migration.
-- Workflow DSL: canonical graph with nodes, edges, and node data; legacy config converts into this graph through `/api/workflows/from-legacy-config`.
-- Workflow executor: Python executor supports bounded `test-node` and `test-subflow` runs with structured logs, node results, sample records, and session-expired reporting.
-- React workbench: planned React + TypeScript + Vite UI on port `3101`, with canvas, node palette, property panel, DSL editor, prompt preview, and execution result panes.
-- Generation path: prompt preview should work without LLM; real script generation uses LLM only when configured.
+- Workflow DSL as the primary authoring model
+- Bounded workflow executor with structured logs and records
+- React workbench with canvas, property panel, prompt/script workspaces, and diagnostics dock
+- LLM-backed generation and assist actions that degrade gracefully when config is unavailable
 
-## MVP Delivery Sequence
+## Runtime Semantics
 
-- M1 freezes the legacy browser/API/generation contract and keeps the fallback path stable while backend boundaries are cleaned up.
-- M2 establishes the DSL contract, the legacy-to-DSL adapter, and DSL-to-prompt preview as the compatibility bridge.
-- M3 delivers the bounded executor runtime and workflow testing surfaces, with explicit structured outputs and explicit unsupported handling for any still-unimplemented node semantics.
-- M4 introduces the React shell, canvas, properties, and DSL synchronization without taking away the legacy UI.
-- M5 wires React into the backend workflow APIs and compatibility import flow so the new workbench can cover the primary MVP authoring path.
-- M6 hardens the combined system with fallback, regression, and degraded-generation checks while keeping MVP exclusions intact.
+- Backend default URL: `http://127.0.0.1:8000`
+- Frontend dev default URL: `http://127.0.0.1:3101`
+- `GET /` returns a simple API message; the React workbench is the main authoring surface during development
 
-## Planned React Route And Fallback Semantics
+## Invariants
 
-- Keep `/` as the legacy fallback page until the React workbench is explicitly promoted.
-- Mount or proxy the React workbench separately during development, expected at `http://localhost:3101`.
-- React must consume existing workflow APIs rather than replacing legacy APIs.
-- React should support opening legacy configs by converting them to DSL; unsupported MVP features should warn or degrade rather than breaking fallback.
-- If React build/dev server is unavailable, backend legacy UI and APIs must remain usable at `http://localhost:8000`.
-- Do not remove or rename legacy endpoint contracts while React is being introduced.
-
-## Compatibility Invariants
-
-- Legacy field config, old UI, old prompt preview, and old generate-crawler flow remain available.
-- DSL is the new internal authoring model, but legacy config conversion remains first-class.
-- MVP does not require details-page crawling, complex nested loops, database, queue, cache, or external runtime services.
-- LLM availability is optional for real generation and must not block validation, prompt preview, or workflow authoring.
-- Browser execution must avoid cross-session contamination and preserve inspectable structured output.
+- DSL is the source of truth for workflow authoring
+- Browser-backed execution must remain bounded and observable
+- Prompt preview and editor workflows must work even when LLM generation is unavailable
+- Temporary screenshots, response dumps, and migration-era notes should not accumulate in the repository root

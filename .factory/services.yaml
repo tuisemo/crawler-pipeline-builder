@@ -1,10 +1,10 @@
 commands:
-  install: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pip install -e .
+  install: uv sync
   test: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest -v
-  lint: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m py_compile server.py inspector.py llm_client.py main.py backend\workflow_routes.py backend\workflow_executor.py backend\legacy_routes.py backend\workflow_schemas.py
-  typecheck: echo "No dedicated typecheck configured"
+  lint: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m py_compile server.py llm_client.py backend\assist_routes.py backend\assist_services.py backend\workflow_routes.py backend\workflow_services.py backend\workflow_executor.py backend\workflow_schemas.py
+  typecheck: npm run build --prefix D:\WY-DATASETS\sea-data\frontend
   test-workflow: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest tests\test_workflow_api.py -v
-  test-legacy: D:\WY-DATASETS\sea-data\.venv\Scripts\python.exe -m pytest tests\test_legacy_api_regression.py -v
+  test-frontend: npm run test --prefix D:\WY-DATASETS\sea-data\frontend
 
 services:
   backend:

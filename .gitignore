@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+
+# Validation files
+*.png
+.tmp_*.json
+tests/.tmp/
+
+# Factory logs
+.factory/logs/
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
+
+# Virtual environments
+.venv
+temp
+.env

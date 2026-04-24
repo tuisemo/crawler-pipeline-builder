@@ -1,0 +1,74 @@
+{
+  "nodes": [
+    {
+      "id": "open-page-1",
+      "type": "open_page",
+      "data": {
+        "label": "打开页面",
+        "url": "https://www.eworldship.com/app/product_1772.html",
+        "max_pages": 326,
+        "max_steps": 20
+      }
+    },
+    {
+      "id": "select-list-1",
+      "type": "select_list",
+      "data": {
+        "label": "选择列表",
+        "item_selector": ".kq-wrapper .kq-row .kq-col3 .kq-well",
+        "max_items": 13020
+      }
+    },
+    {
+      "id": "extract-field-1",
+      "type": "extract_field",
+      "data": {
+        "label": "字段抽取",
+        "fields": [
+          {
+            "name": "title",
+            "selector": ".product-title",
+            "type": "text"
+          },
+          {
+            "name": "detail_url",
+            "selector": "a[href*='/app/detail_']",
+            "type": "attr:href:abs"
+          },
+          {
+            "name": "cover_image",
+            "selector": ".product-img img",
+            "type": "attr:src"
+          }
+        ]
+      }
+    },
+    {
+      "id": "paginate-1",
+      "type": "paginate",
+      "data": {
+        "label": "分页",
+        "pagination_selector": ".kq-pager a:nth-last-child(2)",
+        "pagination_strategy": "click_next",
+        "max_pages": 326
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-open-select",
+      "source": "open-page-1",
+      "target": "select-list-1"
+    },
+    {
+      "id": "edge-select-extract",
+      "source": "select-list-1",
+      "target": "extract-field-1"
+    },
+    {
+      "id": "edge-extract-paginate",
+      "source": "extract-field-1",
+      "target": "paginate-1"
+    }
+  ]
+}

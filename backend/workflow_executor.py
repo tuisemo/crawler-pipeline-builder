@@ -8,7 +8,6 @@ Architecture note:
 
 import time
 import logging
-from collections import deque
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass, field
 from copy import deepcopy
@@ -24,12 +23,27 @@ from .async_bridge import run_blocking
 from .browser_session import PageSession, page_session_mgr
 from .workflow_graph import (
     build_node_map,
-    build_adjacency_map,
     find_entry_node,
     find_node_by_id,
-    get_prerequisite_nodes,
 )
 from .workflow_handlers import node_handlers
+from .workflow_executor_helpers import (
+    build_missing_node_response,
+    build_partial_subflow_response,
+    build_session_expired_node_response,
+    build_subflow_exception_response,
+    build_subflow_missing_entry_response,
+    build_subflow_session_expired_response,
+    build_subflow_success_response,
+    build_test_node_exception_response,
+    get_or_create_session,
+)
+from .workflow_executor_traversal import (
+    collect_prerequisites,
+    create_subflow_queue,
+    get_subflow_adjacency_map,
+)
+from .workflow_executor_orchestration import execute_subflow_loop
 
 logger = logging.getLogger(__name__)
 
@@ -177,39 +191,11 @@ class WorkflowExecutor:
             # Validate node exists
             target_node = find_node_by_id(request.graph, request.node_id)
             if not target_node:
-                return TestNodeResponse(
-                    success=False,
-                    node_id=request.node_id,
-                    result=NodeResult(
-                        node_id=request.node_id,
-                        node_type="unknown",
-                        success=False,
-                        started_at=time.time(),
-                        completed_at=time.time()
-                    ),
-                    error=f"Node {request.node_id} not found in graph",
-                    session_expired=False
-                )
+                return build_missing_node_response(request.node_id, target_node)
 
-            # Get or create session
-            if request.session_id:
-                session = page_session_mgr.get(request.session_id)
-                if not session:
-                    return TestNodeResponse(
-                        success=False,
-                        node_id=request.node_id,
-                        result=NodeResult(
-                            node_id=request.node_id,
-                            node_type=target_node.type,
-                            success=False,
-                            started_at=time.time(),
-                            completed_at=time.time()
-                        ),
-                        error="Session not found or expired",
-                        session_expired=True
-                    )
-            else:
-                session = page_session_mgr.create()
+            session = get_or_create_session(request.session_id)
+            if not session:
+                return build_session_expired_node_response(request.node_id, target_node)
 
             # Create execution context
             ctx = ExecutionContext(
@@ -219,8 +205,7 @@ class WorkflowExecutor:
             )
 
             # For test-node, execute only prerequisites + target node
-            adj_map = build_adjacency_map(request.graph)
-            prerequisites = get_prerequisite_nodes(request.graph, request.node_id, adj_map)
+            prerequisites = collect_prerequisites(request.graph, request.node_id)
 
             # Execute prerequisites first (bounded)
             for prereq_node in prerequisites:
@@ -246,19 +231,11 @@ class WorkflowExecutor:
 
         except Exception as e:
             logger.exception("test_node failed")
-            return TestNodeResponse(
-                success=False,
-                node_id=request.node_id,
-                result=NodeResult(
-                    node_id=request.node_id,
-                    node_type=target_node.type if target_node else "unknown",
-                    success=False,
-                    started_at=time.time(),
-                    completed_at=time.time()
-                ),
-                logs=ctx.logs if ctx else [],
-                error=str(e),
-                session_expired=False
+            return build_test_node_exception_response(
+                request.node_id,
+                target_node if 'target_node' in locals() else None,
+                e,
+                ctx.logs if ctx else [],
             )
 
     def _test_subflow_sync(self, request: TestSubflowRequest) -> TestSubflowResponse:
@@ -269,33 +246,11 @@ class WorkflowExecutor:
             # Find entry node
             entry_node = find_entry_node(request.graph)
             if not entry_node:
-                return TestSubflowResponse(
-                    success=False,
-                    partial=False,
-                    node_results=[],
-                    logs=[],
-                    records=[],
-                    error="No open_page entry node found",
-                    session_expired=False,
-                    steps_executed=0
-                )
+                return build_subflow_missing_entry_response()
 
-            # Get or create session
-            if request.session_id:
-                session = page_session_mgr.get(request.session_id)
-                if not session:
-                    return TestSubflowResponse(
-                        success=False,
-                        partial=False,
-                        node_results=[],
-                        logs=[],
-                        records=[],
-                        error="Session not found or expired",
-                        session_expired=True,
-                        steps_executed=0
-                    )
-            else:
-                session = page_session_mgr.create()
+            session = get_or_create_session(request.session_id)
+            if not session:
+                return build_subflow_session_expired_response()
 
             # Set up boundaries and limits
             boundary = request.boundary or SubflowBoundary()
@@ -310,96 +265,28 @@ class WorkflowExecutor:
             )
 
             # Build traversal map
-            adj_map = build_adjacency_map(request.graph)
-            failed_node_ids = set()
+            adjacency_map = get_subflow_adjacency_map(request.graph)
 
             # Execute from start node (or entry if not specified). Requeue repeated
             # nodes so max_steps, not visited-state alone, bounds cyclic graphs.
-            start_node_id = boundary.start_node_id or entry_node.id
-            pending_nodes = deque([start_node_id])
+            pending_nodes = create_subflow_queue(entry_node.id, boundary.start_node_id)
 
-            while pending_nodes:
-                node_id = pending_nodes.popleft()
-                node = find_node_by_id(request.graph, node_id)
-                if not node:
-                    ctx.add_log(LogLevel.WARNING, f"Node {node_id} not found", node_id=node_id)
-                    continue
-
-                try:
-                    node_result = self._execute_node_sync(node, ctx)
-                    if not node_result.success:
-                        failed_node_ids.add(node_id)
-                        if node_result.error and "Max steps" in node_result.error:
-                            ctx.add_log(LogLevel.WARNING, f"Stopped at step limit: {ctx.steps_executed}")
-                            return TestSubflowResponse(
-                                success=False,
-                                partial=True,
-                                node_results=ctx.node_results,
-                                logs=ctx.logs,
-                                records=ctx.records[:ctx.max_items],
-                                error=node_result.error,
-                                session_expired=False,
-                                steps_executed=ctx.steps_executed
-                            )
-                except RuntimeError as e:
-                    if "Max steps" in str(e):
-                        ctx.add_log(LogLevel.WARNING, f"Stopped at step limit: {ctx.steps_executed}")
-                        return TestSubflowResponse(
-                            success=False,
-                            partial=True,
-                            node_results=ctx.node_results,
-                            logs=ctx.logs,
-                            records=ctx.records[:ctx.max_items],
-                            error=str(e),
-                            session_expired=False,
-                            steps_executed=ctx.steps_executed
-                        )
-                    raise
-                except Exception as e:
-                    ctx.add_log(LogLevel.ERROR, f"Failed to execute node {node_id}: {e}", node_id=node_id, details={"exception": str(e)})
-                    return TestSubflowResponse(
-                        success=False,
-                        partial=True,
-                        node_results=ctx.node_results,
-                        logs=ctx.logs,
-                        records=ctx.records[:ctx.max_items],
-                        error=str(e),
-                        session_expired=False,
-                        steps_executed=ctx.steps_executed
-                    )
-
-                if node_id not in failed_node_ids and self._should_requeue_successors(node, ctx):
-                    for next_node_id in adj_map.get(node_id, []):
-                        if boundary.end_node_id and next_node_id == boundary.end_node_id:
-                            ctx.add_log(LogLevel.INFO, f"Reached boundary node: {next_node_id}", node_id=next_node_id)
-                            continue
-                        pending_nodes.append(next_node_id)
-
-            return TestSubflowResponse(
-                success=not any(r.error for r in ctx.node_results),
-                partial=False,
-                node_results=ctx.node_results,
-                logs=ctx.logs,
-                records=ctx.records[:ctx.max_items],
-                error=None,
-                session_expired=False,
-                steps_executed=ctx.steps_executed
+            partial_response = execute_subflow_loop(
+                self,
+                request.graph,
+                ctx,
+                adjacency_map,
+                pending_nodes,
+                boundary.end_node_id,
             )
+            if partial_response is not None:
+                return partial_response
+
+            return build_subflow_success_response(ctx)
 
         except Exception as e:
             logger.exception("test_subflow failed")
-            if ctx:
-                ctx.add_log(LogLevel.ERROR, f"Subflow execution failed: {e}", details={"exception": str(e)})
-            return TestSubflowResponse(
-                success=False,
-                partial=True,
-                node_results=ctx.node_results if ctx else [],
-                logs=ctx.logs if ctx else [],
-                records=ctx.records[:ctx.max_items] if ctx else [],
-                error=str(e),
-                session_expired=False,
-                steps_executed=ctx.steps_executed if ctx else 0
-            )
+            return build_subflow_exception_response(ctx, e)
 
 
 # Singleton executor instance

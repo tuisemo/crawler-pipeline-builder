@@ -1,40 +1,28 @@
 # User Testing
 
-Guidance for practical validation during the compatibility-first migration.
+Guidance for practical validation of the current workflow/API + React workbench stack.
 
 ## Validation Surface
 
-- Legacy UI: `http://localhost:8000/`
-- Legacy API: `/api/visit`, `/api/auto-detect`, `/api/test-selector`, `/api/test-fields`, `/api/page-html`, `/api/generate-crawler`, `/api/picker-*`, `/api/session/*`
-- Workflow API: `/api/workflows/validate`, `/api/workflows/from-legacy-config`, `/api/workflows/to-prompt`, `/api/workflows/test-node`, `/api/workflows/test-subflow`
-- Planned React workbench: `http://localhost:3101/` once React/Vite exists
-- Prompt and script generation: validate prompt preview always; validate real LLM generation only when configuration is available.
-
-## Validation Concurrency
-
-- Browser-backed validation: max concurrent validators = 1
-- API-only validation: max concurrent validators = 2 when tests do not share a live browser session
-- Rationale: the backend uses shared Playwright browser/session resources and headful desktop execution; concurrent browser tests risk cross-run interference. Pure API checks can run with limited parallelism as long as they do not start overlapping browser-backed execution.
+- Backend API root: `http://localhost:8000/`
+- Workflow API: `/api/workflows/*`
+- Assist API: `/api/assist/*`
+- React workbench: `http://localhost:3101/`
 
 ## Minimum Validation Expectations
 
-- Run the available Python test suite when code changes affect backend behavior.
-- Smoke `GET /` to confirm the legacy page remains available.
-- Smoke critical legacy error contracts, especially blank URL/selector/config rejection paths.
-- Smoke workflow validation/conversion/prompt endpoints for DSL behavior.
-- For executor changes, validate bounded `test-node` or `test-subflow` behavior with small limits and inspect structured logs/results.
-- For React workbench work, validate that React can fall back to legacy-compatible DSL conversion and that the backend legacy page still works.
+- Run backend tests when backend behavior changes
+- Run frontend tests/build when workbench behavior changes
+- For workflow changes, smoke validation, prompt preview, and bounded execution
+- For assist changes, smoke selector extraction or field inference against a small page sample
+- For frontend layout changes, verify add-node visibility, property panel behavior, DSL visibility, and result dock behavior in a real browser
 
-## React Workbench Testing Semantics
+## Concurrency Guidance
 
-- During development, React should run on `3101` and call the backend on `8000`.
-- React failure must not break `GET /` legacy fallback.
-- React route testing should cover canvas/DSL synchronization, legacy config import, validation calls, prompt preview, node test, subflow test, and visible degraded state when LLM generation is unavailable.
-- Keep browser tests bounded and serial; prefer small example pages and short max item/page limits.
+- Browser-backed validation: max concurrent validators = 1
+- API-only validation: limited parallelism is acceptable when no live browser session is involved
 
-## Accepted Limitations
+## Accepted Limits
 
-- Current mission accepts lower-but-real validation rigor, not exhaustive end-to-end automation.
-- LLM real generation can be skipped when no valid config is present, but degraded behavior must remain visible and non-crashing.
-- Full frontend automation is not required before React assets exist.
-- Complex details-page crawling and nested loops are outside MVP user-testing scope.
+- Real LLM generation can be skipped when config is unavailable, but degraded behavior must remain visible and non-crashing
+- Complex details-page crawling and deeply nested loop scenarios are still outside the main smoke-test surface

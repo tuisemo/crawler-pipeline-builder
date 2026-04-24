@@ -228,9 +228,7 @@ async def test_runtime_reports_required_data_and_unsupported_nodes(monkeypatch):
         (node("list", "select_list"), "item_selector is required"),
         (node("extract", "extract_field"), "fields are required"),
         (node("page", "paginate"), "pagination_selector is required"),
-        (node("loop", "loop"), "Unsupported node type: loop"),
-        (node("condition", "condition"), "Unsupported node type: condition"),
-        (node("end", "end"), "Unsupported node type: end"),
+        (node("condition", "condition"), "condition field is required"),
         (node("custom", "custom_detail"), "Unsupported node type: custom_detail"),
     ]
 
@@ -249,6 +247,37 @@ async def test_runtime_reports_required_data_and_unsupported_nodes(monkeypatch):
         if expected_error.startswith("Unsupported"):
             assert failed_result.result["status"] == "unsupported"
             assert response.logs[-1].level.value == "error"
+
+
+@pytest.mark.anyio
+async def test_loop_and_end_nodes_are_supported(monkeypatch):
+    """loop and end nodes are now supported (no-op / context-setting)."""
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    # loop: needs upstream select_list context
+    request = TestSubflowRequest.model_validate({
+        "graph": graph([
+            node("open", "open_page", {"url": "http://example.com"}),
+            node("list", "select_list", {"item_selector": ".item"}),
+            node("lp", "loop", {"max_items": 5}),
+            node("en", "end", {}),
+        ], [
+            {"id": "e1", "source": "open", "target": "list"},
+            {"id": "e2", "source": "list", "target": "lp"},
+            {"id": "e3", "source": "lp", "target": "en"},
+        ]),
+        "boundary": {"max_items": 10, "max_steps": 10},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    # loop sets context (item_count=0 since no real page), end stops
+    node_ids = [result.node_id for result in response.node_results]
+    assert "lp" in node_ids
+    assert "en" in node_ids
+    assert response.node_results[-1].node_id == "en"
+    assert response.node_results[-1].result["status"] == "ended"
 
 
 @pytest.mark.anyio
@@ -386,3 +415,33 @@ async def test_subflow_unexpected_failure_preserves_partial_outputs(monkeypatch)
     assert all(result.node_id != "after" for result in response.node_results)
     assert "boom after open" in response.error
     assert any("boom after open" in log.message for log in response.logs)
+
+
+@pytest.mark.anyio
+async def test_condition_branch_prefers_edge_metadata_over_position(monkeypatch):
+    session = FakeSession()
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com"}),
+                node("cond", "condition", {"condition": "not_exists missing", "expression_mode": "simple"}),
+                node("end_true", "end", {}),
+                node("end_false", "end", {}),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "cond"},
+                # Intentionally put false edge first to validate metadata precedence.
+                {"id": "e2", "source": "cond", "target": "end_false", "branch": "false"},
+                {"id": "e3", "source": "cond", "target": "end_true", "branch": "true"},
+            ],
+        ),
+        "boundary": {"max_steps": 10},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert [result.node_id for result in response.node_results] == ["open", "cond", "end_true"]
+    assert all(result.node_id != "end_false" for result in response.node_results)

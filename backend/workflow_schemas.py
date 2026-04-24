@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
-from typing import List, Dict, Any, Optional, Annotated
+from typing import List, Dict, Any, Optional
 from enum import Enum
 
 
@@ -28,7 +28,7 @@ class FieldSchema(BaseModel):
     css: Optional[str] = None
     extraction_type: Optional[str] = None
 
-    @field_validator("name", "field_name")
+    @field_validator("name", "field_name", "selector", "css")
     @classmethod
     def _coerce_blank_to_none(cls, v: Optional[str]) -> Optional[str]:
         if isinstance(v, str) and not v.strip():
@@ -74,7 +74,7 @@ class ExtractFieldData(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    fields: Optional[List[Dict[str, Any]]] = None  # Replaced by strong FieldSchema in validate
+    fields: Optional[List[FieldSchema]] = None
     html_fragment: Optional[str] = None
     max_items: Optional[int] = None
 
@@ -87,6 +87,47 @@ class PaginateData(BaseModel):
     pagination_selector: str = ""  # Required; empty string triggers validation error
     pagination_strategy: Optional[str] = None
     max_pages: Optional[int] = None
+
+
+class LoopData(BaseModel):
+    """Data model for loop nodes.
+
+    Consumes the item set produced by a upstream select_list and provides
+    current-item context for downstream nodes. max_items is optional and
+    defaults to the execution context limit.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    max_items: Optional[int] = None
+    # on_error: "skip" (default) | "stop" - controls per-item failure behavior
+    on_error: Optional[str] = None
+
+
+class ConditionData(BaseModel):
+    """Data model for condition nodes.
+
+    Evaluates a simple expression against the current execution state
+    and routes to either the true or false branch.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    condition: str = ""  # Required; empty string triggers validation error
+    # expression_mode: "simple" (default) - whitelist of operators only
+    expression_mode: Optional[str] = None
+
+
+class EndData(BaseModel):
+    """Data model for end nodes.
+
+    Marks the explicit termination of a workflow path. It is a safe no-op
+    in the executor (execution stops when ctx.state["ended"] is True).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    label: Optional[str] = None
 
 
 # ----------------------------------------------------------------------
@@ -114,6 +155,10 @@ class NodeData(BaseModel):
     html_fragment: Optional[str] = None
     max_items: Optional[int] = None
     max_steps: Optional[int] = None
+    condition: Optional[str] = None
+    expression_mode: Optional[str] = None
+    on_error: Optional[str] = None
+    label: Optional[str] = None
 
 
 # ----------------------------------------------------------------------
@@ -128,9 +173,16 @@ class WorkflowNode(BaseModel):
 
 
 class WorkflowEdge(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     id: StrictStr
     source: StrictStr
     target: StrictStr
+    # Optional branch metadata for condition nodes.
+    # Allowed values: true/false (bool) or "true"/"false"/"default".
+    branch: Optional[str | bool] = None
+    label: Optional[str] = None
+    order: Optional[int] = None
 
 
 class WorkflowGraph(BaseModel):
@@ -228,14 +280,137 @@ class TestSubflowResponse(BaseModel):
 class GenerateCrawlerRequest(BaseModel):
     """Request to generate a Playwright crawler script from a DSL workflow graph."""
     graph: WorkflowGraph
+    prompt_override: Optional[str] = None
 
 
 class GenerateCrawlerResponse(BaseModel):
     """Response containing the generated crawler script and metadata."""
     success: bool
     prompt: Optional[str] = None
+    editable_prompt: Optional[str] = None
     script: Optional[str] = None
     filename: Optional[str] = None
     model: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     error: Optional[str] = None
+
+
+class FormatScriptRequest(BaseModel):
+    """Format a generated crawler script for easier editing."""
+
+    content: str
+    language: str = "python"
+
+
+class FormatScriptResponse(BaseModel):
+    success: bool
+    formatted_content: Optional[str] = None
+    changed: bool = False
+    formatter: Optional[str] = None
+    warnings: List[str] = []
+    error: Optional[str] = None
+
+
+class SaveScriptRequest(BaseModel):
+    """Persist a generated or edited crawler script into the project workspace."""
+
+    relative_path: str
+    content: str
+    overwrite: bool = False
+
+
+class SaveScriptResponse(BaseModel):
+    success: bool
+    relative_path: Optional[str] = None
+    absolute_path: Optional[str] = None
+    bytes_written: int = 0
+    created: bool = False
+    overwritten: bool = False
+    error: Optional[str] = None
+
+
+class GenerateSkeletonRequest(BaseModel):
+    """Request to generate deterministic crawler skeleton script from workflow graph."""
+    graph: WorkflowGraph
+
+
+class GenerateSkeletonResponse(BaseModel):
+    """Response containing generated deterministic crawler skeleton."""
+    success: bool
+    script: Optional[str] = None
+    filename: Optional[str] = None
+    plan: Optional[Dict[str, Any]] = None
+    warnings: List[str] = []
+    error: Optional[str] = None
+
+
+class CompilePlanRequest(BaseModel):
+    """Request to compile a WorkflowGraph into a deterministic execution plan."""
+    graph: WorkflowGraph
+
+
+class CompilePlanResponse(BaseModel):
+    """Response containing the compiled execution plan."""
+    success: bool
+    plan: Optional[Dict[str, Any]] = None
+    warnings: List[str] = []
+    error: Optional[str] = None
+
+
+class AutoDetectRequest(BaseModel):
+    """Run list/pagination auto-detection on the active browser page."""
+    session_id: Optional[str] = None
+    url: Optional[str] = None
+
+
+class AutoDetectResponse(BaseModel):
+    success: bool
+    session_id: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class AssistHtmlExtractRequest(BaseModel):
+    """Extract cleaned HTML fragments for a target item selector."""
+    item_selector: str
+    session_id: Optional[str] = None
+    url: Optional[str] = None
+    max_items: int = 3
+
+
+class AssistHtmlExtractResponse(BaseModel):
+    success: bool
+    session_id: Optional[str] = None
+    html_fragment: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class AssistLlmRequest(BaseModel):
+    """Generic request used by infer-fields / optimize-selector / analyze-pagination."""
+    html_fragment: str
+    session_id: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    initial_selector: Optional[str] = None
+
+
+class AssistLlmResponse(BaseModel):
+    success: bool
+    result: Optional[Dict[str, Any]] = None
+    confidence: Optional[float] = None
+    reason: Optional[str] = None
+    model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    raw: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AssistCleanDataRequest(BaseModel):
+    """Request payload for AI data cleaning."""
+
+    raw_data: str
+    data_type: str
+    session_id: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None

@@ -1,44 +1,18 @@
 import { MarkerType, type Edge, type Node } from '@xyflow/react'
+import type {
+  CanonicalWorkflowEdge,
+  WorkflowGraph,
+  WorkflowBranch,
+  WorkflowNodeData,
+  WorkflowNodeType,
+} from './workflowContracts'
 
 export type DslStatus = 'synced' | 'parse-error' | 'schema-error'
-export type WorkflowNodeType =
-  | 'open_page'
-  | 'select_list'
-  | 'loop'
-  | 'extract_field'
-  | 'condition'
-  | 'paginate'
-  | 'emit_record'
-  | 'end'
-
-export type ExtractionField = {
-  name: string
-  selector: string
-  type: string
-}
-
-export type WorkflowNodeData = {
-  label?: string
-  url?: string
-  item_selector?: string
-  fields?: ExtractionField[]
-  pagination_selector?: string
-  pagination_strategy?: string
-  max_pages?: number
-  max_items?: number
-  max_steps?: number
-  condition?: string
-  [key: string]: unknown
-}
 
 export type WorkflowNode = Node<WorkflowNodeData, WorkflowNodeType>
-export type WorkflowEdge = Edge
-export type CanonicalWorkflowEdge = { id: string; source: string; target: string }
-export type CanonicalWorkflowNode = { id: string; type: WorkflowNodeType; data: WorkflowNodeData }
-
-export type WorkflowGraph = {
-  nodes: CanonicalWorkflowNode[]
-  edges: CanonicalWorkflowEdge[]
+export type WorkflowEdge = Edge & {
+  branch?: WorkflowBranch
+  order?: number
 }
 
 export type DslApplyState = {
@@ -81,6 +55,9 @@ export function toCanonicalGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): 
       id: edge.id,
       source: edge.source,
       target: edge.target,
+      branch: edge.branch,
+      label: typeof edge.label === 'string' ? edge.label : undefined,
+      order: typeof edge.order === 'number' ? edge.order : undefined,
     })),
   }
 }
@@ -123,7 +100,28 @@ export function validateGraphShape(value: unknown): WorkflowGraph {
     if (!candidate.data || typeof candidate.data !== 'object' || Array.isArray(candidate.data)) {
       throw new Error(`Node ${candidate.id} requires object data.`)
     }
-    return { id: candidate.id, type: candidate.type, data: candidate.data as WorkflowNodeData }
+    const data = candidate.data as WorkflowNodeData
+    if (candidate.type === 'extract_field' && data.fields) {
+      for (const [fieldIndex, field] of data.fields.entries()) {
+        const resolvedName = typeof field.name === 'string' && field.name.trim()
+          ? field.name
+          : typeof field.field_name === 'string' && field.field_name.trim()
+            ? field.field_name
+            : ''
+        const resolvedSelector = typeof field.selector === 'string' && field.selector.trim()
+          ? field.selector
+          : typeof field.css === 'string' && field.css.trim()
+            ? field.css
+            : ''
+        if (!resolvedName) {
+          throw new Error(`Node ${candidate.id} field ${fieldIndex + 1} requires a name or field_name.`)
+        }
+        if (!resolvedSelector) {
+          throw new Error(`Node ${candidate.id} field ${fieldIndex + 1} requires a selector or css.`)
+        }
+      }
+    }
+    return { id: candidate.id, type: candidate.type, data }
   })
 
   const edges = graph.edges.map((edge, index) => {
@@ -140,7 +138,26 @@ export function validateGraphShape(value: unknown): WorkflowGraph {
     if (typeof candidate.target !== 'string' || !candidate.target.trim()) {
       throw new Error(`Edge ${candidate.id} requires a non-empty string target.`)
     }
-    return { id: candidate.id, source: candidate.source, target: candidate.target }
+    const parsed: CanonicalWorkflowEdge = {
+      id: candidate.id,
+      source: candidate.source,
+      target: candidate.target,
+    }
+    if (
+      typeof candidate.branch === 'boolean' ||
+      candidate.branch === 'true' ||
+      candidate.branch === 'false' ||
+      candidate.branch === 'default'
+    ) {
+      parsed.branch = candidate.branch as WorkflowBranch
+    }
+    if (typeof candidate.label === 'string' && candidate.label.trim()) {
+      parsed.label = candidate.label
+    }
+    if (typeof candidate.order === 'number' && Number.isFinite(candidate.order)) {
+      parsed.order = candidate.order
+    }
+    return parsed
   })
 
   return { nodes, edges }

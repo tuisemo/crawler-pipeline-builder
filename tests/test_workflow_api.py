@@ -1,8 +1,20 @@
+import shutil
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from server import app
+from backend.workflow_schemas import AssistLlmResponse
 
 client = TestClient(app)
+
+
+def make_test_workspace(name: str) -> Path:
+    root = Path(__file__).resolve().parent / ".tmp" / name
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 def test_validate_workflow_missing_graph():
     response = client.post("/api/workflows/validate", json={})
@@ -181,6 +193,8 @@ def test_to_prompt_valid():
     assert "http://example.com" in data["prompt"]
     assert ".item" in data["prompt"]
     assert "title" in data["prompt"]
+    assert data["editable_prompt"] == data["prompt"]
+    assert "Execution Plan (Deterministic)" in data["effective_prompt"]
 
 
 # ----------------------------------------------------------------------
@@ -235,6 +249,197 @@ def test_generate_crawler_valid_without_llm():
     data = response.json()
     assert "success" in data
     assert "prompt" in data
+
+
+def test_generate_skeleton_missing_graph():
+    response = client.post("/api/workflows/generate-skeleton", json={})
+    assert response.status_code == 422
+
+
+def test_generate_skeleton_missing_required_fields():
+    response = client.post("/api/workflows/generate-skeleton", json={
+        "graph": {
+            "nodes": [{"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}}],
+            "edges": [],
+        }
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "URL and item_selector are required" in data["error"]
+
+
+def test_generate_skeleton_valid():
+    response = client.post("/api/workflows/generate-skeleton", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {
+                    "id": "n3",
+                    "type": "extract_field",
+                    "data": {"fields": [{"name": "title", "selector": "h1", "type": "text", "clean_data_type": "text"}]},
+                },
+            ],
+            "edges": [
+                {"id": "e1", "source": "n1", "target": "n2"},
+                {"id": "e2", "source": "n2", "target": "n3"},
+            ],
+        }
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["filename"] == "crawler_skeleton.py"
+    assert "sync_playwright" in data["script"]
+    assert "ENTRY_URL = 'http://example.com'" in data["script"]
+    assert "NORMALIZATION_RULES" in data["script"]
+
+
+def test_format_script_endpoint_returns_formatted_content():
+    response = client.post("/api/workflows/format-script", json={
+        "content": "def run():\r\n\treturn 1\r\n",
+        "language": "python",
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["formatted_content"] == "def run():\n    return 1\n"
+
+
+def test_save_script_endpoint_persists_file(monkeypatch):
+    workspace_root = make_test_workspace("api-save-script")
+    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+
+    response = client.post("/api/workflows/save-script", json={
+        "relative_path": "generated/api_saved.py",
+        "content": "print('saved')",
+        "overwrite": False,
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["relative_path"] == "generated/api_saved.py"
+    assert (workspace_root / "generated" / "api_saved.py").read_text(encoding="utf-8") == "print('saved')\n"
+
+
+def test_save_script_endpoint_rejects_existing_target_without_overwrite(monkeypatch):
+    workspace_root = make_test_workspace("api-save-script-existing")
+    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+    target = workspace_root / "generated" / "existing.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("print('first')\n", encoding="utf-8")
+
+    response = client.post("/api/workflows/save-script", json={
+        "relative_path": "generated/existing.py",
+        "content": "print('second')",
+        "overwrite": False,
+    })
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error_code"] == "target_exists"
+
+
+def test_compile_plan_valid():
+    response = client.post("/api/workflows/compile-plan", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item", "max_items": 3}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1", "type": "text"}]}},
+                {"id": "n4", "type": "condition", "data": {"condition": "not_exists title", "expression_mode": "simple"}},
+            ],
+            "edges": [
+                {"id": "e1", "source": "n1", "target": "n2"},
+                {"id": "e2", "source": "n2", "target": "n3"},
+                {"id": "e3", "source": "n3", "target": "n4"},
+                {"id": "e4", "source": "n4", "target": "n3", "branch": "true", "order": 0},
+            ]
+        }
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["plan"]["entry_url"] == "http://example.com"
+    assert data["plan"]["item_selector"] == ".item"
+    assert data["plan"]["limits"]["max_items"] == 3
+    assert data["plan"]["field_specs"][0]["name"] == "title"
+    assert any(edge["branch"] == "true" for edge in data["plan"]["edges"])
+
+
+def test_assist_auto_detect_requires_context():
+    response = client.post("/api/assist/auto-detect", json={})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "No active browser session found" in data["error"]
+
+
+def test_assist_clean_data_requires_raw_data_and_type():
+    response = client.post("/api/assist/clean-data", json={})
+    assert response.status_code == 422
+
+
+def test_assist_clean_data_success(monkeypatch):
+    def fake_clean_data(_request):
+        return AssistLlmResponse(
+            success=True,
+            result={"cleaned_value": 12000, "confidence": 0.91},
+            reason="normalized count suffix",
+        )
+
+    monkeypatch.setattr("backend.assist_routes.clean_data", fake_clean_data)
+
+    response = client.post("/api/assist/clean-data", json={
+        "raw_data": "1.2万条评论",
+        "data_type": "count",
+    })
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["result"]["cleaned_value"] == 12000
+
+
+def test_full_flow_from_legacy_to_compile_and_skeleton():
+    legacy = client.post("/api/workflows/from-legacy-config", json={
+        "url": "http://example.com",
+        "item_selector": ".item",
+        "fields": [
+            {
+                "name": "price",
+                "selector": ".price",
+                "type": "text",
+                "clean_data_type": "price",
+                "normalized_sample": "1234.56",
+            }
+        ],
+        "pagination_selector": ".next",
+        "pagination_strategy": "click_next",
+        "max_pages": 3,
+    })
+    assert legacy.status_code == 200
+    legacy_payload = legacy.json()
+    assert legacy_payload["success"] is True
+    graph = legacy_payload["graph"]
+
+    validate = client.post("/api/workflows/validate", json={"graph": graph})
+    assert validate.status_code == 200
+    assert validate.json()["success"] is True
+
+    compile_resp = client.post("/api/workflows/compile-plan", json={"graph": graph})
+    assert compile_resp.status_code == 200
+    compile_payload = compile_resp.json()
+    assert compile_payload["success"] is True
+    assert compile_payload["plan"]["field_specs"][0]["clean_data_type"] == "price"
+
+    skeleton_resp = client.post("/api/workflows/generate-skeleton", json={"graph": graph})
+    assert skeleton_resp.status_code == 200
+    skeleton_payload = skeleton_resp.json()
+    assert skeleton_payload["success"] is True
+    assert "normalize_value" in skeleton_payload["script"]
 
 
 # ----------------------------------------------------------------------
@@ -325,7 +530,7 @@ def test_validate_minimal_valid_graph_succeeds():
     assert response.json() == {"success": True, "message": "Workflow is valid"}
 
 
-def test_validate_mvp_accepts_structural_graph_with_optional_legacy_data_and_unknown_nodes():
+def test_validate_accepts_structural_graph_with_extra_supported_node_data():
     response = post_validate({
         "nodes": [
             {
@@ -344,12 +549,23 @@ def test_validate_mvp_accepts_structural_graph_with_optional_legacy_data_and_unk
                     "future_option": "accepted",
                 },
             },
-            {"id": "n2", "type": "custom_future_node", "data": {"url": "ignored", "custom": "allowed"}},
         ],
-        "edges": [{"id": "e1", "source": "missing-source", "target": "n2"}],
+        "edges": [],
     })
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+def test_validate_rejects_unknown_node_types_and_dangling_edges():
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "https://example.com"}},
+            {"id": "n2", "type": "custom_future_node", "data": {"custom": "allowed"}},
+        ],
+        "edges": [{"id": "e1", "source": "missing-source", "target": "n2"}],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "edge_source_missing"
 
 
 # ----------------------------------------------------------------------
@@ -486,6 +702,36 @@ def test_validate_extract_field_accepts_legacy_field_aliases():
     assert response.status_code == 200
 
 
+def test_validate_extract_field_requires_field_name_and_selector():
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {"fields": [{"selector": "h1"}]}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "extract_field_requires_field_name"
+
+    response = post_validate({
+        "nodes": [
+            {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+            {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+            {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title"}]}},
+        ],
+        "edges": [
+            {"id": "e1", "source": "n1", "target": "n2"},
+            {"id": "e2", "source": "n2", "target": "n3"},
+        ],
+    })
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "extract_field_requires_field_selector"
+
+
 def test_validate_paginate_requires_pagination_selector():
     """paginate node without pagination_selector is rejected at validation time."""
     response = post_validate({
@@ -527,18 +773,18 @@ def test_validate_paginate_accepts_valid_pagination_selector():
     assert response.json()["success"] is True
 
 
-def test_validate_unknown_node_types_are_allowed():
-    """Unknown node types (loop, condition, end) pass validation even if they lack data."""
+def test_validate_unknown_node_types_are_rejected():
+    """Unsupported executor node types are rejected during validation."""
     response = post_validate({
         "nodes": [
             {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
             {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
-            {"id": "n3", "type": "loop", "data": {}},
+            {"id": "n3", "type": "custom_script", "data": {}},
         ],
         "edges": [
             {"id": "e1", "source": "n1", "target": "n2"},
             {"id": "e2", "source": "n2", "target": "n3"},
         ],
     })
-    # Unknown types pass for now (MVP behavior)
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "unsupported_node_type"

@@ -1,0 +1,431 @@
+"""Auto-detection algorithms for list item and pagination detection.
+
+Adapted from Mycelium's scraper package with modifications for this project.
+"""
+
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class FieldCandidate:
+    """A detected field within a list item."""
+    name: str
+    selector: str
+    extraction_type: str  # "text", "attr:href", "attr:src", etc.
+    confidence: float
+
+
+@dataclass
+class DetectionResult:
+    """Result of auto-detection analysis."""
+    item_selector: str = ""
+    item_count: int = 0
+    item_signature: str = ""
+    pagination_selector: str = ""
+    pagination_strategy: str = "click_next"  # "click_next", "infinite_scroll", "load_more", "none"
+    pagination_score: int = 0
+    confidence: float = 0.0
+    fields: list[FieldCandidate] = field(default_factory=list)
+    html_fragment: str = ""
+
+
+# JavaScript for auto-detection (runs in browser context)
+JS_AUTO_DETECT = """
+() => {
+    const IGNORE_TAGS = new Set([
+        'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'META', 'HEAD', 'TITLE',
+        'LINK', 'IFRAME', 'CANVAS'
+    ]);
+    const IGNORE_HINTS = [
+        'header', 'footer', 'nav', 'menu', 'sidebar', 'toolbar', 'banner',
+        'cookie', 'popup', 'modal', 'advert', 'ad-', 'crumb', 'search',
+        'login', 'share', 'navbar', 'widget'
+    ];
+    const LIST_CONTAINER_SELECTORS = ['main', 'article', 'section', 'div', 'ul', 'ol', 'table', 'tbody', 'dl'];
+    const PAGINATION_CONTAINER_SELECTORS = ['nav', 'div', 'section', 'ul', 'ol', 'table', 'tbody', 'tr', 'td', 'p', 'span', 'li'];
+    const PAGE_TEXT_RE = /^(?:\\d{1,3}|[<>]|>>|<<|›|‹|»|«|下一页|下页|上一页|首页|尾页|末页|next|prev|previous)$/i;
+    const DATE_RE = /(20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?)|(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2})/;
+
+    function cleanup() {
+        document.querySelectorAll('[data-sea-auto]').forEach(el => {
+            el.style.outline = '';
+            el.style.backgroundColor = '';
+            el.removeAttribute('data-sea-auto');
+        });
+        const marker = document.getElementById('sea-auto-style');
+        if (marker) marker.remove();
+    }
+    cleanup();
+
+    const style = document.createElement('style');
+    style.id = 'sea-auto-style';
+    style.textContent = `
+        [data-sea-auto="item"] { outline: 2px dashed #45b7d1 !important; }
+        [data-sea-auto="pagination"] { outline: 2px dashed #f7dc6f !important; }
+        [data-sea-auto="field"] { outline: 2px dotted #96ceb4 !important; }
+    `;
+    document.head.appendChild(style);
+
+    function isVisible(el) {
+        if (!el || !(el instanceof HTMLElement)) return false;
+        const s = window.getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width >= 120 && r.height >= 40;
+    }
+
+    function textContent(el) {
+        return (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    }
+
+    function stableClassTokens(el) {
+        return Array.from(el.classList || [])
+            .filter(t => t && !/\\d/.test(t) && t.length > 2 && t.length < 30)
+            .slice(0, 2);
+    }
+
+    function shouldIgnore(el) {
+        if (!el || !(el instanceof HTMLElement) || IGNORE_TAGS.has(el.tagName)) return true;
+        const classId = (el.id || '') + ' ' + (el.className || '');
+        return IGNORE_HINTS.some(h => classId.toLowerCase().includes(h));
+    }
+
+    function itemSignature(el) {
+        const childTags = Array.from(el.children).slice(0, 6).map(c => c.tagName.toLowerCase()).join(',');
+        const cls = stableClassTokens(el).join('.');
+        const anchors = el.querySelectorAll('a[href]').length > 0 ? 'a' : '-';
+        const hasDate = DATE_RE.test(textContent(el)) ? 'd' : '-';
+        return el.tagName.toLowerCase() + '|' + cls + '|' + childTags + '|' + anchors + '|' + hasDate;
+    }
+
+    function analyzeRepeatedChildren(container) {
+        const children = Array.from(container.children).filter(child => {
+            if (!(child instanceof HTMLElement)) return false;
+            if (shouldIgnore(child)) return false;
+            if (!isVisible(child)) return false;
+            const text = textContent(child);
+            if (text.length < 12) return false;
+            if (child.querySelectorAll('a[href]').length === 0 && !DATE_RE.test(text) && text.length < 24) return false;
+            return true;
+        });
+        if (children.length < 3) return null;
+
+        const groups = new Map();
+        children.forEach((child, idx) => {
+            const sig = itemSignature(child);
+            if (!groups.has(sig)) groups.set(sig, []);
+            groups.get(sig).push({ element: child, idx });
+        });
+
+        let best = null;
+        for (const [sig, items] of groups.entries()) {
+            if (items.length >= 3 && (!best || items.length > best.items.length)) {
+                best = { sig, items };
+            }
+        }
+        if (!best) return null;
+
+        const sampleItems = best.items.slice(0, 5).map(i => i.element);
+        const linkCount = sampleItems.reduce((s, el) => s + el.querySelectorAll('a[href]').length, 0);
+        const dateHits = sampleItems.reduce((s, el) => s + (DATE_RE.test(textContent(el)) ? 1 : 0), 0);
+        const avgTextLength = sampleItems.reduce((s, el) => s + textContent(el).length, 0) / sampleItems.length;
+        const listScore = best.items.length * 3 + (linkCount / sampleItems.length) * 2 + dateHits * 1.5 + Math.min(avgTextLength / 50, 4);
+
+        return {
+            container,
+            items: best.items,
+            itemCount: best.items.length,
+            avgLinks: linkCount / sampleItems.length,
+            dateHits,
+            avgTextLength,
+            listScore
+        };
+    }
+
+    function paginationSignals(node) {
+        if (!node || !(node instanceof HTMLElement) || shouldIgnore(node)) return null;
+        const elements = Array.from(node.querySelectorAll('a, button, [role="button"], span')).slice(0, 40);
+        if (elements.length < 2) return null;
+
+        let textHits = 0, numberHits = 0, hrefHits = 0, currentHits = 0;
+        for (const el of elements) {
+            const text = textContent(el);
+            if (PAGE_TEXT_RE.test(text)) {
+                textHits++;
+                if (/^\\d+$/.test(text)) numberHits++;
+                if (/^(?:\\d{1,3}|下一页|下一页|下页|首页|尾页|末页)$/i.test(text)) currentHits++;
+            }
+            const href = (el.getAttribute('href') || '').toLowerCase();
+            if (href.includes('page=') || href.includes('p=') || href.includes('index_') || href.includes('next')) hrefHits++;
+        }
+
+        const classHint = /(page|pagination|pager|fy|fenye)/i.test(node.id + ' ' + node.className) ? 4 : 0;
+        const renderedBonus = isVisible(node) ? 3 : 0;
+        const score = textHits * 3 + numberHits * 2 + hrefHits * 2 + currentHits + classHint + renderedBonus;
+
+        return { score, element: node, rendered: isVisible(node) };
+    }
+
+    function escapeCssValue(value) {
+        return String(value).replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
+    }
+
+    function buildSelectorSegment(el) {
+        const tag = el.nodeName.toLowerCase();
+        if (el.id && /^[a-zA-Z][\\w\\-]*$/.test(el.id)) return `${tag}#${el.id}`;
+
+        const classes = Array.from(el.classList || [])
+            .filter(c => c && c.length > 1 && !/\\d/.test(c) && c.length < 30)
+            .slice(0, 2);
+        if (classes.length > 0) return `${tag}.${classes.join('.')}`;
+
+        const attrCandidates = ['data-testid', 'data-cy', 'data-test', 'data-qa', 'data-id', 'name', 'role', 'itemprop', 'aria-label', 'title', 'alt'];
+        for (const attr of attrCandidates) {
+            const raw = el.getAttribute(attr);
+            if (raw && raw.length <= 80 && !/[\\n\\r]/.test(raw)) {
+                return `${tag}[${attr}="${escapeCssValue(raw)}"]`;
+            }
+        }
+        return tag;
+    }
+
+    function getCssPath(el) {
+        if (!(el instanceof Element)) return '';
+        const path = [];
+        while (el && el.nodeType === Node.ELEMENT_NODE) {
+            const s = buildSelectorSegment(el);
+            path.unshift(s);
+
+            const candidate = path.join(' > ');
+            try {
+                if (document.querySelectorAll(candidate).length === 1) return candidate;
+            } catch (_) {}
+
+            el = el.parentElement;
+            if (s.includes('#')) break;
+            if (el && (el.nodeName.toLowerCase() === 'html' || el.nodeName.toLowerCase() === 'body')) {
+                path.unshift(el.nodeName.toLowerCase());
+                break;
+            }
+        }
+        return path.join(' > ');
+    }
+
+    function getRelativeSelector(root, target) {
+        if (!(root instanceof Element) || !(target instanceof Element)) return '';
+        if (root === target) return ':scope';
+        if (!root.contains(target)) return getCssPath(target);
+
+        const parts = [];
+        let el = target;
+        while (el && el !== root && el.nodeType === Node.ELEMENT_NODE) {
+            const segment = buildSelectorSegment(el);
+            parts.unshift(segment);
+
+            const candidate = ':scope > ' + parts.join(' > ');
+            try {
+                if (root.querySelectorAll(candidate).length === 1) return candidate;
+            } catch (_) {}
+
+            el = el.parentElement;
+        }
+        return ':scope > ' + parts.join(' > ');
+    }
+
+    function detectFields(itemEl) {
+        const fields = [];
+        const seenKeys = new Set();
+
+        function addField(name, el, type, confidence) {
+            if (!(el instanceof Element)) return;
+            const selector = getRelativeSelector(itemEl, el);
+            if (!selector) return;
+            const key = `${name}|${type}|${selector}`;
+            if (seenKeys.has(key)) return;
+            seenKeys.add(key);
+            fields.push({ name, selector, type, confidence });
+        }
+
+        // Title candidates: h1-h6, .title, .name, .heading
+        ['h1','h2','h3','h4','h5','h6'].forEach(tag => {
+            itemEl.querySelectorAll(tag).forEach(el => {
+                const text = textContent(el).trim();
+                if (text.length > 3 && text.length < 200) {
+                    addField('title', el, 'text', 0.9);
+                }
+            });
+        });
+
+        itemEl.querySelectorAll('[class*="title"], [class*="name"], [class*="heading"]').forEach(el => {
+            const text = textContent(el).trim();
+            if (text.length > 3 && text.length < 200) {
+                addField('title', el, 'text', 0.7);
+            }
+        });
+
+        // Image candidates: img with src
+        itemEl.querySelectorAll('img').forEach(el => {
+            const src = el.getAttribute('src') || el.getAttribute('data-src');
+            if (src) {
+                addField('image', el, 'attr:src', 0.85);
+            }
+        });
+
+        // Link candidates: first significant link
+        const links = Array.from(itemEl.querySelectorAll('a[href]')).filter(el => {
+            const text = textContent(el).trim();
+            return text.length > 3;
+        });
+        if (links.length > 0) {
+            addField('link', links[0], 'attr:href', 0.8);
+        }
+
+        // Price candidates
+        itemEl.querySelectorAll('[class*="price"], [class*="cost"], [class*="amount"]').forEach(el => {
+            const text = textContent(el).trim();
+            if (text.match(/[$¥€£]|[0-9]/)) {
+                addField('price', el, 'text', 0.6);
+            }
+        });
+
+        // Rating candidates
+        itemEl.querySelectorAll('[class*="rating"], [class*="stars"], [class*="score"]').forEach(el => {
+            const text = textContent(el).trim();
+            if (text.match(/[0-9.]/)) {
+                addField('rating', el, 'text', 0.5);
+            }
+        });
+
+        return fields;
+    }
+
+    // Collect list candidates
+    const listCandidates = [];
+    LIST_CONTAINER_SELECTORS.forEach(sel => {
+        document.querySelectorAll(sel).forEach(container => {
+            if (shouldIgnore(container)) return;
+            const analysis = analyzeRepeatedChildren(container);
+            if (analysis) listCandidates.push(analysis);
+        });
+    });
+
+    if (listCandidates.length === 0) {
+        return { success: false, reason: 'no_list_candidate' };
+    }
+    listCandidates.sort((a, b) => b.listScore - a.listScore);
+
+    // Collect pagination candidates
+    const seen = new Set();
+    const pagCandidates = [];
+    PAGINATION_CONTAINER_SELECTORS.forEach(sel => {
+        document.querySelectorAll(sel).forEach(node => {
+            if (seen.has(node)) return;
+            seen.add(node);
+            const cand = paginationSignals(node);
+            if (cand && cand.score >= 6) pagCandidates.push(cand);
+        });
+    });
+    pagCandidates.sort((a, b) => b.score - a.score);
+
+    const best = listCandidates[0];
+    const bestPag = pagCandidates.length > 0 ? pagCandidates[0] : null;
+
+    // Mark elements
+    best.items.slice(0, 10).forEach((item, idx) => {
+        item.element.setAttribute('data-sea-auto', 'item');
+    });
+
+    if (bestPag) {
+        bestPag.element.setAttribute('data-sea-auto', 'pagination');
+    }
+
+    // Detect fields from first item
+    const fields = detectFields(best.items[0].element);
+
+    // Calculate confidence
+    const confidence = Math.min(0.98,
+        (best.itemCount >= 5 ? 0.35 : best.itemCount * 0.06) +
+        Math.min(best.avgLinks / 3, 0.18) +
+        Math.min(best.dateHits / 4, 0.15) +
+        (bestPag ? Math.min(bestPag.score / 18, 0.22) : 0)
+    );
+
+    // Determine pagination strategy
+    let pagStrategy = 'none';
+    let pagSelector = '';
+    if (bestPag) {
+        const pagButtons = Array.from(bestPag.element.querySelectorAll('a, button, [role="button"]'));
+        const hasLoadMore = pagButtons.some(btn => /^(加载更多|load more|more)$/i.test(textContent(btn)));
+        if (hasLoadMore) {
+            pagStrategy = 'load_more';
+        } else {
+            pagStrategy = 'click_next';
+        }
+        // Find next button specifically
+        const nextBtns = pagButtons.filter(btn => /^(下一页|下页|next|next page|>|›|»)$/i.test(textContent(btn)));
+        if (nextBtns.length > 0) {
+            pagSelector = getCssPath(nextBtns[0]);
+        }
+    }
+
+    return {
+        success: true,
+        confidence,
+        item_selector: getCssPath(best.container),
+        item_count: best.itemCount,
+        item_signature: best.sig,
+        pagination_selector: pagSelector,
+        pagination_strategy: pagStrategy,
+        pagination_score: bestPag ? bestPag.score : 0,
+        fields: fields.slice(0, 6),
+        html_fragment: best.items.slice(0, 3).map(i => i.element.outerHTML).join('\\n')
+    };
+}
+"""
+
+
+class AutoDetector:
+    """Auto-detects list containers, pagination, and extraction fields."""
+
+    def __init__(self):
+        self.js_script = JS_AUTO_DETECT
+
+    def detect(self, page) -> DetectionResult:
+        """Run auto-detection on a Playwright page.
+
+        Args:
+            page: Playwright page object
+
+        Returns:
+            DetectionResult with detected selectors and metadata
+        """
+        try:
+            result = page.evaluate(self.js_script)
+        except Exception as e:
+            return DetectionResult()
+
+        if not result or not result.get('success', False):
+            return DetectionResult()
+
+        fields = [
+            FieldCandidate(
+                name=f['name'],
+                selector=f['selector'],
+                extraction_type=f['type'],
+                confidence=f['confidence']
+            )
+            for f in result.get('fields', [])
+        ]
+
+        return DetectionResult(
+            item_selector=result.get('item_selector', ''),
+            item_count=result.get('item_count', 0),
+            item_signature=result.get('item_signature', ''),
+            pagination_selector=result.get('pagination_selector', ''),
+            pagination_strategy=result.get('pagination_strategy', 'none'),
+            pagination_score=result.get('pagination_score', 0),
+            confidence=result.get('confidence', 0.0),
+            fields=fields,
+            html_fragment=result.get('html_fragment', '')
+        )

@@ -288,26 +288,28 @@ Output format:
 }}
 ```"""
 
-PAGINATION_ANALYSIS_PROMPT = """Given HTML content containing pagination elements, analyze the pagination pattern.
+PAGINATION_ANALYSIS_PROMPT = """Given HTML content containing pagination elements, analyze the pagination pattern and extract highly robust selectors.
 
 HTML:
 {html_fragment}
 
 Task:
-1. Identify pagination container
-2. Find "next page" / "load more" button/link
-3. Determine pagination strategy:
-   - Traditional: clicks on page numbers or next button
-   - Infinite scroll: no button, just scroll
-   - Load more: explicit button to click
-4. Provide CSS selector for pagination controls
+1. Identify the pagination container and the specific "Next Page" (下一页) or "Load More" (加载更多) element.
+2. Determine the exact pagination strategy:
+   - 'click_next': Standard pagination with a "Next" button/link.
+   - 'infinite_scroll': No button, triggers on scroll.
+   - 'load_more': Explicit button to append items.
+   - 'none': No pagination found.
+3. Provide a ROBUST CSS selector for the next/load-more button. Prefer semantic classes (e.g., '.next', '.pagination-next', 'a[rel="next"]'), ID, or stable data-attributes over brittle nth-child paths.
+4. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
 
 Output format:
 ```json
 {{
   "pagination_strategy": "click_next|infinite_scroll|load_more|none",
-  "next_button_selector": "CSS selector for next button",
+  "next_button_selector": "robust CSS selector for next button",
   "page_number_selectors": ["list of page number selectors"],
+  "reason": "Explain why this selector and strategy were chosen",
   "confidence": 0.0-1.0
 }}
 ```"""

@@ -1,110 +1,137 @@
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   applyDslTextChange,
-  toCanonicalGraph,
-  type DslApplyState,
-  type WorkflowEdge,
-  type WorkflowGraph,
+  graphToFlowState,
+  validateGraphShape,
   type WorkflowNode,
 } from './workflowState'
+import type { WorkflowGraph } from './workflowContracts'
 
-const baseNodes: WorkflowNode[] = [
-  {
-    id: 'open-page-1',
-    type: 'open_page',
-    position: { x: 10, y: 20 },
-    data: { label: 'Open Page', url: 'https://quotes.toscrape.com/' },
-  },
-]
-
-const baseEdges: WorkflowEdge[] = []
-
-function createState(overrides: Partial<DslApplyState> = {}): DslApplyState {
-  return {
-    nodes: baseNodes,
-    edges: baseEdges,
-    selectedNodeId: 'open-page-1',
-    ...overrides,
-  }
-}
-
-describe('workflow DSL synchronization state', () => {
-  test('preserves the last valid graph when Monaco contains malformed JSON', async () => {
-    const state = createState()
-
-    const result = await applyDslTextChange(state, '{"nodes": [', { current: 0 }, async () => undefined)
-
-    expect(result.dslStatus).toBe('parse-error')
-    expect(result.dslFeedback).toContain('Unexpected')
-    expect(result.nodes).toBe(state.nodes)
-    expect(result.edges).toBe(state.edges)
-    expect(result.selectedNodeId).toBe('open-page-1')
-  })
-
-  test('preserves the last valid graph when schema validation rejects parsed JSON', async () => {
-    const state = createState()
-    const schemaInvalidText = JSON.stringify({ nodes: [], edges: [] }, null, 2)
-
-    const result = await applyDslTextChange(state, schemaInvalidText, { current: 0 }, async () => {
-      throw new Error('Workflow must contain at least one node.')
+describe('validateGraphShape', () => {
+  it('accepts a valid workflow graph', () => {
+    const graph = validateGraphShape({
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      edges: [],
     })
 
-    expect(result.dslStatus).toBe('schema-error')
-    expect(result.dslFeedback).toBe('Workflow must contain at least one node.')
-    expect(result.nodes).toBe(state.nodes)
-    expect(result.edges).toBe(state.edges)
-    expect(result.dslText).toBe(schemaInvalidText)
+    expect(graph.nodes[0].id).toBe('n1')
+    expect(graph.nodes[0].type).toBe('open_page')
   })
 
-  test('applies only the newest async validation result when older validation resolves later', async () => {
-    const staleGraph: WorkflowGraph = {
-      nodes: [{ id: 'open-page-stale', type: 'open_page', data: { label: 'Stale', url: 'https://stale.example' } }],
-      edges: [],
-    }
-    const currentGraph: WorkflowGraph = {
-      nodes: [{ id: 'open-page-current', type: 'open_page', data: { label: 'Current', url: 'https://current.example' } }],
-      edges: [],
-    }
-    let resolveStaleValidation!: () => void
-    const requestTracker = { current: 0 }
-    const validate = vi
-      .fn<() => Promise<void>>()
-      .mockImplementationOnce(() => new Promise<void>((resolve) => {
-        resolveStaleValidation = resolve
-      }))
-      .mockResolvedValueOnce(undefined)
-
-    const stalePromise = applyDslTextChange(createState(), JSON.stringify(staleGraph), requestTracker, validate)
-    const currentResult = await applyDslTextChange(createState(), JSON.stringify(currentGraph), requestTracker, validate)
-    resolveStaleValidation()
-    const staleResult = await stalePromise
-
-    expect(currentResult.applied).toBe(true)
-    expect(currentResult.nodes[0]?.id).toBe('open-page-current')
-    expect(currentResult.selectedNodeId).toBe('open-page-current')
-    expect(staleResult.applied).toBe(false)
-    expect(staleResult.nodes).toBe(baseNodes)
-    expect(requestTracker.current).toBe(2)
+  it('rejects unsupported node types', () => {
+    expect(() =>
+      validateGraphShape({
+        nodes: [{ id: 'n1', type: 'custom_node', data: {} }],
+        edges: [],
+      }),
+    ).toThrow('unsupported type')
   })
 
-  test('canvas-to-editor synchronization emits stable canonical node and edge JSON', () => {
-    const nodes: WorkflowNode[] = [
-      ...baseNodes,
+  it('accepts condition edge metadata', () => {
+    const graph = validateGraphShape({
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      edges: [{ id: 'e1', source: 'n1', target: 'n1', branch: 'default', label: 'fallback', order: 1 }],
+    })
+    expect(graph.edges[0].branch).toBe('default')
+    expect(graph.edges[0].label).toBe('fallback')
+    expect(graph.edges[0].order).toBe(1)
+  })
+})
+
+describe('graphToFlowState', () => {
+  it('preserves previous positions when node ids match', () => {
+    const previousNodes: WorkflowNode[] = [
       {
-        id: 'select-list-1',
-        type: 'select_list',
-        position: { x: 200, y: 20 },
-        data: { label: 'Select List', item_selector: '.quote' },
+        id: 'n1',
+        type: 'open_page',
+        position: { x: 420, y: 180 },
+        data: { url: 'https://example.com' },
       },
     ]
-    const edges: WorkflowEdge[] = [{ id: 'edge-open-select', source: 'open-page-1', target: 'select-list-1' }]
+    const graph: WorkflowGraph = {
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      edges: [],
+    }
 
-    expect(toCanonicalGraph(nodes, edges)).toEqual({
+    const state = graphToFlowState(graph, previousNodes)
+
+    expect(state.nodes[0].position).toEqual({ x: 420, y: 180 })
+  })
+})
+
+describe('applyDslTextChange', () => {
+  const baseState = {
+    nodes: [
+      {
+        id: 'n1',
+        type: 'open_page',
+        position: { x: 0, y: 0 },
+        data: { url: 'https://example.com' },
+      } as WorkflowNode,
+    ],
+    edges: [],
+    selectedNodeId: 'n1',
+  }
+
+  it('applies valid DSL after backend validation', async () => {
+    const nextText = JSON.stringify({
       nodes: [
-        { id: 'open-page-1', type: 'open_page', data: { label: 'Open Page', url: 'https://quotes.toscrape.com/' } },
-        { id: 'select-list-1', type: 'select_list', data: { label: 'Select List', item_selector: '.quote' } },
+        { id: 'n1', type: 'open_page', data: { url: 'https://example.com' } },
+        { id: 'n2', type: 'select_list', data: { item_selector: '.item' } },
       ],
-      edges: [{ id: 'edge-open-select', source: 'open-page-1', target: 'select-list-1' }],
+      edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
     })
+    const validateGraphWithBackend = vi.fn().mockResolvedValue(undefined)
+    const requestTracker = { current: 0 }
+
+    const result = await applyDslTextChange(baseState, nextText, requestTracker, validateGraphWithBackend)
+
+    expect(result.applied).toBe(true)
+    expect(result.dslStatus).toBe('synced')
+    expect(result.nodes).toHaveLength(2)
+    expect(validateGraphWithBackend).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns parse-error for invalid JSON', async () => {
+    const validateGraphWithBackend = vi.fn()
+    const requestTracker = { current: 0 }
+
+    const result = await applyDslTextChange(baseState, '{', requestTracker, validateGraphWithBackend)
+
+    expect(result.applied).toBe(false)
+    expect(result.dslStatus).toBe('parse-error')
+    expect(validateGraphWithBackend).not.toHaveBeenCalled()
+  })
+
+  it('returns schema-error when backend validation rejects the graph', async () => {
+    const nextText = JSON.stringify({
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      edges: [],
+    })
+    const validateGraphWithBackend = vi.fn().mockRejectedValue(new Error('Backend rejected graph'))
+    const requestTracker = { current: 0 }
+
+    const result = await applyDslTextChange(baseState, nextText, requestTracker, validateGraphWithBackend)
+
+    expect(result.applied).toBe(false)
+    expect(result.dslStatus).toBe('schema-error')
+    expect(result.dslFeedback).toContain('Backend rejected graph')
+  })
+
+  it('ignores stale backend validation responses', async () => {
+    const nextText = JSON.stringify({
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      edges: [],
+    })
+    const requestTracker = { current: 0 }
+    const validateGraphWithBackend = vi.fn().mockImplementation(async () => {
+      requestTracker.current = 2
+    })
+
+    const result = await applyDslTextChange(baseState, nextText, requestTracker, validateGraphWithBackend)
+
+    expect(result.applied).toBe(false)
+    expect(result.requestId).toBe(1)
+    expect(result.dslFeedback).toContain('Stale DSL validation ignored.')
   })
 })

@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Editor, { loader } from '@monaco-editor/react'
+import { loader } from '@monaco-editor/react'
+import { App as AntdApp, Button, Card, Tabs, Tag, Tooltip } from 'antd'
 import {
-  Background,
-  Controls,
-  Handle,
+  AppstoreOutlined,
+  BarsOutlined,
+  LayoutOutlined,
+  SaveOutlined,
+} from '@ant-design/icons'
+import {
   MarkerType,
-  MiniMap,
-  Position,
-  ReactFlow,
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
   type EdgeChange,
   type NodeChange,
-  type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './App.css'
@@ -23,25 +23,28 @@ import {
   getErrorMessage,
   toCanonicalGraph,
   type DslStatus,
-  type ExtractionField,
   type WorkflowEdge,
-  type WorkflowGraph,
   type WorkflowNode,
-  type WorkflowNodeData,
-  type WorkflowNodeType,
 } from './workflowState'
-loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
+import type { CanonicalWorkflowEdge, ExtractionField, WorkflowNodeData, WorkflowNodeType } from './workflowContracts'
+import { DslEditorPanel } from './components/DslEditorPanel'
+import { NodePalette, type PaletteItem } from './components/NodePalette'
+import { PropertyPanel } from './components/PropertyPanel'
+import { ResultsPanel } from './components/ResultsPanel'
+import { WorkbenchToolbar, type WorkbenchAction } from './components/WorkbenchToolbar'
+import { WorkflowCanvas } from './components/WorkflowCanvas'
+import { useWorkflowActions } from './hooks/useWorkflowActions'
+import {
+  buildWorkflowGraphKey,
+  extractEditablePrompt,
+  loadSavedPromptDrafts,
+  persistSavedPromptDrafts,
+  type SavedPromptDraftMap,
+} from './promptDrafts'
+import { postAssistAction, validateGraphWithBackend } from './services/workflowApi'
+import { resolveNextNodeId, resolveNextNodePosition, autoLayoutNodes } from './workflowNodePlacement'
 
-type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
-type WorkbenchAction = 'validate' | 'prompt' | 'test-node' | 'test-subflow' | 'generate-script'
-type ResultState = { tone: ResultTone; title: string; message: string; payload?: unknown }
-type ExecutionLog = { level?: string; message?: string; node_id?: string | null; [key: string]: unknown }
-type NodeExecutionResult = { node_id?: string; node_type?: string; success?: boolean; error?: string | null; result?: unknown; logs?: ExecutionLog[] }
-type PaletteItem = {
-  type: WorkflowNodeType
-  label: string
-  detail: string
-}
+loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
 function clampNumberInput(value: string, min: number, max: number, fallback: number) {
   const parsed = Number(value)
@@ -49,26 +52,99 @@ function clampNumberInput(value: string, min: number, max: number, fallback: num
   return Math.min(Math.max(parsed, min), max)
 }
 
+function toPositiveLimit(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return Math.trunc(value)
+}
+
 const paletteItems: PaletteItem[] = [
-  { type: 'open_page', label: 'open_page', detail: 'Set target URL' },
-  { type: 'select_list', label: 'select_list', detail: 'Choose item selector' },
-  { type: 'loop', label: 'loop', detail: 'Bound list iteration' },
-  { type: 'extract_field', label: 'extract_field', detail: 'Legacy fields array' },
-  { type: 'condition', label: 'condition', detail: 'Branch by expression' },
-  { type: 'paginate', label: 'paginate', detail: 'Legacy pagination' },
-  { type: 'emit_record', label: 'emit_record', detail: 'Output record' },
-  { type: 'end', label: 'end', detail: 'Stop workflow' },
+  { type: 'open_page', label: 'open_page', detail: '设置目标页面地址与访问边界' },
+  { type: 'select_list', label: 'select_list', detail: '定位页面中重复的列表容器' },
+  { type: 'loop', label: 'loop', detail: '逐项遍历上游列表，配置上限与容错策略' },
+  { type: 'extract_field', label: 'extract_field', detail: '从当前项中抽取结构化字段' },
+  { type: 'condition', label: 'condition', detail: '按白名单条件切分执行路径（true/false）' },
+  { type: 'paginate', label: 'paginate', detail: '处理翻页并重试下游采集链路' },
+  { type: 'emit_record', label: 'emit_record', detail: '提交已抽取的记录结果' },
+  { type: 'end', label: 'end', detail: '显式结束当前流程路径' },
 ]
 
-const nodeTypeLabels: Record<WorkflowNodeType, string> = {
-  open_page: 'Open Page',
-  select_list: 'Select List',
-  loop: 'Loop',
-  extract_field: 'Extract Field',
-  condition: 'Condition',
-  paginate: 'Paginate',
-  emit_record: 'Emit Record',
-  end: 'End',
+type AssistActionKey =
+  | 'auto-detect'
+  | 'optimize-selector'
+  | 'infer-fields'
+  | 'analyze-pagination'
+  | 'clean-data'
+  | 'test-selector'
+  | null
+type AssistApplyMode = 'current-only' | 'related-nodes'
+type DockTabKey = 'results' | 'dsl'
+type WorkbenchLayoutState = {
+  leftPanelOpen: boolean
+  rightPanelOpen: boolean
+  bottomDockOpen: boolean
+  activeDockTab: DockTabKey
+}
+
+const WORKBENCH_LAYOUT_STORAGE_KEY = 'sea-data:workbench-layout:v1'
+const DEFAULT_WORKBENCH_LAYOUT: WorkbenchLayoutState = {
+  leftPanelOpen: true,
+  rightPanelOpen: true,
+  bottomDockOpen: false,
+  activeDockTab: 'results',
+}
+
+function loadWorkbenchLayoutState(): WorkbenchLayoutState {
+  if (typeof window === 'undefined') return DEFAULT_WORKBENCH_LAYOUT
+  try {
+    const raw = window.localStorage.getItem(WORKBENCH_LAYOUT_STORAGE_KEY)
+    if (!raw) return DEFAULT_WORKBENCH_LAYOUT
+    const parsed = JSON.parse(raw) as Partial<WorkbenchLayoutState>
+    const activeDockTab: DockTabKey = parsed.activeDockTab === 'dsl' ? 'dsl' : 'results'
+    return {
+      leftPanelOpen: parsed.leftPanelOpen ?? DEFAULT_WORKBENCH_LAYOUT.leftPanelOpen,
+      rightPanelOpen: parsed.rightPanelOpen ?? DEFAULT_WORKBENCH_LAYOUT.rightPanelOpen,
+      bottomDockOpen: false, // Always collapse bottom dock by default on load
+      activeDockTab,
+    }
+  } catch {
+    return DEFAULT_WORKBENCH_LAYOUT
+  }
+}
+
+function inferCleanDataType(field: ExtractionField): string {
+  const fieldType = String(field.type ?? field.extraction_type ?? '').toLowerCase()
+  const fieldName = String(field.name ?? field.field_name ?? '').toLowerCase()
+
+  if (fieldType.includes('href') || fieldType.includes('src') || fieldType.includes('url')) return 'url'
+  if (fieldType.includes('bool')) return 'bool'
+  if (fieldName.includes('price') || fieldName.includes('金额') || fieldName.includes('价格')) return 'price'
+  if (fieldName.includes('date') || fieldName.includes('time') || fieldName.includes('日期') || fieldName.includes('时间')) return 'date'
+  if (fieldName.includes('rating') || fieldName.includes('score') || fieldName.includes('评分')) return 'rating'
+  if (fieldName.includes('count') || fieldName.includes('total') || fieldName.includes('数量') || fieldName.includes('评论')) return 'count'
+  if (fieldName.includes('phone') || fieldName.includes('tel') || fieldName.includes('电话')) return 'phone'
+  if (fieldName.includes('mail') || fieldName.includes('email') || fieldName.includes('邮箱')) return 'email'
+  return 'text'
+}
+
+function createDefaultData(type: WorkflowNodeType): WorkflowNodeData {
+  switch (type) {
+    case 'open_page':
+      return { label: '打开页面', url: '', max_pages: 2, max_steps: 20 }
+    case 'select_list':
+      return { label: '选择列表', item_selector: '', max_items: 5 }
+    case 'loop':
+      return { label: '逐项循环', max_items: 5, on_error: 'skip' }
+    case 'extract_field':
+      return { label: '字段抽取', fields: [{ name: 'title', selector: '', type: 'text' }] }
+    case 'condition':
+      return { label: '条件判断', condition: '', expression_mode: 'simple' }
+    case 'paginate':
+      return { label: '分页', pagination_selector: '', pagination_strategy: 'click_next', max_pages: 2 }
+    case 'emit_record':
+      return { label: '输出记录' }
+    case 'end':
+      return { label: '结束' }
+  }
 }
 
 const initialNodes: WorkflowNode[] = [
@@ -76,19 +152,19 @@ const initialNodes: WorkflowNode[] = [
     id: 'open-page-1',
     type: 'open_page',
     position: { x: 60, y: 140 },
-    data: { label: 'Open Page', url: 'https://quotes.toscrape.com/', max_pages: 2, max_steps: 20 },
+    data: { label: '打开页面', url: 'https://quotes.toscrape.com/', max_pages: 2, max_steps: 20 },
   },
   {
     id: 'select-list-1',
     type: 'select_list',
     position: { x: 330, y: 140 },
-    data: { label: 'Select List', item_selector: '.quote', max_items: 5 },
+    data: { label: '选择列表', item_selector: '.quote', max_items: 5 },
   },
   {
     id: 'extract-field-1',
     type: 'extract_field',
     position: { x: 600, y: 140 },
-    data: { label: 'Extract Field', fields: [{ name: 'text', selector: '.text', type: 'text' }] },
+    data: { label: '字段抽取', fields: [{ name: 'text', selector: '.text', type: 'text' }] },
   },
 ]
 
@@ -107,165 +183,204 @@ const initialEdges: WorkflowEdge[] = [
   },
 ]
 
-function createDefaultData(type: WorkflowNodeType): WorkflowNodeData {
-  switch (type) {
-    case 'open_page':
-      return { label: 'Open Page', url: '', max_pages: 2, max_steps: 20 }
-    case 'select_list':
-      return { label: 'Select List', item_selector: '', max_items: 5 }
-    case 'loop':
-      return { label: 'Loop', max_items: 5 }
-    case 'extract_field':
-      return { label: 'Extract Field', fields: [{ name: 'title', selector: '', type: 'text' }] }
-    case 'condition':
-      return { label: 'Condition', condition: '' }
-    case 'paginate':
-      return { label: 'Paginate', pagination_selector: '', pagination_strategy: 'click_next', max_pages: 2 }
-    case 'emit_record':
-      return { label: 'Emit Record' }
-    case 'end':
-      return { label: 'End' }
-  }
-}
-
-function nodeSummary(type: WorkflowNodeType, data: WorkflowNodeData) {
-  if (type === 'open_page') return String(data.url || 'Set target URL')
-  if (type === 'select_list') return String(data.item_selector || 'Set item selector')
-  if (type === 'extract_field') return `${data.fields?.length ?? 0} legacy field(s)`
-  if (type === 'paginate') return `${data.pagination_strategy || 'click_next'} ${data.max_pages ?? 1} page(s)`
-  if (type === 'loop') return `${data.max_items ?? 5} max item(s)`
-  if (type === 'condition') return String(data.condition || 'Set condition')
-  return 'Ready'
-}
-
-function WorkflowCanvasNode({ data, type, selected }: NodeProps<WorkflowNode>) {
-  const workflowType = type as WorkflowNodeType
-
-  return (
-    <div className={`canvas-node-card ${selected ? 'selected' : ''}`}>
-      <Handle type="target" position={Position.Left} />
-      <span className="node-type">{workflowType}</span>
-      <strong>{String(data.label || nodeTypeLabels[workflowType])}</strong>
-      <small>{nodeSummary(workflowType, data)}</small>
-      <Handle type="source" position={Position.Right} />
-    </div>
-  )
-}
-
-const reactFlowNodeTypes = {
-  open_page: WorkflowCanvasNode,
-  select_list: WorkflowCanvasNode,
-  loop: WorkflowCanvasNode,
-  extract_field: WorkflowCanvasNode,
-  condition: WorkflowCanvasNode,
-  paginate: WorkflowCanvasNode,
-  emit_record: WorkflowCanvasNode,
-  end: WorkflowCanvasNode,
-}
-
-function ResultDetails({ payload }: { payload?: unknown }) {
-  if (!payload) return null
-  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
-  const prompt = typeof record.prompt === 'string' ? record.prompt : ''
-  const script = typeof record.script === 'string' ? record.script : ''
-  const filename = typeof record.filename === 'string' ? record.filename : 'crawler.py'
-  const model = typeof record.model === 'string' ? record.model : ''
-  const logs = Array.isArray(record.logs) ? record.logs as ExecutionLog[] : []
-  const nodeResults = Array.isArray(record.node_results)
-    ? record.node_results as NodeExecutionResult[]
-    : record.result && typeof record.result === 'object'
-      ? [record.result as NodeExecutionResult]
-      : []
-  const records = Array.isArray(record.records) ? record.records : []
-
-  return (
-    <div className="result-details">
-      {prompt && <pre className="prompt-preview">{prompt}</pre>}
-      {script && (
-        <section>
-          <h3>Generated Script {model && <small className="model-badge">via {model}</small>}</h3>
-          <div className="script-actions">
-            <button type="button" onClick={() => navigator.clipboard.writeText(script)}>Copy</button>
-            <button type="button" onClick={() => {
-              const blob = new Blob([script], { type: 'text/plain' })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a')
-              a.href = url
-              a.download = filename
-              a.click()
-              URL.revokeObjectURL(url)
-            }}>Download</button>
-          </div>
-          <pre className="script-preview">{script}</pre>
-        </section>
-      )}
-      {logs.length > 0 && (
-        <section>
-          <h3>Logs</h3>
-          {logs.map((log, index) => (
-            <div className="result-row" key={`log-${index}`}>
-              <strong>{log.level ?? 'info'}</strong>
-              <span>{log.node_id ? `${log.node_id}: ` : ''}{log.message ?? JSON.stringify(log)}</span>
-            </div>
-          ))}
-        </section>
-      )}
-      {nodeResults.length > 0 && (
-        <section>
-          <h3>Node Results</h3>
-          {nodeResults.map((nodeResult, index) => (
-            <div className="result-row" key={`${nodeResult.node_id ?? 'node'}-${index}`}>
-              <strong>{nodeResult.node_id ?? 'node'} ({nodeResult.node_type ?? 'unknown'})</strong>
-              <span>{nodeResult.success === false ? `Error: ${nodeResult.error ?? 'failed'}` : 'Success'}</span>
-            </div>
-          ))}
-        </section>
-      )}
-      {records.length > 0 && (
-        <section>
-          <h3>Sample Records</h3>
-          <pre>{JSON.stringify(records, null, 2)}</pre>
-        </section>
-      )}
-      <details>
-        <summary>Raw JSON</summary>
-        <pre>{JSON.stringify(payload, null, 2)}</pre>
-      </details>
-    </div>
-  )
-}
-function App() {
-  const [resultState, setResultState] = useState<ResultState>({
-    tone: 'idle',
-    title: 'Idle',
-    message: 'Select an action from the toolbar to show validation, prompt preview, node test, or subflow output here.',
-  })
-  const [runningAction, setRunningAction] = useState<WorkbenchAction | null>(null)
+export default function App() {
+  const { message } = AntdApp.useApp()
+  const [initialWorkbenchLayout] = useState<WorkbenchLayoutState>(() => loadWorkbenchLayoutState())
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes)
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges)
   const [selectedNodeId, setSelectedNodeId] = useState(initialNodes[0].id)
   const [dslText, setDslText] = useState(() => JSON.stringify(toCanonicalGraph(initialNodes, initialEdges), null, 2))
   const [dslStatus, setDslStatus] = useState<DslStatus>('synced')
-  const [dslFeedback, setDslFeedback] = useState('Canvas and DSL are synchronized.')
+  const [dslFeedback, setDslFeedback] = useState('画布与 DSL 已保持同步。')
   const isApplyingDslRef = useRef(false)
   const dslValidationRequestIdRef = useRef(0)
+  const pendingSelectionRef = useRef<string | null>(null)
+
+  const [leftPanelOpen, setLeftPanelOpen] = useState(initialWorkbenchLayout.leftPanelOpen)
+  const [rightPanelOpen, setRightPanelOpen] = useState(initialWorkbenchLayout.rightPanelOpen)
+  const [bottomDockOpen, setBottomDockOpen] = useState(initialWorkbenchLayout.bottomDockOpen)
+  const [activeDockTab, setActiveDockTab] = useState<DockTabKey>(initialWorkbenchLayout.activeDockTab)
+  const [assistBusyAction, setAssistBusyAction] = useState<AssistActionKey>(null)
+  const [assistApplyMode, setAssistApplyMode] = useState<AssistApplyMode>('related-nodes')
+  const [assistSessionId, setAssistSessionId] = useState<string | null>(null)
+  const [canvasFitToken, setCanvasFitToken] = useState(0)
+  const [savedPromptDrafts, setSavedPromptDrafts] = useState<SavedPromptDraftMap>(() => loadSavedPromptDrafts())
+  const [promptDraftByGraph, setPromptDraftByGraph] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(loadSavedPromptDrafts()).map(([key, value]) => [key, value.text])),
+  )
+  const [promptBaseByGraph, setPromptBaseByGraph] = useState<Record<string, string>>({})
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
-  const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [nodes, edges])
+  const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
+    nodes.map((n) => `${n.id}-${n.type}`).join('|'),
+    JSON.stringify(nodes.map((n) => n.data)),
+    edges,
+  ])
+  const graphKey = useMemo(() => buildWorkflowGraphKey(canonicalGraph), [canonicalGraph])
+  const workflowStats = useMemo(() => {
+    const explicitMaxItems = nodes.flatMap((node) => {
+      if (
+        node.type === 'open_page' ||
+        node.type === 'select_list' ||
+        node.type === 'loop' ||
+        node.type === 'extract_field'
+      ) {
+        const limit = toPositiveLimit(node.data.max_items)
+        return limit === null ? [] : [limit]
+      }
+      return []
+    })
+    const explicitMaxPages = nodes.flatMap((node) => {
+      if (node.type === 'paginate' || node.type === 'open_page') {
+        const limit = toPositiveLimit(node.data.max_pages)
+        return limit === null ? [] : [limit]
+      }
+      return []
+    })
+    const explicitMaxSteps = nodes.flatMap((node) => {
+      if (node.type === 'open_page') {
+        const limit = toPositiveLimit(node.data.max_steps)
+        return limit === null ? [] : [limit]
+      }
+      return []
+    })
+
+    return {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      fieldCount: nodes.reduce((count, node) => count + (node.type === 'extract_field' ? node.data.fields?.length ?? 0 : 0), 0),
+      maxItems: explicitMaxItems.length > 0 ? Math.min(...explicitMaxItems) : null,
+      maxPages: explicitMaxPages.length > 0 ? Math.min(...explicitMaxPages) : null,
+      maxSteps: explicitMaxSteps.length > 0 ? Math.min(...explicitMaxSteps) : null,
+      hasPagination: nodes.some((node) => node.type === 'paginate'),
+    }
+  }, [edges.length, nodes.map(n => n.type).join('|'), JSON.stringify(nodes.map(n => n.data))])
+
+  const getPromptOverride = useCallback((targetGraphKey: string) => {
+    const draft = promptDraftByGraph[targetGraphKey]?.trim() ?? ''
+    if (!draft) return ''
+    const base = promptBaseByGraph[targetGraphKey]?.trim() ?? ''
+    return draft !== base ? draft : ''
+  }, [promptBaseByGraph, promptDraftByGraph])
+
+  const { resultState, runningAction, runWorkflowAction } = useWorkflowActions({
+    canonicalGraph,
+    selectedNodeId,
+    graphKey,
+    getPromptOverride,
+  })
+
+  const conditionOutgoingEdges = useMemo(() => {
+    if (!selectedNode || selectedNode.type !== 'condition') return []
+    return edges
+      .filter((edge) => edge.source === selectedNode.id)
+      .map((edge) => ({
+        id: edge.id,
+        target: edge.target,
+        branch: edge.branch,
+        label: typeof edge.label === 'string' ? edge.label : undefined,
+        order: edge.order,
+      }))
+  }, [edges, selectedNode?.id, selectedNode?.type])
+
+  const workflowContext = useMemo(() => ({
+    hasOpenPageNode: nodes.some((node) => node.type === 'open_page'),
+    hasSelectListNode: nodes.some((node) => node.type === 'select_list'),
+    hasTerminalNode: nodes.some((node) => node.type === 'end'),
+  }), [nodes.map(n => n.type).join('|')])
+
+  const sourceNodeTypeById = useMemo(
+    () => Object.fromEntries(nodes.map((node) => [node.id, node.type])) as Record<string, WorkflowNodeType>,
+    [nodes.map(n => `${n.id}-${n.type}`).join('|')],
+  )
+
+  useEffect(() => {
+    if (pendingSelectionRef.current && nodes.some((node) => node.id === pendingSelectionRef.current)) {
+      setSelectedNodeId(pendingSelectionRef.current)
+      pendingSelectionRef.current = null
+      return
+    }
+    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(nodes[0]?.id ?? '')
+    }
+  }, [nodes, selectedNodeId])
 
   useEffect(() => {
     if (isApplyingDslRef.current) {
       isApplyingDslRef.current = false
       return
     }
-    queueMicrotask(() => {
+
+    const timer = setTimeout(() => {
       setDslText(JSON.stringify(canonicalGraph, null, 2))
       setDslStatus('synced')
-      setDslFeedback('Canvas and DSL are synchronized.')
-    })
+      setDslFeedback('画布与 DSL 已保持同步。')
+    }, 400)
+
+    return () => clearTimeout(timer)
   }, [canonicalGraph])
 
+  useEffect(() => {
+    const prompt = extractEditablePrompt(resultState.payload)
+    const resultGraphKey = resultState.graphKey
+    if (!prompt || !resultGraphKey) return
+    setPromptBaseByGraph((current) => (
+      current[resultGraphKey] === prompt
+        ? current
+        : { ...current, [resultGraphKey]: prompt }
+    ))
+    setPromptDraftByGraph((current) => (
+      typeof current[resultGraphKey] === 'string'
+        ? current
+        : { ...current, [resultGraphKey]: prompt }
+    ))
+  }, [resultState.graphKey, resultState.payload])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(WORKBENCH_LAYOUT_STORAGE_KEY, JSON.stringify({
+        leftPanelOpen,
+        rightPanelOpen,
+        bottomDockOpen,
+        activeDockTab,
+      }))
+    } catch {
+      // ignore storage errors so layout state persistence never breaks the app
+    }
+  }, [activeDockTab, bottomDockOpen, leftPanelOpen, rightPanelOpen])
+
+  function getEntryUrl() {
+    const entry = nodes.find((node) => node.type === 'open_page')
+    const url = entry?.data.url
+    return typeof url === 'string' ? url.trim() : ''
+  }
+
+  function getPrimarySelectListNode() {
+    return nodes.find((node) => node.type === 'select_list') ?? null
+  }
+
+  function runWithAssistLock(action: Exclude<AssistActionKey, null>, task: () => Promise<void>) {
+    if (assistBusyAction) return
+    setAssistBusyAction(action)
+    task()
+      .catch((error) => {
+        const msg = error instanceof Error ? error.message : '辅助操作失败'
+        message.error(msg)
+      })
+      .finally(() => setAssistBusyAction(null))
+  }
+
   const onNodesChange = useCallback((changes: NodeChange<WorkflowNode>[]) => {
+    const removedNodeIds = changes
+      .filter((change) => change.type === 'remove')
+      .map((change) => change.id)
+    if (removedNodeIds.length > 0) {
+      setEdges((currentEdges) =>
+        currentEdges.filter((edge) => !removedNodeIds.includes(edge.source) && !removedNodeIds.includes(edge.target)),
+      )
+      setSelectedNodeId((current) => (removedNodeIds.includes(current) ? '' : current))
+    }
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
   }, [])
 
@@ -275,160 +390,103 @@ function App() {
 
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return
-
     setEdges((currentEdges) => {
-      const edgeExists = currentEdges.some(
+      const exists = currentEdges.some(
         (edge) => edge.source === connection.source && edge.target === connection.target,
       )
-      if (edgeExists) return currentEdges
-
-      return addEdge(
-        {
-          ...connection,
-          id: `edge-${connection.source}-${connection.target}-${currentEdges.length + 1}`,
-          markerEnd: { type: MarkerType.ArrowClosed },
-        },
-        currentEdges,
-      )
+      if (exists) return currentEdges
+      const sourceNode = nodes.find((node) => node.id === connection.source)
+      const outgoingCount = currentEdges.filter((edge) => edge.source === connection.source).length
+      const isConditionSource = sourceNode?.type === 'condition'
+      const inferredBranch: CanonicalWorkflowEdge['branch'] | undefined = isConditionSource
+        ? (outgoingCount === 0 ? 'true' : outgoingCount === 1 ? 'false' : 'default')
+        : undefined
+      const inferredLabel = inferredBranch === 'true'
+        ? 'TRUE'
+        : inferredBranch === 'false'
+          ? 'FALSE'
+          : inferredBranch === 'default'
+            ? 'DEFAULT'
+            : undefined
+      return addEdge({
+        ...connection,
+        id: `edge-${connection.source}-${connection.target}-${currentEdges.length + 1}`,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        branch: inferredBranch,
+        order: isConditionSource ? outgoingCount : undefined,
+        label: inferredLabel,
+      }, currentEdges)
     })
-  }, [])
-
-  async function validateGraphWithBackend(graph: WorkflowGraph) {
-    const response = await fetch('/api/workflows/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ graph }),
-    })
-    const payload: unknown = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error(getErrorMessage(payload))
-    }
-  }
+  }, [nodes])
 
   async function handleDslChange(value: string | undefined) {
     const nextText = value ?? ''
     setDslText(nextText)
-
     const result = await applyDslTextChange(
-      { nodes, edges, selectedNodeId },
-      nextText,
-      dslValidationRequestIdRef,
-      validateGraphWithBackend,
+      { nodes, edges, selectedNodeId }, nextText, dslValidationRequestIdRef, validateGraphWithBackend,
     )
-
     if (result.requestId !== dslValidationRequestIdRef.current) return
-
     if (result.applied) {
       isApplyingDslRef.current = true
       setNodes(result.nodes)
       setEdges(result.edges)
       setSelectedNodeId(result.selectedNodeId)
+      setCanvasFitToken((token) => token + 1)
     }
-
     setDslText(result.dslText)
     setDslStatus(result.dslStatus)
     setDslFeedback(result.dslFeedback)
   }
-  async function postWorkflowAction(path: string, body: unknown) {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const payload: unknown = await response.json().catch(() => ({}))
-    return { response, payload }
-  }
 
-  function classifyResult(action: WorkbenchAction, responseOk: boolean, payload: unknown): ResultTone {
-    const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
-    if (record.session_expired === true) return 'session-expired'
-    if (record.partial === true) return 'partial'
-    if (responseOk && record.success !== false) return 'success'
-    if (action === 'validate' || action === 'prompt') return 'validation-error'
-    return 'runtime-error'
-  }
-
-  async function runWorkflowAction(action: WorkbenchAction) {
-    if ((action === 'test-node' || action === 'test-subflow') && runningAction) return
-
-    const actionLabel: Record<WorkbenchAction, string> = {
-      validate: 'Validate DSL',
-      prompt: 'Preview Prompt',
-      'test-node': 'Run Node Test',
-      'test-subflow': 'Run Subflow Test',
-      'generate-script': 'Generate Script',
-    }
-    const previousPayload = resultState.payload
-    setRunningAction(action)
-    setResultState({ tone: 'loading', title: `${actionLabel[action]} running`, message: previousPayload ? 'Loading new result; previous output remains below.' : 'Loading workflow result...', payload: previousPayload })
-
-    try {
-      const requestBody = action === 'test-node'
-        ? { graph: canonicalGraph, node_id: selectedNodeId || canonicalGraph.nodes[0]?.id || '', max_items: 5, max_steps: 20 }
-        : action === 'test-subflow'
-          ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined, max_items: 5, max_pages: 2, max_steps: 20 } }
-          : { graph: canonicalGraph }
-      const path = action === 'validate'
-        ? '/api/workflows/validate'
-        : action === 'prompt'
-          ? '/api/workflows/to-prompt'
-          : action === 'test-node'
-            ? '/api/workflows/test-node'
-            : action === 'generate-script'
-              ? '/api/workflows/generate-crawler'
-              : '/api/workflows/test-subflow'
-      const { response, payload } = await postWorkflowAction(path, requestBody)
-      setResultState({
-        tone: classifyResult(action, response.ok, payload),
-        title: actionLabel[action],
-        message: response.ok ? 'Workflow action completed. Inspect the structured output below.' : getErrorMessage(payload),
-        payload,
-      })
-    } catch (error) {
-      setResultState({ tone: 'runtime-error', title: `${actionLabel[action]} failed`, message: error instanceof Error ? error.message : 'Workflow action failed.', payload: previousPayload })
-    } finally {
-      setRunningAction(null)
-    }
-  }
   function addPaletteNode(type: WorkflowNodeType) {
-    const existingSuffixes = nodes
-      .filter((node) => node.type === type)
-      .map((node) => Number(node.id.split('-').at(-1)))
-      .filter(Number.isFinite)
-    const nextCount = Math.max(0, ...existingSuffixes) + 1
-    const newNode: WorkflowNode = {
-      id: `${type.replaceAll('_', '-')}-${nextCount}`,
-      type,
-      position: { x: 120 + (nodes.length % 4) * 210, y: 80 + Math.floor(nodes.length / 4) * 150 },
-      data: createDefaultData(type),
-    }
+    let createdNodeId = ''
+    setNodes((currentNodes) => {
+      createdNodeId = resolveNextNodeId(currentNodes, type)
+      return [...currentNodes, {
+        id: createdNodeId,
+        type,
+        position: resolveNextNodePosition(currentNodes, false),
+        data: createDefaultData(type),
+      }]
+    })
+    pendingSelectionRef.current = createdNodeId
+    message.success(`已添加节点：${createdNodeId}`)
+    setRightPanelOpen(true)
+    setCanvasFitToken((token) => token + 1)
+  }
 
-    setNodes((currentNodes) => [...currentNodes, newNode])
-    setSelectedNodeId(newNode.id)
+  function deleteSelectedNode() {
+    if (!selectedNodeId) return
+    const next = nodes.find((node) => node.id !== selectedNodeId)?.id ?? ''
+    setNodes((current) => current.filter((n) => n.id !== selectedNodeId))
+    setEdges((current) => current.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId))
+    setSelectedNodeId(next)
   }
 
   function updateSelectedNodeData(patch: Partial<WorkflowNodeData>) {
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => {
-        if (node.id !== selectedNodeId) return node
-        return { ...node, data: { ...node.data, ...patch } }
-      }),
-    )
+    setNodes((current) => current.map((node) =>
+      node.id === selectedNodeId ? { ...node, data: { ...node.data, ...patch } } : node,
+    ))
   }
 
   function updateSelectedNodeFields(updater: (fields: ExtractionField[]) => ExtractionField[]) {
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => {
-        if (node.id !== selectedNodeId) return node
-        return { ...node, data: { ...node.data, fields: updater(node.data.fields ?? []) } }
-      }),
-    )
+    setNodes((current) => current.map((node) =>
+      node.id === selectedNodeId ? { ...node, data: { ...node.data, fields: updater(node.data.fields ?? []) } } : node,
+    ))
+  }
+
+  function updateConditionEdge(edgeId: string, patch: Partial<CanonicalWorkflowEdge>) {
+    setEdges((current) => current.map((edge) => {
+      if (edge.id !== edgeId) return edge
+      return {
+        ...edge,
+        ...patch,
+      }
+    }))
   }
 
   function updateExtractField(index: number, patch: Partial<ExtractionField>) {
-    updateSelectedNodeFields((fields) =>
-      fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field)),
-    )
+    updateSelectedNodeFields((fields) => fields.map((f, i) => (i === index ? { ...f, ...patch } : f)))
   }
 
   function addExtractField() {
@@ -436,326 +494,511 @@ function App() {
   }
 
   function removeExtractField(index: number) {
-    updateSelectedNodeFields((fields) => fields.filter((_, fieldIndex) => fieldIndex !== index))
+    updateSelectedNodeFields((fields) => fields.filter((_, i) => i !== index))
+  }
+
+  function normalizeAssistError(payload: unknown, responseOk: boolean) {
+    if (!responseOk) return getErrorMessage(payload)
+    const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+    if (record.success === false) return getErrorMessage(payload)
+    return ''
+  }
+
+  function withAssistSession<T extends Record<string, unknown>>(payload: T): T & { session_id?: string } {
+    return assistSessionId ? { ...payload, session_id: assistSessionId } : payload
+  }
+
+  function syncAssistSession(payload: unknown) {
+    if (!payload || typeof payload !== 'object') return
+    const record = payload as Record<string, unknown>
+    if (typeof record.session_id === 'string' && record.session_id.trim()) {
+      setAssistSessionId(record.session_id)
+    }
+  }
+
+  function mapAssistFields(rawFields: unknown): ExtractionField[] {
+    if (!Array.isArray(rawFields)) return []
+    return rawFields.reduce<ExtractionField[]>((acc, field) => {
+      if (!field || typeof field !== 'object') return acc
+      const row = field as Record<string, unknown>
+      const name = typeof row.name === 'string' ? row.name : ''
+      const selector = typeof row.selector === 'string' ? row.selector : ''
+      const type = typeof row.type === 'string' ? row.type : 'text'
+      if (!name || !selector) return acc
+      acc.push({ name, selector, type })
+      return acc
+    }, [])
+  }
+
+  function handleAutoDetectSelectList() {
+    runWithAssistLock('auto-detect', async () => {
+      if (!selectedNode || selectedNode.type !== 'select_list') return
+      const entryUrl = getEntryUrl()
+      const { response, payload } = await postAssistAction('/api/assist/auto-detect', withAssistSession({
+        url: entryUrl || undefined,
+      }))
+      const error = normalizeAssistError(payload, response.ok)
+      if (error) throw new Error(error)
+      syncAssistSession(payload)
+
+      const record = payload as Record<string, unknown>
+      const result = (record.result && typeof record.result === 'object') ? record.result as Record<string, unknown> : {}
+      const detectedSelector = typeof result.item_selector === 'string' ? result.item_selector : ''
+      if (detectedSelector) {
+        updateSelectedNodeData({ item_selector: detectedSelector })
+      }
+
+      const detectedFields = mapAssistFields(result.fields)
+      if (detectedFields.length > 0 && assistApplyMode === 'related-nodes') {
+        setNodes((current) => {
+          let patched = false
+          return current.map((node) => {
+            if (!patched && node.type === 'extract_field') {
+              patched = true
+              return { ...node, data: { ...node.data, fields: detectedFields } }
+            }
+            return node
+          })
+        })
+      }
+
+      const detectedPaginationSelector = typeof result.pagination_selector === 'string' ? result.pagination_selector : ''
+      const detectedPaginationStrategy = typeof result.pagination_strategy === 'string' ? result.pagination_strategy : ''
+      if ((detectedPaginationSelector || detectedPaginationStrategy) && assistApplyMode === 'related-nodes') {
+        setNodes((current) => {
+          let patched = false
+          return current.map((node) => {
+            if (!patched && node.type === 'paginate') {
+              patched = true
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  pagination_selector: detectedPaginationSelector || node.data.pagination_selector,
+                  pagination_strategy: detectedPaginationStrategy || node.data.pagination_strategy,
+                },
+              }
+            }
+            return node
+          })
+        })
+      }
+      message.success('自动检测结果已回填')
+    })
+  }
+
+  function handleOptimizeListSelector() {
+    runWithAssistLock('optimize-selector', async () => {
+      if (!selectedNode || selectedNode.type !== 'select_list') return
+      const selector = typeof selectedNode.data.item_selector === 'string' ? selectedNode.data.item_selector.trim() : ''
+      if (!selector) throw new Error('请先填写列表选择器')
+      const entryUrl = getEntryUrl()
+      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
+        item_selector: selector,
+        url: entryUrl || undefined,
+      }))
+      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
+      if (extractError) throw new Error(extractError)
+      syncAssistSession(extractResult.payload)
+      const extractPayload = extractResult.payload as Record<string, unknown>
+      const htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
+      if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法优化选择器')
+
+      const optimizeResult = await postAssistAction('/api/assist/optimize-selector', withAssistSession({
+        initial_selector: selector,
+        html_fragment: htmlFragment,
+      }))
+      const optimizeError = normalizeAssistError(optimizeResult.payload, optimizeResult.response.ok)
+      if (optimizeError) throw new Error(optimizeError)
+
+      const optimizePayload = optimizeResult.payload as Record<string, unknown>
+      const result = (optimizePayload.result && typeof optimizePayload.result === 'object') ? optimizePayload.result as Record<string, unknown> : {}
+      const optimizedSelector = typeof result.optimized_selector === 'string' ? result.optimized_selector.trim() : ''
+      if (!optimizedSelector) throw new Error('模型未返回 optimized_selector')
+
+      updateSelectedNodeData({ item_selector: optimizedSelector })
+      message.success('已应用优化后的列表选择器')
+    })
+  }
+
+  function handleInferExtractFields() {
+    runWithAssistLock('infer-fields', async () => {
+      if (!selectedNode || selectedNode.type !== 'extract_field') return
+      const selectListNode = getPrimarySelectListNode()
+      const itemSelector = typeof selectListNode?.data.item_selector === 'string' ? selectListNode.data.item_selector.trim() : ''
+      if (!itemSelector) throw new Error('请先配置 select_list 节点的 item_selector')
+
+      const existingHtml = typeof selectedNode.data.html_fragment === 'string' ? selectedNode.data.html_fragment : ''
+      let htmlFragment = existingHtml
+      if (!htmlFragment) {
+        const entryUrl = getEntryUrl()
+        const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
+          item_selector: itemSelector,
+          url: entryUrl || undefined,
+        }))
+        const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
+        if (extractError) throw new Error(extractError)
+        syncAssistSession(extractResult.payload)
+        const extractPayload = extractResult.payload as Record<string, unknown>
+        htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
+      }
+      if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法推断字段')
+
+      const inferResult = await postAssistAction('/api/assist/infer-fields', withAssistSession({
+        html_fragment: htmlFragment,
+      }))
+      const inferError = normalizeAssistError(inferResult.payload, inferResult.response.ok)
+      if (inferError) throw new Error(inferError)
+      const inferPayload = inferResult.payload as Record<string, unknown>
+      const result = (inferPayload.result && typeof inferPayload.result === 'object') ? inferPayload.result as Record<string, unknown> : {}
+      const inferredFields = mapAssistFields(result.fields)
+      if (inferredFields.length === 0) throw new Error('模型未返回可用字段')
+
+      updateSelectedNodeData({
+        fields: inferredFields,
+        html_fragment: htmlFragment,
+      })
+      const inferredItemSelector = typeof result.item_selector === 'string' ? result.item_selector.trim() : ''
+      if (assistApplyMode === 'related-nodes' && inferredItemSelector) {
+        setNodes((current) => {
+          let patched = false
+          return current.map((node) => {
+            if (!patched && node.type === 'select_list') {
+              patched = true
+              return { ...node, data: { ...node.data, item_selector: inferredItemSelector } }
+            }
+            return node
+          })
+        })
+      }
+      message.success('AI 字段推断已应用')
+    })
+  }
+
+  function handleAnalyzePagination() {
+    runWithAssistLock('analyze-pagination', async () => {
+      if (!selectedNode || selectedNode.type !== 'paginate') return
+      const selectListNode = getPrimarySelectListNode()
+      const itemSelector = typeof selectListNode?.data.item_selector === 'string' ? selectListNode.data.item_selector.trim() : ''
+      if (!itemSelector) throw new Error('请先配置 select_list 节点的 item_selector')
+
+      const entryUrl = getEntryUrl()
+      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
+        item_selector: itemSelector,
+        url: entryUrl || undefined,
+      }))
+      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
+      if (extractError) throw new Error(extractError)
+      syncAssistSession(extractResult.payload)
+      const extractPayload = extractResult.payload as Record<string, unknown>
+      const htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
+      if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法分析分页')
+
+      const analyzeResult = await postAssistAction('/api/assist/analyze-pagination', withAssistSession({
+        html_fragment: htmlFragment,
+      }))
+      const analyzeError = normalizeAssistError(analyzeResult.payload, analyzeResult.response.ok)
+      if (analyzeError) throw new Error(analyzeError)
+      const analyzePayload = analyzeResult.payload as Record<string, unknown>
+      const result = (analyzePayload.result && typeof analyzePayload.result === 'object') ? analyzePayload.result as Record<string, unknown> : {}
+      const paginationStrategy = typeof result.pagination_strategy === 'string' ? result.pagination_strategy : ''
+      const nextSelector = typeof result.next_button_selector === 'string' ? result.next_button_selector : ''
+
+      updateSelectedNodeData({
+        pagination_strategy: paginationStrategy || selectedNode.data.pagination_strategy,
+        pagination_selector: nextSelector || selectedNode.data.pagination_selector,
+      })
+      const inferredItemSelector = typeof result.item_selector === 'string' ? result.item_selector.trim() : ''
+      if (assistApplyMode === 'related-nodes' && inferredItemSelector) {
+        setNodes((current) => {
+          let patched = false
+          return current.map((node) => {
+            if (!patched && node.type === 'select_list') {
+              patched = true
+              return { ...node, data: { ...node.data, item_selector: inferredItemSelector } }
+            }
+            return node
+          })
+        })
+      }
+      message.success('分页策略分析结果已应用')
+    })
+  }
+
+  function handleTestSelector(selector: string, selectorLabel: string) {
+    runWithAssistLock('test-selector', async () => {
+      const normalizedSelector = selector.trim()
+      if (!normalizedSelector) throw new Error(`请先填写${selectorLabel}`)
+      const entryUrl = getEntryUrl()
+      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
+        item_selector: normalizedSelector,
+        url: entryUrl || undefined,
+      }))
+      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
+      if (extractError) throw new Error(extractError)
+      syncAssistSession(extractResult.payload)
+
+      const payload = extractResult.payload as Record<string, unknown>
+      const metadata = payload.metadata && typeof payload.metadata === 'object'
+        ? payload.metadata as Record<string, unknown>
+        : {}
+      const itemCount = typeof metadata.item_count === 'number' ? metadata.item_count : 0
+      const truncated = metadata.truncated === true
+      if (itemCount <= 0) {
+        message.warning(`${selectorLabel}测试完成：未匹配到元素，请检查选择器。`)
+        return
+      }
+      const suffix = truncated ? '（片段已裁剪）' : ''
+      message.success(`${selectorLabel}测试通过：匹配 ${itemCount} 个元素${suffix}`)
+    })
+  }
+
+  function handleCleanExtractField(index: number) {
+    runWithAssistLock('clean-data', async () => {
+      if (!selectedNode || selectedNode.type !== 'extract_field') return
+      const field = selectedNode.data.fields?.[index]
+      if (!field) throw new Error('字段不存在')
+      const rawData = typeof field.sample_value === 'string' ? field.sample_value.trim() : ''
+      if (!rawData) throw new Error('请先填写样例原始值')
+      const cleanType = typeof field.clean_data_type === 'string' && field.clean_data_type.trim()
+        ? field.clean_data_type.trim()
+        : inferCleanDataType(field)
+
+      const cleanResult = await postAssistAction('/api/assist/clean-data', withAssistSession({
+        raw_data: rawData,
+        data_type: cleanType,
+      }))
+      const cleanError = normalizeAssistError(cleanResult.payload, cleanResult.response.ok)
+      if (cleanError) throw new Error(cleanError)
+
+      const payload = cleanResult.payload as Record<string, unknown>
+      const result = (payload.result && typeof payload.result === 'object') ? payload.result as Record<string, unknown> : {}
+      if (!Object.prototype.hasOwnProperty.call(result, 'cleaned_value')) {
+        throw new Error('模型未返回 cleaned_value')
+      }
+      const cleanedValue = result.cleaned_value
+      const normalized = typeof cleanedValue === 'string'
+        ? cleanedValue
+        : cleanedValue === null || cleanedValue === undefined
+          ? ''
+          : JSON.stringify(cleanedValue)
+
+      updateExtractField(index, {
+        clean_data_type: cleanType,
+        normalized_sample: normalized,
+      })
+      message.success('样例值已清洗并回填')
+    })
+  }
+
+  function updatePromptDraft(targetGraphKey: string, nextValue: string) {
+    setPromptDraftByGraph((current) => ({ ...current, [targetGraphKey]: nextValue }))
+  }
+
+  function savePromptDraft(targetGraphKey: string) {
+    const text = promptDraftByGraph[targetGraphKey] ?? promptBaseByGraph[targetGraphKey] ?? ''
+    if (!text.trim()) {
+      message.warning('当前没有可保存的提示词内容')
+      return
+    }
+    const nextDrafts: SavedPromptDraftMap = {
+      ...savedPromptDrafts,
+      [targetGraphKey]: {
+        text,
+        savedAt: Date.now(),
+      },
+    }
+    setSavedPromptDrafts(nextDrafts)
+    persistSavedPromptDrafts(nextDrafts)
+    message.success('提示词草稿已保存，可直接用于后续脚本生成')
+  }
+
+  function resetPromptDraft(targetGraphKey: string) {
+    const basePrompt = promptBaseByGraph[targetGraphKey] ?? ''
+    setPromptDraftByGraph((current) => ({ ...current, [targetGraphKey]: basePrompt }))
+    if (savedPromptDrafts[targetGraphKey]) {
+      const nextDrafts = { ...savedPromptDrafts }
+      delete nextDrafts[targetGraphKey]
+      setSavedPromptDrafts(nextDrafts)
+      persistSavedPromptDrafts(nextDrafts)
+    }
+    message.success('已恢复为系统生成的提示词')
+  }
+
+  const promptWorkspace = useMemo(() => {
+    const resultGraphKey = resultState.graphKey
+    if (!resultGraphKey) return null
+    const basePrompt = promptBaseByGraph[resultGraphKey] ?? extractEditablePrompt(resultState.payload)
+    if (!basePrompt) return null
+    const draft = promptDraftByGraph[resultGraphKey] ?? basePrompt
+    const savedMeta = savedPromptDrafts[resultGraphKey]
+    return {
+      graphKey: resultGraphKey,
+      value: draft,
+      baseValue: basePrompt,
+      savedAt: savedMeta?.savedAt,
+      hasSavedDraft: Boolean(savedMeta?.text),
+      isDirty: draft !== basePrompt,
+      onChange: (nextValue: string) => updatePromptDraft(resultGraphKey, nextValue),
+      onSave: () => savePromptDraft(resultGraphKey),
+      onReset: () => resetPromptDraft(resultGraphKey),
+    }
+  }, [promptBaseByGraph, promptDraftByGraph, resultState.graphKey, resultState.payload, savedPromptDrafts])
+
+  function handleRunWorkflowAction(action: WorkbenchAction) {
+    if (action === 'auto-layout') {
+      const nextNodes = autoLayoutNodes(nodes, edges)
+      setNodes(nextNodes)
+      setCanvasFitToken((t) => t + 1)
+      message.success('布局已优化')
+      return
+    }
+    setBottomDockOpen(true)
+    setActiveDockTab('results')
+    void runWorkflowAction(action)
+  }
+
+  function openDockTab(tab: DockTabKey) {
+    setBottomDockOpen(true)
+    setActiveDockTab(tab)
   }
 
   return (
-    <main className="workbench-shell" aria-label="Sea Data React Workbench">
-      <header className="toolbar" aria-label="Workbench toolbar">
-        <div>
-          <span className="eyebrow">Sea Data Workbench</span>
-          <h1>Workflow Designer</h1>
-        </div>
-        <nav className="toolbar-actions" aria-label="Workbench actions">
-          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('validate')}>
-            Validate DSL
-          </button>
-          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('prompt')}>
-            Preview Prompt
-          </button>
-          <button type="button" disabled={runningAction !== null || !selectedNodeId} onClick={() => runWorkflowAction('test-node')}>
-            Run Node Test
-          </button>
-          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('test-subflow')}>
-            Run Subflow Test
-          </button>
-          <button type="button" disabled={runningAction !== null} onClick={() => runWorkflowAction('generate-script')}>
-            生成爬虫脚本
-          </button>
-          <span className="bounds-pill">max_items 5 / max_pages 2 / max_steps 20</span>
-        </nav>
-      </header>
+    <div className="console-root">
+      <div className="console-toolbar">
+        <WorkbenchToolbar
+          runningAction={runningAction}
+          selectedNodeId={selectedNodeId}
+          workflowStats={workflowStats}
+          onRunAction={handleRunWorkflowAction}
+          layout={{
+            leftPanelOpen,
+            rightPanelOpen,
+            bottomDockOpen,
+            activeDockTab,
+            setLeftPanelOpen,
+            setRightPanelOpen,
+            openDockTab,
+          }}
+        />
+      </div>
 
-      <div className="workspace-grid">
-        <aside className="panel node-palette" aria-label="Node palette">
-          <div className="panel-heading">
-            <span>Node Palette</span>
-            <small>MVP workflow nodes</small>
-          </div>
-          <div className="palette-list">
-            {paletteItems.map((item) => (
-              <button key={item.type} type="button" className="palette-card" onClick={() => addPaletteNode(item.type)}>
-                <span>{item.label}</span>
-                <small>{item.detail}</small>
-              </button>
-            ))}
-          </div>
-          <p className="scope-note">
-            Detail-page scraping and complex nested loops are intentionally not required for this MVP workbench.
-          </p>
-        </aside>
+      <div className="workspace-shell">
+        {leftPanelOpen && (
+          <aside className="workbench-panel layout-panel-left">
+            <div className="workbench-panel-header">
+              <div className="console-panel-title">
+                <LayoutOutlined />
+                <span>节点面板</span>
+              </div>
+              <Tag color="blue">{paletteItems.length} 种</Tag>
+            </div>
+            <NodePalette items={paletteItems} onAddNode={addPaletteNode} />
+          </aside>
+        )}
 
-        <section className="panel canvas-region" aria-label="Workflow canvas region">
-          <div className="panel-heading">
-            <span>Canvas</span>
-            <small>Add, drag, select, and connect nodes</small>
-          </div>
-          <div className="canvas-surface">
-            <ReactFlow
+        <div className="workspace-center">
+          <div className="canvas-stage">
+            <WorkflowCanvas
               nodes={nodes}
               edges={edges}
-              nodeTypes={reactFlowNodeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
-              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-              onPaneClick={() => setSelectedNodeId('')}
-              fitView
-            >
-              <Background />
-              <MiniMap pannable zoomable />
-              <Controls />
-            </ReactFlow>
-          </div>
-        </section>
-
-        <aside className="panel properties-panel" aria-label="Property panel">
-          <div className="panel-heading">
-            <span>Property Panel</span>
-            <small>{selectedNode ? selectedNode.id : 'No node selected'}</small>
-          </div>
-
-          {selectedNode ? (
-            <div className="property-form">
-              <label>
-                Node type
-                <input value={selectedNode.type} readOnly />
-              </label>
-              <label>
-                Label
-                <input
-                  value={String(selectedNode.data.label ?? '')}
-                  onChange={(event) => updateSelectedNodeData({ label: event.target.value })}
-                />
-              </label>
-
-              {selectedNode.type === 'open_page' && (
-                <>
-                  <label>
-                    Target URL
-                    <input
-                      aria-label="Target URL"
-                      value={String(selectedNode.data.url ?? '')}
-                      onChange={(event) => updateSelectedNodeData({ url: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Max pages
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={Number(selectedNode.data.max_pages ?? 2)}
-                      onChange={(event) =>
-                        updateSelectedNodeData({
-                          max_pages: clampNumberInput(event.target.value, 1, 5, Number(selectedNode.data.max_pages ?? 2)),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Max steps
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={Number(selectedNode.data.max_steps ?? 20)}
-                      onChange={(event) =>
-                        updateSelectedNodeData({
-                          max_steps: clampNumberInput(event.target.value, 1, 50, Number(selectedNode.data.max_steps ?? 20)),
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              {selectedNode.type === 'select_list' && (
-                <>
-                  <label>
-                    Item selector
-                    <input
-                      aria-label="Item selector"
-                      value={String(selectedNode.data.item_selector ?? '')}
-                      onChange={(event) => updateSelectedNodeData({ item_selector: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Max items
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={Number(selectedNode.data.max_items ?? 5)}
-                      onChange={(event) =>
-                        updateSelectedNodeData({
-                          max_items: clampNumberInput(event.target.value, 1, 20, Number(selectedNode.data.max_items ?? 5)),
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              {selectedNode.type === 'extract_field' && (
-                <div className="field-editor">
-                  <div className="field-editor-heading">
-                    <strong>Legacy fields</strong>
-                    <button type="button" onClick={addExtractField}>
-                      Add field
-                    </button>
-                  </div>
-                  {(selectedNode.data.fields ?? []).map((field, index) => (
-                    <div className="field-row" key={`${selectedNode.id}-field-${index}`}>
-                      <input
-                        aria-label={`Field ${index + 1} name`}
-                        placeholder="name"
-                        value={field.name}
-                        onChange={(event) => updateExtractField(index, { name: event.target.value })}
-                      />
-                      <input
-                        aria-label={`Field ${index + 1} selector`}
-                        placeholder="selector"
-                        value={field.selector}
-                        onChange={(event) => updateExtractField(index, { selector: event.target.value })}
-                      />
-                      <select
-                        aria-label={`Field ${index + 1} type`}
-                        value={field.type}
-                        onChange={(event) => updateExtractField(index, { type: event.target.value })}
-                      >
-                        <option value="text">text</option>
-                        <option value="attr:href">attr:href</option>
-                        <option value="attr:src">attr:src</option>
-                        <option value="attr:href:abs">attr:href:abs</option>
-                        <option value="html">html</option>
-                        <option value="all(text)">all(text)</option>
-                        <option value="all(@href)">all(@href)</option>
-                      </select>
-                      <button type="button" onClick={() => removeExtractField(index)}>
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {selectedNode.type === 'paginate' && (
-                <>
-                  <label>
-                    Pagination selector
-                    <input
-                      aria-label="Pagination selector"
-                      value={String(selectedNode.data.pagination_selector ?? '')}
-                      onChange={(event) => updateSelectedNodeData({ pagination_selector: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Pagination strategy
-                    <select
-                      value={String(selectedNode.data.pagination_strategy ?? 'click_next')}
-                      onChange={(event) => updateSelectedNodeData({ pagination_strategy: event.target.value })}
-                    >
-                      <option value="click_next">click_next</option>
-                      <option value="infinite_scroll">infinite_scroll</option>
-                      <option value="load_more">load_more</option>
-                      <option value="none">none</option>
-                    </select>
-                  </label>
-                  <label>
-                    Max pages
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={Number(selectedNode.data.max_pages ?? 2)}
-                      onChange={(event) =>
-                        updateSelectedNodeData({
-                          max_pages: clampNumberInput(event.target.value, 1, 5, Number(selectedNode.data.max_pages ?? 2)),
-                        })
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              {selectedNode.type === 'loop' && (
-                <label>
-                  Max items
-                  <input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={Number(selectedNode.data.max_items ?? 5)}
-                    onChange={(event) => updateSelectedNodeData({ max_items: Number(event.target.value) })}
-                  />
-                </label>
-              )}
-
-              {selectedNode.type === 'condition' && (
-                <label>
-                  Condition
-                  <input
-                    value={String(selectedNode.data.condition ?? '')}
-                    onChange={(event) => updateSelectedNodeData({ condition: event.target.value })}
-                  />
-                </label>
-              )}
-            </div>
-          ) : (
-            <p className="empty-selection">Select a canvas node to edit canonical node data.</p>
-          )}
-        </aside>
-
-        <section className="panel dsl-editor" aria-label="DSL editor region">
-          <div className="panel-heading">
-            <span>DSL Editor</span>
-            <small>{dslStatus === 'synced' ? 'Canonical graph JSON' : 'Last valid graph preserved'}</small>
-          </div>
-          <div className={`dsl-feedback ${dslStatus}`} aria-live="polite">
-            {dslFeedback}
-          </div>
-          <div className="monaco-shell">
-            <Editor
-              height="260px"
-              language="json"
-              theme="vs-dark"
-              value={dslText}
-              options={{ automaticLayout: true, minimap: { enabled: false }, tabSize: 2 }}
-              onChange={handleDslChange}
+              onNodeClick={(_, node) => {
+                setSelectedNodeId(node.id)
+                setRightPanelOpen(true)
+              }}
+              onPaneClick={() => {}}
+              sourceNodeTypeById={sourceNodeTypeById}
+              fitViewToken={canvasFitToken}
             />
           </div>
-        </section>
 
-        <section className="panel results-area" aria-label="Bottom result area">
-          <div className="panel-heading">
-            <span>Results</span>
-            <small>Validation and execution feedback</small>
-          </div>
-          <div className={`result-placeholder ${resultState.tone}`} aria-live="polite">
-            <div className="result-status">
-              <span className="result-badge">{resultState.tone}</span>
-              <strong>{resultState.title}</strong>
-              <p>{resultState.message}</p>
-              {runningAction && <small>Browser-backed execution is serialized until this action finishes.</small>}
+          {bottomDockOpen ? (
+            <Card
+              className="bottom-dock"
+              styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 } }}
+            >
+              <div className="bottom-dock-header">
+                <div className="console-panel-title">
+                  {activeDockTab === 'results' ? <BarsOutlined /> : <SaveOutlined />}
+                  <span>{activeDockTab === 'results' ? '执行结果工作区' : 'DSL 编辑工作区'}</span>
+                  {runningAction && <Tag color="processing">运行中</Tag>}
+                </div>
+                <Button size="small" onClick={() => setBottomDockOpen(false)}>收起</Button>
+              </div>
+              <Tabs
+                activeKey={activeDockTab}
+                onChange={(key) => setActiveDockTab(key as DockTabKey)}
+                className="bottom-dock-tabs"
+                items={[
+                  {
+                    key: 'results',
+                    label: '执行结果',
+                    children: (
+                      <ResultsPanel
+                        resultState={resultState}
+                        runningAction={runningAction}
+                        promptWorkspace={promptWorkspace}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'dsl',
+                    label: 'DSL 编辑器',
+                    children: (
+                      <DslEditorPanel
+                        dslStatus={dslStatus}
+                        dslFeedback={dslFeedback}
+                        dslText={dslText}
+                        onChange={handleDslChange}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </Card>
+          ) : (
+            <button className="bottom-dock-collapsed" type="button" onClick={() => openDockTab('results')}>
+              展开执行结果 / DSL 工作区
+            </button>
+          )}
+        </div>
+
+        {rightPanelOpen && (
+          <aside className="workbench-panel layout-panel-right">
+            <div className="workbench-panel-header">
+              <div className="console-panel-title">
+                <AppstoreOutlined />
+                <span>{selectedNode ? `配置 - ${selectedNode.id}` : '属性面板'}</span>
+              </div>
+              <Button size="small" onClick={() => setRightPanelOpen(false)}>收起</Button>
             </div>
-            <ResultDetails payload={resultState.payload} />
-          </div>
-        </section>
+            <PropertyPanel
+              selectedNode={selectedNode}
+              conditionOutgoingEdges={conditionOutgoingEdges}
+              workflowContext={workflowContext}
+              clampNumberInput={clampNumberInput}
+              updateSelectedNodeData={updateSelectedNodeData}
+              updateExtractField={updateExtractField}
+              updateConditionEdge={updateConditionEdge}
+              assistApplyMode={assistApplyMode}
+              setAssistApplyMode={setAssistApplyMode}
+              onAutoDetectSelectList={handleAutoDetectSelectList}
+              onOptimizeListSelector={handleOptimizeListSelector}
+              onInferExtractFields={handleInferExtractFields}
+              onAnalyzePagination={handleAnalyzePagination}
+              onCleanExtractField={handleCleanExtractField}
+              onTestSelector={handleTestSelector}
+              assistBusyAction={assistBusyAction}
+              addExtractField={addExtractField}
+              removeExtractField={removeExtractField}
+              onDeleteNode={deleteSelectedNode}
+            />
+          </aside>
+        )}
       </div>
-    </main>
+    </div>
   )
 }
-
-export default App
-
-
-
-
-
-
-
-
-
-
-

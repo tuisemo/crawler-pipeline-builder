@@ -5,23 +5,37 @@ from .workflow_executor import executor
 from .workflow_schemas import (
     FromLegacyConfigRequest,
     FromLegacyConfigResponse,
+    FormatScriptRequest,
+    FormatScriptResponse,
     GenerateCrawlerRequest,
     GenerateCrawlerResponse,
+    SaveScriptRequest,
+    SaveScriptResponse,
     TestNodeRequest,
     TestNodeResponse,
     TestSubflowRequest,
     TestSubflowResponse,
     ToPromptRequest,
     ValidateWorkflowRequest,
+    CompilePlanRequest,
+    CompilePlanResponse,
+    GenerateSkeletonRequest,
+    GenerateSkeletonResponse,
 )
 from .workflow_services import (
+    compile_plan,
     convert_legacy_config,
+    format_script,
+    generate_skeleton,
     generate_crawler,
     graph_to_prompt,
+    save_script,
     validate_graph,
     WorkflowValidationError,
     WorkflowConversionError,
     PromptGenerationError,
+    ScriptFormattingError,
+    ScriptPersistenceError,
 )
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
@@ -38,7 +52,11 @@ def validate_workflow(request: ValidateWorkflowRequest):
             content={"success": False, "error_code": e.error_code, "error": e.error}
         )
 
-@router.post("/from-legacy-config", response_model=FromLegacyConfigResponse)
+@router.post(
+    "/from-legacy-config",
+    response_model=FromLegacyConfigResponse,
+    response_model_exclude_none=True,
+)
 def from_legacy_config(request: FromLegacyConfigRequest):
     """Convert a legacy config to a workflow DSL graph."""
     try:
@@ -61,6 +79,18 @@ def to_prompt(request: ToPromptRequest):
         )
 
 
+@router.post("/compile-plan", response_model=CompilePlanResponse)
+def compile_plan_endpoint(request: CompilePlanRequest):
+    """Compile a workflow DSL graph into a deterministic execution plan."""
+    return compile_plan(request)
+
+
+@router.post("/generate-skeleton", response_model=GenerateSkeletonResponse)
+def generate_skeleton_endpoint(request: GenerateSkeletonRequest):
+    """Generate deterministic crawler skeleton without invoking LLM."""
+    return generate_skeleton(request)
+
+
 @router.post("/generate-crawler", response_model=GenerateCrawlerResponse)
 def generate_crawler_endpoint(request: GenerateCrawlerRequest):
     """Generate a Playwright crawler script from a DSL workflow graph.
@@ -72,6 +102,30 @@ def generate_crawler_endpoint(request: GenerateCrawlerRequest):
     4. Returns {success, prompt, script, filename, model, usage} or error
     """
     return generate_crawler(request)
+
+
+@router.post("/format-script", response_model=FormatScriptResponse)
+def format_script_endpoint(request: FormatScriptRequest):
+    """Format generated script content for the editor workspace."""
+    try:
+        return format_script(request)
+    except ScriptFormattingError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/save-script", response_model=SaveScriptResponse)
+def save_script_endpoint(request: SaveScriptRequest):
+    """Save generated or edited script content into the project workspace."""
+    try:
+        return save_script(request)
+    except ScriptPersistenceError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error_code": e.error_code, "error": e.error}
+        )
 
 
 @router.post("/test-node")

@@ -1,15 +1,17 @@
 [project]
 name = "sea-data"
 version = "0.1.0"
-description = "Web scraping page inspector with LLM-powered crawler script generation"
+description = "DSL-based crawler orchestration workbench with workflow APIs and React frontend"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "fastapi>=0.115.0",
+    "greenlet==3.1.1",
     "openai>=2.32.0",
     "playwright>=1.58.0",
     "pydantic>=2.10.0",
+    "pytest>=8.4.0",
     "requests>=2.33.1",
     "tqdm>=4.67.3",
     "uvicorn>=0.32.0",
@@ -22,7 +24,7 @@ llm = [
 
 [tool.setuptools]
 packages = ["backend", "extraction", "prompts"]
-py-modules = ["inspector", "llm_client", "main", "server"]
+py-modules = ["llm_client", "server", "demo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

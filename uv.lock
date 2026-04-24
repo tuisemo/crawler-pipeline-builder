@@ -1,0 +1,593 @@
+version = 1
+revision = 3
+requires-python = ">=3.13"
+
+[[package]]
+name = "annotated-doc"
+version = "0.0.4"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/annotated-doc/0.0.4/annotated_doc-0.0.4.tar.gz", hash = "sha256:fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/annotated-doc/0.0.4/annotated_doc-0.0.4-py3-none-any.whl", hash = "sha256:571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320" },
+]
+
+[[package]]
+name = "annotated-types"
+version = "0.7.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/annotated-types/0.7.0/annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/annotated-types/0.7.0/annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53" },
+]
+
+[[package]]
+name = "anyio"
+version = "4.13.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "idna" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/anyio/4.13.0/anyio-4.13.0.tar.gz", hash = "sha256:334b70e641fd2221c1505b3890c69882fe4a2df910cba14d97019b90b24439dc" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/anyio/4.13.0/anyio-4.13.0-py3-none-any.whl", hash = "sha256:08b310f9e24a9594186fd75b4f73f4a4152069e3853f1ed8bfbf58369f4ad708" },
+]
+
+[[package]]
+name = "beautifulsoup4"
+version = "4.14.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "soupsieve" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/beautifulsoup4/4.14.3/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/beautifulsoup4/4.14.3/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb" },
+]
+
+[[package]]
+name = "certifi"
+version = "2026.2.25"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/certifi/2026.2.25/certifi-2026.2.25.tar.gz", hash = "sha256:e887ab5cee78ea814d3472169153c2d12cd43b14bd03329a39a9c6e2e80bfba7" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/certifi/2026.2.25/certifi-2026.2.25-py3-none-any.whl", hash = "sha256:027692e4402ad994f1c42e52a4997a9763c646b73e4096e4d5d6db8af1d6f0fa" },
+]
+
+[[package]]
+name = "charset-normalizer"
+version = "3.4.7"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7.tar.gz", hash = "sha256:ae89db9e5f98a11a4bf50407d4363e7b09b31e55bc117b4f7d80aab97ba009e5" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:f496c9c3cc02230093d8330875c4c3cdfc3b73612a5fd921c65d39cbcef08063" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0ea948db76d31190bf08bd371623927ee1339d5f2a0b4b1b4a4439a65298703c" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:a277ab8928b9f299723bc1a2dabb1265911b1a76341f90a510368ca44ad9ab66" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:3bec022aec2c514d9cf199522a802bd007cd588ab17ab2525f20f9c34d067c18" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e044c39e41b92c845bc815e5ae4230804e8e7bc29e399b0437d64222d92809dd" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux_2_31_armv7l.whl", hash = "sha256:f495a1652cf3fbab2eb0639776dad966c2fb874d79d87ca07f9d5f059b8bd215" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:e712b419df8ba5e42b226c510472b37bd57b38e897d3eca5e8cfd410a29fa859" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:7804338df6fcc08105c7745f1502ba68d900f45fd770d5bdd5288ddccb8a42d8" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_armv7l.whl", hash = "sha256:481551899c856c704d58119b5025793fa6730adda3571971af568f66d2424bb5" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_ppc64le.whl", hash = "sha256:f59099f9b66f0d7145115e6f80dd8b1d847176df89b234a5a6b3f00437aa0832" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_riscv64.whl", hash = "sha256:f59ad4c0e8f6bba240a9bb85504faa1ab438237199d4cce5f622761507b8f6a6" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_s390x.whl", hash = "sha256:3dedcc22d73ec993f42055eff4fcfed9318d1eeb9a6606c55892a26964964e48" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:64f02c6841d7d83f832cd97ccf8eb8a906d06eb95d5276069175c696b024b60a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-win32.whl", hash = "sha256:4042d5c8f957e15221d423ba781e85d553722fc4113f523f2feb7b188cc34c5e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-win_amd64.whl", hash = "sha256:3946fa46a0cf3e4c8cb1cc52f56bb536310d34f25f01ca9b6c16afa767dab110" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp313-cp313-win_arm64.whl", hash = "sha256:80d04837f55fc81da168b98de4f4b797ef007fc8a79ab71c6ec9bc4dd662b15b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:c36c333c39be2dbca264d7803333c896ab8fa7d4d6f0ab7edb7dfd7aea6e98c0" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1c2aed2e5e41f24ea8ef1590b8e848a79b56f3a5564a65ceec43c9d692dc7d8a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:54523e136b8948060c0fa0bc7b1b50c32c186f2fceee897a495406bb6e311d2b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:715479b9a2802ecac752a3b0efa2b0b60285cf962ee38414211abdfccc233b41" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:bd6c2a1c7573c64738d716488d2cdd3c00e340e4835707d8fdb8dc1a66ef164e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux_2_31_armv7l.whl", hash = "sha256:c45e9440fb78f8ddabcf714b68f936737a121355bf59f3907f4e17721b9d1aae" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:3534e7dcbdcf757da6b85a0bbf5b6868786d5982dd959b065e65481644817a18" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:e8ac484bf18ce6975760921bb6148041faa8fef0547200386ea0b52b5d27bf7b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_armv7l.whl", hash = "sha256:a5fe03b42827c13cdccd08e6c0247b6a6d4b5e3cdc53fd1749f5896adcdc2356" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_ppc64le.whl", hash = "sha256:2d6eb928e13016cea4f1f21d1e10c1cebd5a421bc57ddf5b1142ae3f86824fab" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_riscv64.whl", hash = "sha256:e74327fb75de8986940def6e8dee4f127cc9752bee7355bb323cc5b2659b6d46" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_s390x.whl", hash = "sha256:d6038d37043bced98a66e68d3aa2b6a35505dc01328cd65217cefe82f25def44" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:7579e913a5339fb8fa133f6bbcfd8e6749696206cf05acdbdca71a1b436d8e72" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-win32.whl", hash = "sha256:5b77459df20e08151cd6f8b9ef8ef1f961ef73d85c21a555c7eed5b79410ec10" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-win_amd64.whl", hash = "sha256:92a0a01ead5e668468e952e4238cccd7c537364eb7d851ab144ab6627dbbe12f" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314-win_arm64.whl", hash = "sha256:67f6279d125ca0046a7fd386d01b311c6363844deac3e5b069b514ba3e63c246" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:effc3f449787117233702311a1b7d8f59cba9ced946ba727bdc329ec69028e24" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:fbccdc05410c9ee21bbf16a35f4c1d16123dcdeb8a1d38f33654fa21d0234f79" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:733784b6d6def852c814bce5f318d25da2ee65dd4839a0718641c696e09a2960" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:a89c23ef8d2c6b27fd200a42aa4ac72786e7c60d40efdc76e6011260b6e949c4" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6c114670c45346afedc0d947faf3c7f701051d2518b943679c8ff88befe14f8e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux_2_31_armv7l.whl", hash = "sha256:a180c5e59792af262bf263b21a3c49353f25945d8d9f70628e73de370d55e1e1" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:3c9a494bc5ec77d43cea229c4f6db1e4d8fe7e1bbffa8b6f0f0032430ff8ab44" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:8d828b6667a32a728a1ad1d93957cdf37489c57b97ae6c4de2860fa749b8fc1e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_armv7l.whl", hash = "sha256:cf1493cd8607bec4d8a7b9b004e699fcf8f9103a9284cc94962cb73d20f9d4a3" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_ppc64le.whl", hash = "sha256:0c96c3b819b5c3e9e165495db84d41914d6894d55181d2d108cc1a69bfc9cce0" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_riscv64.whl", hash = "sha256:752a45dc4a6934060b3b0dab47e04edc3326575f82be64bc4fc293914566503e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_s390x.whl", hash = "sha256:8778f0c7a52e56f75d12dae53ae320fae900a8b9b4164b981b9c5ce059cd1fcb" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:ce3412fbe1e31eb81ea42f4169ed94861c56e643189e1e75f0041f3fe7020abe" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-win32.whl", hash = "sha256:c03a41a8784091e67a39648f70c5f97b5b6a37f216896d44d2cdcb82615339a0" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-win_amd64.whl", hash = "sha256:03853ed82eeebbce3c2abfdbc98c96dc205f32a79627688ac9a27370ea61a49c" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-cp314-cp314t-win_arm64.whl", hash = "sha256:c35abb8bfff0185efac5878da64c45dafd2b37fb0383add1be155a763c1f083d" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/charset-normalizer/3.4.7/charset_normalizer-3.4.7-py3-none-any.whl", hash = "sha256:3dce51d0f5e7951f8bb4900c257dad282f49190fdbebecd4ba99bcc41fef404d" },
+]
+
+[[package]]
+name = "click"
+version = "8.3.2"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/click/8.3.2/click-8.3.2.tar.gz", hash = "sha256:14162b8b3b3550a7d479eafa77dfd3c38d9dc8951f6f69c78913a8f9a7540fd5" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/click/8.3.2/click-8.3.2-py3-none-any.whl", hash = "sha256:1924d2c27c5653561cd2cae4548d1406039cb79b858b747cfea24924bbc1616d" },
+]
+
+[[package]]
+name = "colorama"
+version = "0.4.6"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/colorama/0.4.6/colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/colorama/0.4.6/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6" },
+]
+
+[[package]]
+name = "distro"
+version = "1.9.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/distro/1.9.0/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/distro/1.9.0/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2" },
+]
+
+[[package]]
+name = "fastapi"
+version = "0.135.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/fastapi/0.135.3/fastapi-0.135.3.tar.gz", hash = "sha256:bd6d7caf1a2bdd8d676843cdcd2287729572a1ef524fc4d65c17ae002a1be654" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/fastapi/0.135.3/fastapi-0.135.3-py3-none-any.whl", hash = "sha256:9b0f590c813acd13d0ab43dd8494138eb58e484bfac405db1f3187cfc5810d98" },
+]
+
+[[package]]
+name = "greenlet"
+version = "3.1.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1.tar.gz", hash = "sha256:4ce3ac6cdb6adf7946475d7ef31777c26d94bccc377e070a7986bd2d5c515467" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:05175c27cb459dcfc05d026c4232f9de8913ed006d42713cb8a5137bd49375f1" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:935e943ec47c4afab8965954bf49bfa639c05d4ccf9ef6e924188f762145c0ff" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:667a9706c970cb552ede35aee17339a18e8f2a87a51fba2ed39ceeeb1004798a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:b8a678974d1f3aa55f6cc34dc480169d58f2e6d8958895d68845fa4ab566509e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:efc0f674aa41b92da8c49e0346318c6075d734994c3c4e4430b1c3f853e498e4" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0153404a4bb921f0ff1abeb5ce8a5131da56b953eda6e14b88dc6bbc04d2049e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:275f72decf9932639c1c6dd1013a1bc266438eb32710016a1c742df5da6e60a1" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:c4aab7f6381f38a4b42f269057aee279ab0fc7bf2e929e3d4abfae97b682a12c" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313-win_amd64.whl", hash = "sha256:b42703b1cf69f2aa1df7d1030b9d77d3e584a70755674d60e710f0af570f3761" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f1695e76146579f8c06c1509c7ce4dfe0706f49c6831a817ac04eebb2fd02011" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:7876452af029456b3f3549b696bb36a06db7c90747740c5302f74a9e9fa14b13" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:4ead44c85f8ab905852d3de8d86f6f8baf77109f9da589cb4fa142bd3b57b475" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8320f64b777d00dd7ccdade271eaf0cad6636343293a25074cc5566160e4de7b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6510bf84a6b643dabba74d3049ead221257603a253d0a9873f55f6a59a65f822" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-musllinux_1_1_aarch64.whl", hash = "sha256:04b013dc07c96f83134b1e99888e7a79979f1a247e2a9f59697fa14b5862ed01" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/greenlet/3.1.1/greenlet-3.1.1-cp313-cp313t-musllinux_1_1_x86_64.whl", hash = "sha256:411f015496fec93c1c8cd4e5238da364e1da7a124bcb293f085bf2860c32c6f6" },
+]
+
+[[package]]
+name = "h11"
+version = "0.16.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/h11/0.16.0/h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/h11/0.16.0/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86" },
+]
+
+[[package]]
+name = "httpcore"
+version = "1.0.9"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "certifi" },
+    { name = "h11" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/httpcore/1.0.9/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/httpcore/1.0.9/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55" },
+]
+
+[[package]]
+name = "httpx"
+version = "0.28.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "anyio" },
+    { name = "certifi" },
+    { name = "httpcore" },
+    { name = "idna" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/httpx/0.28.1/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/httpx/0.28.1/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad" },
+]
+
+[[package]]
+name = "idna"
+version = "3.11"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/idna/3.11/idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/idna/3.11/idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea" },
+]
+
+[[package]]
+name = "iniconfig"
+version = "2.3.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/iniconfig/2.3.0/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/iniconfig/2.3.0/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12" },
+]
+
+[[package]]
+name = "jiter"
+version = "0.14.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0.tar.gz", hash = "sha256:e8a39e66dac7153cf3f964a12aad515afa8d74938ec5cc0018adcdae5367c79e" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:af72f204cf4d44258e5b4c1745130ac45ddab0e71a06333b01de660ab4187a94" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:4b77da71f6e819be5fbcec11a453fde5b1d0267ef6ed487e2a392fd8e14e4e3a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:77f4ea612fe8b84b8b04e51d0e78029ecf3466348e25973f953de6e6a59aa4c1" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:62fe2451f8fcc0240261e6a4df18ecbcd58327857e61e625b2393ea3b468aac9" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:6112f26f5afc75bcb475787d29da3aa92f9d09c7858f632f4be6ffe607be82e9" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:215a6cb8fb7dc702aa35d475cc00ddc7f970e5c0b1417fb4b4ac5d82fa2a29db" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fc4ab96a30fb3cb2c7e0cd33f7616c8860da5f5674438988a54ac717caccdbaa" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_31_riscv64.whl", hash = "sha256:3a99c1387b1f2928f799a9de899193484d66206a50e98233b6b088a7f0c1edb2" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:ab18d11074485438695f8d34a1b6da61db9754248f96d51341956607a8f39985" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:801028dcfc26ac0895e4964cbc0fd62c73be9fd4a7d7b1aaf6e5790033a719b7" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:ad425b087aafb4a1c7e1e98a279200743b9aaf30c3e0ba723aec93f061bd9bc8" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-win32.whl", hash = "sha256:882bcb9b334318e233950b8be366fe5f92c86b66a7e449e76975dfd6d776a01f" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-win_amd64.whl", hash = "sha256:9b8c571a5dba09b98bd3462b5a53f27209a5cbbe85670391692ede71974e979f" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313-win_arm64.whl", hash = "sha256:34f19dcc35cb1abe7c369b3756babf8c7f04595c0807a848df8f26ef8298ef92" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:e89bcd7d426a75bb4952c696b267075790d854a07aad4c9894551a82c5b574ab" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7b25beaa0d4447ea8c7ae0c18c688905d34840d7d0b937f2f7bdd52162c98a40" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:651a8758dd413c51e3b7f6557cdc6921faf70b14106f45f969f091f5cda990ea" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313t-win_amd64.whl", hash = "sha256:e1a7eead856a5038a8d291f1447176ab0b525c77a279a058121b5fccee257f6f" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp313-cp313t-win_arm64.whl", hash = "sha256:2e692633a12cda97e352fdcd1c4acc971b1c28707e1e33aeef782b0cbf051975" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:6f396837fc7577871ca8c12edaf239ed9ccef3bbe39904ae9b8b63ce0a48b140" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:a4d50ea3d8ba4176f79754333bd35f1bbcd28e91adc13eb9b7ca91bc52a6cef9" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ce17f8a050447d1b4153bda4fb7d26e6a9e74eb4f4a41913f30934c5075bf615" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:f4f1c4b125e1652aefbc2e2c1617b60a160ab789d180e3d423c41439e5f32850" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:be808176a6a3a14321d18c603f2d40741858a7c4fc982f83232842689fe86dd9" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:26679d58ba816f88c3849306dd58cb863a90a1cf352cdd4ef67e30ccf8a77994" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:80381f5a19af8fa9aef743f080e34f6b25ebd89656475f8cf0470ec6157052aa" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_31_riscv64.whl", hash = "sha256:004df5fdb8ecbd6d99f3227df18ba1a259254c4359736a2e6f036c944e02d7c5" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:cff5708f7ed0fa098f2b53446c6fa74c48469118e5cd7497b4f1cd569ab06928" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-musllinux_1_1_aarch64.whl", hash = "sha256:2492e5f06c36a976d25c7cc347a60e26d5470178d44cde1b9b75e60b4e519f28" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:7609cfbe3a03d37bfdbf5052012d5a879e72b83168a363deae7b3a26564d57de" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-win32.whl", hash = "sha256:7282342d32e357543565286b6450378c3cd402eea333fc1ebe146f1fabb306fc" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-win_amd64.whl", hash = "sha256:bd77945f38866a448e73b0b7637366afa814d4617790ecd88a18ca74377e6c02" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314-win_arm64.whl", hash = "sha256:f2d4c61da0821ee42e0cdf5489da60a6d074306313a377c2b35af464955a3611" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:1bf7ff85517dd2f20a5750081d2b75083c1b269cf75afc7511bdf1f9548beb3b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c8ef8791c3e78d6c6b157c6d360fbb5c715bebb8113bc6a9303c5caff012754a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:e74663b8b10da1fe0f4e4703fd7980d24ad17174b6bb35d8498d6e3ebce2ae6a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:1aca29ba52913f78362ec9c2da62f22cdc4c3083313403f90c15460979b84d9b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:8b39b7d87a952b79949af5fef44d2544e58c21a28da7f1bae3ef166455c61746" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:78d918a68b26e9fab068c2b5453577ef04943ab2807b9a6275df2a812599a310" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_31_riscv64.whl", hash = "sha256:b08997c35aee1201c1a5361466a8fb9162d03ae7bf6568df70b6c859f1e654a4" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:260bf7ca20704d58d41f669e5e9fe7fe2fa72901a6b324e79056f5d52e9c9be2" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:37826e3df29e60f30a382f9294348d0238ef127f4b5d7f5f8da78b5b9e050560" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:645be49c46f2900937ba0eaf871ad5183c96858c0af74b6becc7f4e367e36e06" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-win32.whl", hash = "sha256:2f7877ed45118de283786178eceaf877110abacd04fde31efff3940ae9672674" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-win_amd64.whl", hash = "sha256:14c0cb10337c49f5eafe8e7364daca5e29a020ea03580b8f8e6c597fed4e1588" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/jiter/0.14.0/jiter-0.14.0-cp314-cp314t-win_arm64.whl", hash = "sha256:5419d4aa2024961da9fe12a9cfe7484996735dca99e8e090b5c88595ef1951ff" },
+]
+
+[[package]]
+name = "openai"
+version = "2.32.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/openai/2.32.0/openai-2.32.0.tar.gz", hash = "sha256:c54b27a9e4cb8d51f0dd94972ffd1a04437efeb259a9e60d8922b8bd26fe55e0" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/openai/2.32.0/openai-2.32.0-py3-none-any.whl", hash = "sha256:4dcc9badeb4bf54ad0d187453742f290226d30150890b7890711bda4f32f192f" },
+]
+
+[[package]]
+name = "packaging"
+version = "26.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/packaging/26.1/packaging-26.1.tar.gz", hash = "sha256:f042152b681c4bfac5cae2742a55e103d27ab2ec0f3d88037136b6bfe7c9c5de" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/packaging/26.1/packaging-26.1-py3-none-any.whl", hash = "sha256:5d9c0669c6285e491e0ced2eee587eaf67b670d94a19e94e3984a481aba6802f" },
+]
+
+[[package]]
+name = "playwright"
+version = "1.58.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "greenlet" },
+    { name = "pyee" },
+]
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:96e3204aac292ee639edbfdef6298b4be2ea0a55a16b7068df91adac077cc606" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:70c763694739d28df71ed578b9c8202bb83e8fe8fb9268c04dd13afe36301f71" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:185e0132578733d02802dfddfbbc35f42be23a45ff49ccae5081f25952238117" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:c95568ba1eda83812598c1dc9be60b4406dffd60b149bc1536180ad108723d6b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8f9999948f1ab541d98812de25e3a8c410776aa516d948807140aff797b4bffa" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-win32.whl", hash = "sha256:1e03be090e75a0fabbdaeab65ce17c308c425d879fa48bb1d7986f96bfad0b99" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-win_amd64.whl", hash = "sha256:a2bf639d0ce33b3ba38de777e08697b0d8f3dc07ab6802e4ac53fb65e3907af8" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/playwright/1.58.0/playwright-1.58.0-py3-none-win_arm64.whl", hash = "sha256:32ffe5c303901a13a0ecab91d1c3f74baf73b84f4bedbb6b935f5bc11cc98e1b" },
+]
+
+[[package]]
+name = "pluggy"
+version = "1.6.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pluggy/1.6.0/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pluggy/1.6.0/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746" },
+]
+
+[[package]]
+name = "pydantic"
+version = "2.13.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "annotated-types" },
+    { name = "pydantic-core" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic/2.13.1/pydantic-2.13.1.tar.gz", hash = "sha256:a0f829b279ddd1e39291133fe2539d2aa46cc6b150c1706a270ff0879e3774d2" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic/2.13.1/pydantic-2.13.1-py3-none-any.whl", hash = "sha256:9557ecc2806faaf6037f85b1fbd963d01e30511c48085f0d573650fdeaad378a" },
+]
+
+[[package]]
+name = "pydantic-core"
+version = "2.46.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1.tar.gz", hash = "sha256:d408153772d9f298098fb5d620f045bdf0f017af0d5cb6e309ef8c205540caa4" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:cdc8a5762a9c4b9d86e204d555444e3227507c92daba06259ee66595834de47a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ba381dfe9c85692c566ecb60fa5a77a697a2a8eebe274ec5e4d6ec15fafad799" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1593d8de98207466dc070118322fef68307a0cc6a5625e7b386f6fdae57f9ab6" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:8262c74a1af5b0fdf795f5537f7145785a63f9fbf9e15405f547440c30017ed8" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:4b88949a24182e83fbbb3f7ca9b7858d0d37b735700ea91081434b7d37b3b444" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:b8f3708cd55537aeaf3fd0ea55df0d68d0da51dcb07cbc8508745b34acc4c6e0" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f79292435fff1d4f0c18d9cfaf214025cc88e4f5104bfaed53f173621da1c743" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_31_riscv64.whl", hash = "sha256:a2e607aeb59cf4575bb364470288db3b9a1f0e7415d053a322e3e154c1a0802e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:ec5ca190b75878a9f6ae1fc8f5eb678497934475aef3d93204c9fa01e97370b6" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:1f80535259dcdd517d7b8ca588d5ca24b4f337228e583bebedf7a3adcdf5f721" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-musllinux_1_1_armv7l.whl", hash = "sha256:24820b3c82c43df61eca30147e42853e6c127d8b868afdc0c162df829e011eb4" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:f12794b1dd8ac9fb66619e0b3a0427189f5d5638e55a3de1385121a9b7bf9b39" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-win32.whl", hash = "sha256:9bc09aed935cdf50f09e908923f9efbcca54e9244bd14a5a0e2a6c8d2c21b4e9" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-win_amd64.whl", hash = "sha256:fac2d6c8615b8b42bee14677861ba09d56ee076ba4a65cfb9c3c3d0cc89042f2" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp313-cp313-win_arm64.whl", hash = "sha256:f978329f12ace9f3cb814a5e44d98bbeced2e36f633132bafa06d2d71332e33e" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:9917cb61effac7ec0f448ef491ec7584526d2193be84ff981e85cbf18b68c42a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:0e749679ca9f8a9d0bff95fb7f6b57bb53f2207fa42ffcc1ec86de7e0029ab89" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f2ecacee70941e233a2dad23f7796a06f86cc10cc2fbd1c97c7dd5b5a79ffa4f" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:647d0a2475b8ed471962eed92fa69145b864942f9c6daa10f95ac70676637ae7" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:ac9cde61965b0697fce6e6cc372df9e1ad93734828aac36e9c1c42a22ad02897" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:0a2eb0864085f8b641fb3f54a2fb35c58aff24b175b80bc8a945050fcde03204" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b83ce9fede4bc4fb649281d9857f06d30198b8f70168f18b987518d713111572" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_31_riscv64.whl", hash = "sha256:cb33192753c60f269d2f4a1db8253c95b0df6e04f2989631a8cc1b0f4f6e2e92" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:96611d51f953f87e1ae97637c01ee596a08b7f494ea00a5afb67ea6547b9f53b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-musllinux_1_1_aarch64.whl", hash = "sha256:9b176fa55f9107db5e6c86099aa5bfd934f1d3ba6a8b43f714ddeebaed3f42b7" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-musllinux_1_1_armv7l.whl", hash = "sha256:79a59f63a4ce4f3330e27e6f3ce281dd1099453b637350e97d7cf24c207cd120" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:f200fce071808a385a314b7343f5e3688d7c45746be3d64dc71ee2d3e2a13268" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-win32.whl", hash = "sha256:3a07eccc0559fb9acc26d55b16bf8ebecd7f237c74a9e2c5741367db4e6d8aff" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-win_amd64.whl", hash = "sha256:1706d270309ac7d071ffe393988c471363705feb3d009186e55d17786ada9622" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314-win_arm64.whl", hash = "sha256:22d4e7457ade8af06528012f382bc994a97cc2ce6e119305a70b3deff1e409d6" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-macosx_10_12_x86_64.whl", hash = "sha256:607ff9db0b7e2012e7eef78465e69f9a0d7d1c3e7c6a84cf0c4011db0fcc3feb" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:8cda3eacaea13bd02a1bea7e457cc9fc30b91c5a91245cef9b215140f80dd78c" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b9493279cdc7997fe19e5ed9b41f30cbc3806bd4722adb402fedb6f6d41bd72a" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:3644e5e10059999202355b6c6616e624909e23773717d8f76deb8a6e2a72328c" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:4ad6c9de57683e26c92730991960c0c3571b8053263b042de2d3e105930b2767" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:557ebaa27c7617e7088002318c679a8ce685fa048523417cd1ca52b7f516d955" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3cd37e39b22b796ba0298fe81e9421dd7b65f97acfbb0fb19b33ffdda7b9a7b4" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_31_riscv64.whl", hash = "sha256:6689443b59714992e67d62505cdd2f952d6cf1c14cc9fd9aeec6719befc6f23b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:6f32c41ca1e3456b5dd691827b7c1433c12d5f0058cc186afbb3615bc07d97b8" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:88cd1355578852db83954dc36e4f58f299646916da976147c20cf6892ba5dc43" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-musllinux_1_1_armv7l.whl", hash = "sha256:a170fefdb068279a473cc9d34848b85e61d68bfcc2668415b172c5dfc6f213bf" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:556a63ff1006934dba4eed7ea31b58274c227e29298ec398e4275eda4b905e95" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-win32.whl", hash = "sha256:3b146d8336a995f7d7da6d36e4a779b7e7dff2719ac00a1eb8bd3ded00bec87b" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-win_amd64.whl", hash = "sha256:f1bc856c958e6fe9ec071e210afe6feb695f2e2e81fd8d2b102f558d364c4c17" },
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pydantic-core/2.46.1/pydantic_core-2.46.1-cp314-cp314t-win_arm64.whl", hash = "sha256:21a5bfd8a1aa4de60494cdf66b0c912b1495f26a8899896040021fbd6038d989" },
+]
+
+[[package]]
+name = "pyee"
+version = "13.0.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pyee/13.0.1/pyee-13.0.1.tar.gz", hash = "sha256:0b931f7c14535667ed4c7e0d531716368715e860b988770fc7eb8578d1f67fc8" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pyee/13.0.1/pyee-13.0.1-py3-none-any.whl", hash = "sha256:af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228" },
+]
+
+[[package]]
+name = "pygments"
+version = "2.20.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pygments/2.20.0/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pygments/2.20.0/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176" },
+]
+
+[[package]]
+name = "pytest"
+version = "9.0.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "iniconfig" },
+    { name = "packaging" },
+    { name = "pluggy" },
+    { name = "pygments" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pytest/9.0.3/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/pytest/9.0.3/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9" },
+]
+
+[[package]]
+name = "requests"
+version = "2.33.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "certifi" },
+    { name = "charset-normalizer" },
+    { name = "idna" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/requests/2.33.1/requests-2.33.1.tar.gz", hash = "sha256:18817f8c57c6263968bc123d237e3b8b08ac046f5456bd1e307ee8f4250d3517" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/requests/2.33.1/requests-2.33.1-py3-none-any.whl", hash = "sha256:4e6d1ef462f3626a1f0a0a9c42dd93c63bad33f9f1c1937509b8c5c8718ab56a" },
+]
+
+[[package]]
+name = "sea-data"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "fastapi" },
+    { name = "greenlet" },
+    { name = "openai" },
+    { name = "playwright" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "requests" },
+    { name = "tqdm" },
+    { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+llm = [
+    { name = "openai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.14.3" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "greenlet", specifier = "==3.1.1" },
+    { name = "openai", specifier = ">=2.32.0" },
+    { name = "openai", marker = "extra == 'llm'", specifier = ">=1.0.0" },
+    { name = "playwright", specifier = ">=1.58.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", specifier = ">=8.4.0" },
+    { name = "requests", specifier = ">=2.33.1" },
+    { name = "tqdm", specifier = ">=4.67.3" },
+    { name = "uvicorn", specifier = ">=0.32.0" },
+]
+provides-extras = ["llm"]
+
+[[package]]
+name = "sniffio"
+version = "1.3.1"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/sniffio/1.3.1/sniffio-1.3.1.tar.gz", hash = "sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/sniffio/1.3.1/sniffio-1.3.1-py3-none-any.whl", hash = "sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2" },
+]
+
+[[package]]
+name = "soupsieve"
+version = "2.8.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/soupsieve/2.8.3/soupsieve-2.8.3.tar.gz", hash = "sha256:3267f1eeea4251fb42728b6dfb746edc9acaffc4a45b27e19450b676586e8349" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/soupsieve/2.8.3/soupsieve-2.8.3-py3-none-any.whl", hash = "sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95" },
+]
+
+[[package]]
+name = "starlette"
+version = "1.0.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "anyio" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/starlette/1.0.0/starlette-1.0.0.tar.gz", hash = "sha256:6a4beaf1f81bb472fd19ea9b918b50dc3a77a6f2e190a12954b25e6ed5eea149" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/starlette/1.0.0/starlette-1.0.0-py3-none-any.whl", hash = "sha256:d3ec55e0bb321692d275455ddfd3df75fff145d009685eb40dc91fc66b03d38b" },
+]
+
+[[package]]
+name = "tqdm"
+version = "4.67.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/tqdm/4.67.3/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/tqdm/4.67.3/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf" },
+]
+
+[[package]]
+name = "typing-extensions"
+version = "4.15.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/typing-extensions/4.15.0/typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/typing-extensions/4.15.0/typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548" },
+]
+
+[[package]]
+name = "typing-inspection"
+version = "0.4.2"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/typing-inspection/0.4.2/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/typing-inspection/0.4.2/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7" },
+]
+
+[[package]]
+name = "urllib3"
+version = "2.6.3"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/urllib3/2.6.3/urllib3-2.6.3.tar.gz", hash = "sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/urllib3/2.6.3/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4" },
+]
+
+[[package]]
+name = "uvicorn"
+version = "0.44.0"
+source = { registry = "https://nexus.zhongshu.tech/repository/pypi-group/simple/" }
+dependencies = [
+    { name = "click" },
+    { name = "h11" },
+]
+sdist = { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/uvicorn/0.44.0/uvicorn-0.44.0.tar.gz", hash = "sha256:6c942071b68f07e178264b9152f1f16dfac5da85880c4ce06366a96d70d4f31e" }
+wheels = [
+    { url = "https://nexus.zhongshu.tech/repository/pypi-group/packages/uvicorn/0.44.0/uvicorn-0.44.0-py3-none-any.whl", hash = "sha256:ce937c99a2cc70279556967274414c087888e8cec9f9c94644dfca11bd3ced89" },
+]

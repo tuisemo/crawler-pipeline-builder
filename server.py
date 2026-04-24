@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.browser_session import page_session_mgr, stop_browser
+from backend.assist_routes import router as assist_router
 from backend.workflow_routes import router as workflow_router
 
 @asynccontextmanager
@@ -30,6 +31,7 @@ def index():
     return {"message": "Sea Data API - use /api/workflows/* for DSL endpoints"}
 
 app.include_router(workflow_router)
+app.include_router(assist_router)
 
 def main(port: int = 8000):
     print(f"[*] Starting Page Inspector at http://127.0.0.1:{port}")
