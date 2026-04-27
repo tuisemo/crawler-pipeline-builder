@@ -1,5 +1,6 @@
 import { Alert, Card, Tag, Typography } from 'antd'
 import Editor from '@monaco-editor/react'
+import { useEffect, useRef } from 'react'
 import type { DslStatus } from '../workflowState'
 
 type DslEditorPanelProps = {
@@ -7,6 +8,14 @@ type DslEditorPanelProps = {
   dslFeedback: string
   dslText: string
   onChange: (value: string | undefined) => void
+  showHeader?: boolean
+  contextSummary?: {
+    selectedNodeId: string
+    nodeCount: number
+    edgeCount: number
+    fieldCount: number
+  }
+  visibilityToken?: number
 }
 
 const statusMap: Record<DslStatus, { color: 'success' | 'warning' | 'error' | 'info'; label: string }> = {
@@ -15,39 +24,69 @@ const statusMap: Record<DslStatus, { color: 'success' | 'warning' | 'error' | 'i
   'schema-error': { color: 'warning', label: 'Last valid graph preserved' },
 }
 
-export function DslEditorPanel({ dslStatus, dslFeedback, dslText, onChange }: DslEditorPanelProps) {
+export function DslEditorPanel({
+  dslStatus,
+  dslFeedback,
+  dslText,
+  onChange,
+  showHeader = true,
+  contextSummary,
+  visibilityToken,
+}: DslEditorPanelProps) {
   const status = statusMap[dslStatus]
+  const editorRef = useRef<{ layout: () => void } | null>(null)
+
+  useEffect(() => {
+    if (!editorRef.current || visibilityToken === undefined) return
+    requestAnimationFrame(() => editorRef.current?.layout())
+    window.setTimeout(() => editorRef.current?.layout(), 120)
+    window.setTimeout(() => editorRef.current?.layout(), 260)
+  }, [visibilityToken])
 
   return (
     <Card
       className="dsl-editor ant-dsl-editor-card"
       style={{ height: '100%', minHeight: 0 }}
-      title={
+      title={showHeader ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Typography.Text strong style={{ fontSize: 16, color: '#0f172a' }}>DSL Editor</Typography.Text>
+          <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>DSL Editor</Typography.Text>
           <Tag color={status.color === 'success' ? 'blue' : status.color === 'error' ? 'red' : 'orange'}>
             {status.label}
           </Tag>
         </div>
-      }
-      extra={
+      ) : undefined}
+      extra={showHeader ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {dslStatus === 'synced' ? '画布与 DSL 已保持同步' : '保留上次有效图形'}
         </Typography.Text>
-      }
+      ) : undefined}
       styles={{ body: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 } }}
       variant="outlined"
     >
+      {contextSummary ? (
+        <div className="workspace-context-strip">
+          <Typography.Text className="workspace-context-chip">
+            当前节点 {contextSummary.selectedNodeId || '未选择'}
+          </Typography.Text>
+          <Typography.Text className="workspace-context-chip">
+            {contextSummary.nodeCount} 节点 / {contextSummary.edgeCount} 连线
+          </Typography.Text>
+          <Typography.Text className="workspace-context-chip">
+            {contextSummary.fieldCount} 个字段
+          </Typography.Text>
+        </div>
+      ) : null}
+
       <Alert
-        title={<span style={{ color: '#0f172a', fontWeight: 500 }}>{dslFeedback}</span>}
+        title={<span style={{ color: 'var(--sd-color-ink)', fontWeight: 500 }}>{dslFeedback}</span>}
         type={status.color}
         showIcon
         style={{
           marginBottom: 12,
-          borderRadius: 10,
+          borderRadius: 'var(--sd-radius-lg)',
+          border: 'none',
+          boxShadow: 'var(--sd-shadow-border)',
           flexShrink: 0,
-          backgroundColor: status.color === 'success' ? '#f0fdf4' : status.color === 'error' ? '#fef2f2' : '#fffbeb',
-          borderColor: status.color === 'success' ? '#bbf7d0' : status.color === 'error' ? '#fecaca' : '#fde68a',
         }}
       />
       <div className="monaco-shell dsl-monaco-shell" style={{ flex: 1, minHeight: 0 }}>
@@ -56,6 +95,11 @@ export function DslEditorPanel({ dslStatus, dslFeedback, dslText, onChange }: Ds
           language="json"
           theme="vs-dark"
           value={dslText}
+          onMount={(editor) => {
+            editorRef.current = editor
+            window.setTimeout(() => editor.layout(), 0)
+            window.setTimeout(() => editor.layout(), 120)
+          }}
           options={{
             automaticLayout: true,
             minimap: { enabled: false },

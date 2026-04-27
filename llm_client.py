@@ -37,6 +37,7 @@ class LLMResponse:
     content: str
     model: str = ""
     usage: dict[str, int] | None = None
+    finish_reason: str | None = None
     error: str | None = None
 
 
@@ -127,7 +128,8 @@ class OpenAIClient(BaseLLMClient):
             return LLMResponse(
                 content=response.choices[0].message.content or "",
                 model=response.model,
-                usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None
+                usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
+                finish_reason=response.choices[0].finish_reason,
             )
         except Exception as e:
             return LLMResponse(content="", error=str(e))
@@ -161,7 +163,8 @@ class OpenAIClient(BaseLLMClient):
             return LLMResponse(
                 content=response.choices[0].message.content or "",
                 model=response.model,
-                usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None
+                usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
+                finish_reason=response.choices[0].finish_reason,
             )
         except Exception as e:
             return LLMResponse(content="", error=str(e))
@@ -220,6 +223,7 @@ def get_default_client() -> BaseLLMClient:
 CRAWLER_SYSTEM_PROMPT = """You are an expert Python Web Scraping Engineer specializing in Playwright.
 
 Your task is to generate complete, working Playwright crawler scripts based on user specifications.
+When the user provides a deterministic reference skeleton, treat it as the required base implementation and improve it surgically instead of rewriting the crawler architecture from scratch.
 
 Key requirements:
 1. Use Playwright's sync_api (sync_playwright)
@@ -228,6 +232,8 @@ Key requirements:
 4. Include error handling and retries
 5. Use anti-detection measures (realistic waits, viewport, user-agent)
 6. Handle relative URLs properly with urljoin
+7. Treat the deterministic execution plan as the single source of truth; do not invent control flow, persistence behavior, or selectors that conflict with it.
+8. Keep selectors compatible with standard CSS selector execution in Playwright (`page.query_selector`, `page.query_selector_all`, `locator`) and DOM APIs (`querySelector`, `querySelectorAll`).
 
 Output format:
 - Provide the complete Python script
@@ -240,6 +246,9 @@ Common patterns:
 - For URLs: get_attribute('href') and resolve with urljoin
 - For waiting: wait_for_selector with appropriate timeout
 - For pagination: Verify content changed after click (compare first item)
+- Preserve stable helper functions, persistence helpers, and output contracts when a baseline script already includes them.
+- If the output mode is `memory`, keep records in memory and do not invent file or SQLite persistence.
+- If pagination strategy is `none` or selector is blank, do not invent pagination behavior.
 
 Always verify your selectors will work on the actual page structure provided."""
 
@@ -257,6 +266,12 @@ Task:
    - The CSS selector path to each field
    - The best extraction method (text, attribute, etc.)
 3. Suggest a field name for each extracted value
+4. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
+   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
+   `document.querySelector(...)` / `querySelectorAll(...)`.
+5. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
+   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
+6. Prefer short, stable, semantic CSS selectors based on tag name, stable class names, ID, and data attributes.
 
 Output format:
 ```json
@@ -279,6 +294,12 @@ Task:
 1. Analyze why the current selector might be fragile
 2. Suggest a more robust alternative
 3. Consider: stable classes, semantic tags, avoiding nth-child with high numbers
+4. The optimized selector MUST remain a standard CSS selector that can be executed directly in Playwright via
+   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
+   `document.querySelector(...)` / `querySelectorAll(...)`.
+5. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
+   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
+6. Prefer selectors built from stable tag/class/id/data-attribute combinations that are likely to survive minor DOM changes.
 
 Output format:
 ```json
@@ -302,6 +323,11 @@ Task:
    - 'none': No pagination found.
 3. Provide a ROBUST CSS selector for the next/load-more button. Prefer semantic classes (e.g., '.next', '.pagination-next', 'a[rel="next"]'), ID, or stable data-attributes over brittle nth-child paths.
 4. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
+5. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
+   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
+   `document.querySelector(...)` / `querySelectorAll(...)`.
+6. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
+   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
 
 Output format:
 ```json

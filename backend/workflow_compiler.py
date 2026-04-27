@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 
+from .output_defaults import default_output_config
 from .workflow_schemas import WorkflowGraph
 
 
@@ -19,6 +20,7 @@ class ExecutionPlan:
     item_selector: str
     field_specs: list[dict[str, Any]]
     pagination: dict[str, Any]
+    output: dict[str, Any]
     limits: dict[str, int]
     edges: list[dict[str, Any]]
     conditions: list[dict[str, Any]]
@@ -39,6 +41,9 @@ def _resolve_field(field: dict[str, Any], index: int) -> dict[str, Any]:
     normalized_sample = field.get("normalized_sample")
     if isinstance(normalized_sample, str) and normalized_sample.strip():
         resolved["normalized_sample"] = normalized_sample.strip()
+    sample_value = field.get("sample_value")
+    if isinstance(sample_value, str) and sample_value.strip():
+        resolved["sample_value"] = sample_value.strip()
     return resolved
 
 
@@ -62,6 +67,7 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
         "selector": "",
         "max_pages": 1,
     }
+    output = default_output_config()
     limits = {
         "max_items": 50,
         "max_steps": 100,
@@ -108,6 +114,22 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
                     "mode": data.expression_mode or "simple",
                 }
             )
+        elif node.type == "emit_record":
+            if data.output_mode:
+                output["mode"] = data.output_mode
+            if data.json_file_path:
+                output["json_file_path"] = data.json_file_path
+            if data.sqlite_path:
+                output["sqlite_path"] = data.sqlite_path
+            if data.sqlite_table:
+                output["sqlite_table"] = data.sqlite_table
+            if data.write_mode:
+                output["write_mode"] = data.write_mode
+            if isinstance(data.dedupe_keys, list):
+                output["dedupe_keys"] = [key for key in data.dedupe_keys if isinstance(key, str) and key.strip()]
+            batch_size = _coerce_limit(data.batch_size)
+            if batch_size is not None:
+                output["batch_size"] = batch_size
         elif node.type == "loop":
             loop_max_items = _coerce_limit(data.max_items)
             if loop_max_items is not None:
@@ -134,6 +156,7 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
         item_selector=item_selector,
         field_specs=field_specs,
         pagination=pagination,
+        output=output,
         limits=limits,
         edges=edges,
         conditions=conditions,

@@ -1,182 +1,155 @@
 """Crawler prompt generation for sea-data.
 
-Generates structured prompts for LLM to create Playwright crawler scripts.
+Generates structured, execution-plan-aligned prompts for LLM crawler generation.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+import json
 from typing import Any
 
 
 @dataclass
 class FieldSpec:
     """Specification for a single extraction field."""
+
     name: str
     selector: str
-    extraction_type: str = "text"  # "text", "attr:href", "attr:src", etc.
+    extraction_type: str = "text"
     description: str = ""
+    clean_data_type: str = ""
+    normalized_sample: str = ""
+    sample_value: str = ""
 
     def to_dex(self) -> str:
-        """Convert to Dex syntax."""
         return f"{self.name}: {self.selector} > {self.extraction_type}"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "name": self.name,
             "selector": self.selector,
             "type": self.extraction_type,
-            "description": self.description
         }
+        if self.description:
+            data["description"] = self.description
+        if self.clean_data_type:
+            data["clean_data_type"] = self.clean_data_type
+        if self.normalized_sample:
+            data["normalized_sample"] = self.normalized_sample
+        if self.sample_value:
+            data["sample_value"] = self.sample_value
+        return data
 
 
 @dataclass
 class ExtractionSpec:
-    """Specification for data extraction."""
+    """Specification for data extraction and pagination."""
+
     item_selector: str = ""
     fields: list[FieldSpec] = field(default_factory=list)
     pagination_selector: str = ""
-    pagination_strategy: str = "click_next"  # "click_next", "infinite_scroll", "load_more", "none"
-    max_pages: int = 50
-    stop_condition: str = "no_more_pages"  # "no_more_pages", "max_pages", "custom"
+    pagination_strategy: str = "none"
+    max_pages: int = 1
+    stop_condition: str = "no_more_pages"
 
 
 @dataclass
 class WorkflowStep:
     """A single step in the crawler workflow."""
-    action: str  # "visit", "wait", "extract", "click", "scroll", "repeat"
+
+    action: str
     params: dict[str, Any] = field(default_factory=dict)
 
     def to_prompt_line(self) -> str:
-        """Convert to readable prompt line."""
         if self.action == "visit":
-            return f"{self.params.get('url', '')}"
-        elif self.action == "wait":
-            cond = self.params.get('condition', 'dom_stable')
-            timeout = self.params.get('timeout', 3000)
+            return f"Visit {self.params.get('url', '')}"
+        if self.action == "wait":
+            cond = self.params.get("condition", "dom_stable")
+            timeout = self.params.get("timeout", 3000)
             return f"Wait for {cond} ({timeout}ms)"
-        elif self.action == "extract":
-            sel = self.params.get('selector', '')
-            fields = ', '.join(self.params.get('fields', []))
+        if self.action == "extract":
+            sel = self.params.get("selector", "")
+            fields = ", ".join(self.params.get("fields", []))
             return f"Extract from {sel}: {fields}"
-        elif self.action == "click":
-            return f"Click: {self.params.get('selector', '')}"
-        elif self.action == "scroll":
-            dir = self.params.get('direction', 'down')
-            return f"Scroll {dir}"
-        elif self.action == "repeat":
-            return f"Repeat until: {self.params.get('until', 'no_more_pages')}"
-        else:
-            return f"{self.action}: {self.params}"
+        if self.action == "click":
+            return f"Click {self.params.get('selector', '')}"
+        if self.action == "scroll":
+            direction = self.params.get("direction", "down")
+            return f"Scroll {direction}"
+        if self.action == "repeat":
+            return f"Repeat until {self.params.get('until', 'stop_condition')}"
+        return f"{self.action}: {self.params}"
 
 
 @dataclass
 class CrawlerPromptGenerator:
-    """Generates prompts for LLM crawler generation."""
+    """Generate plan-aligned prompts for Playwright crawler generation."""
 
     target_url: str = ""
     extraction: ExtractionSpec | None = None
     workflow: list[WorkflowStep] = field(default_factory=list)
     html_fragment: str = ""
     anti_detection: bool = True
-    output_filename: str = "crawler_output.json"
+    output_contract: dict[str, Any] = field(default_factory=dict)
+    execution_limits: dict[str, Any] = field(default_factory=dict)
+    conditions: list[dict[str, Any]] = field(default_factory=list)
+    node_types: list[str] = field(default_factory=list)
     special_instructions: str = ""
 
     def generate(self) -> str:
-        """Generate the complete prompt."""
-        parts = []
+        parts: list[str] = []
 
-        parts.append("# Task: Build Playwright Crawler Script")
-        parts.append("")
-        parts.append("## Target URL")
-        parts.append(self.target_url)
+        parts.append("# Crawl Objective")
+        parts.append("Build or revise a Playwright crawler that follows the deterministic execution contract exactly.")
         parts.append("")
 
-        if self.workflow:
-            parts.append("## Workflow Steps")
-            for i, step in enumerate(self.workflow, 1):
-                parts.append(f"{i}. {step.to_prompt_line()}")
+        if self.target_url:
+            parts.append("## Target")
+            parts.append(f"- Entry URL: `{self.target_url}`")
+            if self.node_types:
+                parts.append(f"- Workflow nodes: {', '.join(self.node_types)}")
             parts.append("")
 
-        if self.extraction:
-            parts.append("## Extraction Schema")
-            schema = {
-                "item_selector": self.extraction.item_selector,
-                "fields": [f.to_dict() for f in self.extraction.fields],
-                "pagination": {
-                    "strategy": self.extraction.pagination_strategy,
-                    "selector": self.extraction.pagination_selector,
-                    "max_pages": self.extraction.max_pages,
-                    "stop_condition": self.extraction.stop_condition
-                }
-            }
-            parts.append("```json")
-            parts.append(self._format_json(schema))
-            parts.append("```")
-            parts.append("")
-
-        if self.html_fragment:
-            parts.append("## Page HTML Structure (Sample)")
-            parts.append("```html")
-            parts.append(self.html_fragment[:10000])  # Limit to 10KB for prompt
-            if len(self.html_fragment) > 10000:
-                parts.append("<!-- HTML truncated -->")
-            parts.append("```")
-            parts.append("")
-
-        if self.extraction and self.extraction.fields:
-            parts.append("## Data Fields (Dex Syntax)")
-            for f in self.extraction.fields:
-                parts.append(f"- {f.to_dex()}")
-            parts.append("")
-
-        parts.append("## Requirements")
-        parts.append("- Use Playwright (Python)")
-        parts.append("- Output JSON to `" + self.output_filename + "`")
-        parts.append("- Handle pagination automatically")
-        parts.append("- Include proper error handling and retries")
-
-        if self.anti_detection:
-            parts.append("- Rotate User-Agent")
-            parts.append("- Random delay between requests (1-3s)")
-            parts.append("- Handle dynamic content with appropriate waits")
+        parts.extend(self._build_selector_contract())
+        parts.extend(self._build_workflow_shape())
+        parts.extend(self._build_extraction_contract())
+        parts.extend(self._build_output_contract())
+        parts.extend(self._build_page_evidence())
+        parts.extend(self._build_requirements())
 
         if self.special_instructions:
-            parts.append("")
-            parts.append("## Special Instructions")
+            parts.append("## Operator Notes")
             parts.append(self.special_instructions)
+            parts.append("")
 
-        return '\n'.join(parts)
+        return "\n".join(parts).strip()
 
     def generate_from_simple_config(
         self,
         url: str,
         item_selector: str,
-        fields: list[dict[str, str]],
+        fields: list[dict[str, Any]],
         pagination_selector: str = "",
-        pagination_strategy: str = "click_next",
-        max_pages: int = 50,
-        html_fragment: str = ""
+        pagination_strategy: str = "none",
+        max_pages: int = 1,
+        html_fragment: str = "",
+        output_contract: dict[str, Any] | None = None,
+        execution_limits: dict[str, Any] | None = None,
+        conditions: list[dict[str, Any]] | None = None,
+        node_types: list[str] | None = None,
     ) -> str:
-        """Generate prompt from simple configuration.
-
-        Args:
-            url: Target URL
-            item_selector: CSS selector for item containers
-            fields: List of {name, selector, type} dicts
-            pagination_selector: CSS selector for next page button
-            pagination_strategy: "click_next", "infinite_scroll", "load_more"
-            max_pages: Maximum pages to crawl
-            html_fragment: HTML snippet for context
-
-        Returns:
-            Generated prompt string
-        """
         field_specs = [
             FieldSpec(
-                name=f.get('name', f.get('field_name', 'field_' + str(i))),
-                selector=f.get('selector', ''),
-                extraction_type=f.get('type', f.get('extraction_type', 'text'))
+                name=f.get("name", f.get("field_name", f"field_{index + 1}")),
+                selector=f.get("selector", f.get("css", "")),
+                extraction_type=f.get("type", f.get("extraction_type", "text")),
+                description=str(f.get("description", "") or ""),
+                clean_data_type=str(f.get("clean_data_type", "") or ""),
+                normalized_sample=str(f.get("normalized_sample", "") or ""),
+                sample_value=str(f.get("sample_value", "") or ""),
             )
-            for i, f in enumerate(fields)
+            for index, f in enumerate(fields)
         ]
 
         self.target_url = url
@@ -184,35 +157,160 @@ class CrawlerPromptGenerator:
             item_selector=item_selector,
             fields=field_specs,
             pagination_selector=pagination_selector,
-            pagination_strategy=pagination_strategy,
-            max_pages=max_pages
+            pagination_strategy=pagination_strategy or "none",
+            max_pages=max_pages,
         )
         self.html_fragment = html_fragment
-        self.workflow = [
+        self.output_contract = output_contract or {}
+        self.execution_limits = execution_limits or {}
+        self.conditions = conditions or []
+        self.node_types = node_types or []
+        self.workflow = self._build_default_workflow(url, item_selector, field_specs)
+        return self.generate()
+
+    def _build_default_workflow(self, url: str, item_selector: str, fields: list[FieldSpec]) -> list[WorkflowStep]:
+        workflow = [
             WorkflowStep(action="visit", params={"url": url}),
             WorkflowStep(action="wait", params={"condition": "dom_stable", "timeout": 3000}),
-            WorkflowStep(action="extract", params={"selector": item_selector, "fields": [f.name for f in field_specs]}),
+            WorkflowStep(action="extract", params={"selector": item_selector, "fields": [field.name for field in fields]}),
+        ]
+        if self.extraction and self.extraction.pagination_selector and self.extraction.pagination_strategy in {"click_next", "load_more"}:
+            workflow.append(WorkflowStep(action="click", params={"selector": self.extraction.pagination_selector}))
+            workflow.append(WorkflowStep(action="repeat", params={"until": self.extraction.stop_condition}))
+        elif self.extraction and self.extraction.pagination_strategy == "infinite_scroll":
+            workflow.append(WorkflowStep(action="scroll", params={"direction": "down"}))
+            workflow.append(WorkflowStep(action="repeat", params={"until": "max_pages"}))
+        return workflow
+
+    def _build_selector_contract(self) -> list[str]:
+        return [
+            "## Selector Compatibility Contract",
+            "- Every selector must remain a standard CSS selector that works directly with Playwright `page.query_selector(...)`, `page.query_selector_all(...)`, and `locator(...)`.",
+            "- Selectors must also be compatible with DOM APIs such as `document.querySelector(...)` and `document.querySelectorAll(...)`.",
+            "- Do not invent Playwright-only locator syntax such as `get_by_role(...)`, `get_by_text(...)`, `text=...`, `:has-text(...)`, `nth=`, `>>`, or XPath.",
+            "- Prefer stable semantic classes, IDs, and data-attributes over brittle position-based selectors.",
+            "",
         ]
 
-        if pagination_strategy == "click_next" and pagination_selector:
-            self.workflow.append(
-                WorkflowStep(action="click", params={"selector": pagination_selector})
-            )
-            self.workflow.append(
-                WorkflowStep(action="repeat", params={"until": "no_more_pages", "max": max_pages})
-            )
-        elif pagination_strategy == "infinite_scroll":
-            self.workflow.append(
-                WorkflowStep(action="scroll", params={"direction": "down", "infinite": True})
-            )
-            self.workflow.append(
-                WorkflowStep(action="repeat", params={"until": "max_scrolls", "max": 100})
-            )
+    def _build_workflow_shape(self) -> list[str]:
+        if not self.workflow and not self.execution_limits and not self.conditions:
+            return []
 
-        return self.generate()
+        parts = ["## Workflow Shape"]
+        if self.workflow:
+            for index, step in enumerate(self.workflow, 1):
+                parts.append(f"{index}. {step.to_prompt_line()}")
+        if self.execution_limits:
+            parts.append("")
+            parts.append("Execution limits:")
+            parts.append("```json")
+            parts.append(self._format_json(self.execution_limits))
+            parts.append("```")
+        if self.conditions:
+            parts.append("")
+            parts.append("Conditional branches:")
+            parts.append("```json")
+            parts.append(self._format_json(self.conditions))
+            parts.append("```")
+        parts.append("")
+        return parts
+
+    def _build_extraction_contract(self) -> list[str]:
+        if not self.extraction:
+            return []
+
+        schema = {
+            "item_selector": self.extraction.item_selector,
+            "fields": [field.to_dict() for field in self.extraction.fields],
+            "pagination": {
+                "strategy": self.extraction.pagination_strategy,
+                "selector": self.extraction.pagination_selector,
+                "max_pages": self.extraction.max_pages,
+                "stop_condition": self.extraction.stop_condition,
+            },
+        }
+
+        parts = [
+            "## Extraction Contract",
+            "```json",
+            self._format_json(schema),
+            "```",
+        ]
+
+        if self.extraction.fields:
+            parts.append("")
+            parts.append("Field notes:")
+            for field in self.extraction.fields:
+                line = f"- `{field.name}` from `{field.selector}` as `{field.extraction_type}`"
+                if field.clean_data_type:
+                    line += f"; normalize as `{field.clean_data_type}`"
+                if field.normalized_sample:
+                    line += f"; expected normalized sample: `{field.normalized_sample}`"
+                elif field.sample_value:
+                    line += f"; raw sample: `{field.sample_value}`"
+                parts.append(line)
+
+        if not self.extraction.pagination_selector or self.extraction.pagination_strategy in {"none", ""}:
+            parts.append("")
+            parts.append("- Do not invent pagination logic unless the execution plan explicitly requires it.")
+
+        parts.append("")
+        return parts
+
+    def _build_output_contract(self) -> list[str]:
+        if not self.output_contract:
+            return []
+
+        mode = str(self.output_contract.get("mode", "memory") or "memory").strip().lower()
+        parts = [
+            "## Output Contract",
+            "```json",
+            self._format_json(self.output_contract),
+            "```",
+        ]
+
+        if mode == "sqlite":
+            parts.append("- Persist records with local `sqlite3`, keep schema creation deterministic, and preserve dedupe/upsert behavior.")
+        elif mode == "json_file":
+            parts.append("- Persist records to the configured local JSON file and keep the output document valid and deterministic.")
+        else:
+            parts.append("- Keep records in memory unless the deterministic execution plan explicitly requests file or SQLite persistence.")
+
+        parts.append("")
+        return parts
+
+    def _build_page_evidence(self) -> list[str]:
+        if not self.html_fragment:
+            return []
+
+        html_sample = self.html_fragment[:12000]
+        parts = [
+            "## Page Evidence (HTML Sample)",
+            "```html",
+            html_sample,
+        ]
+        if len(self.html_fragment) > len(html_sample):
+            parts.append("<!-- HTML truncated -->")
+        parts.extend(["```", ""])
+        return parts
+
+    def _build_requirements(self) -> list[str]:
+        parts = [
+            "## Implementation Requirements",
+            "- Use Playwright for Python and keep the script runnable end-to-end.",
+            "- Preserve the deterministic execution plan, field schema, and output contract.",
+            "- Do not replace validated selectors with alternative locator styles unless the provided selector is clearly invalid.",
+            "- Use robust waits and content verification around pagination or dynamic updates.",
+            "- Keep extraction logic aligned with the declared field selectors and normalization rules.",
+        ]
+        if self.anti_detection:
+            parts.extend([
+                "- Use realistic waits and browser settings; avoid noisy anti-detection theatrics that reduce determinism.",
+                "- Prefer explicit synchronization over random sleeps when possible.",
+            ])
+        parts.append("")
+        return parts
 
     @staticmethod
     def _format_json(data: Any, indent: int = 2) -> str:
-        """Simple JSON formatter."""
-        import json
-        return json.dumps(data, ensure_ascii=False, indent=2)
+        return json.dumps(data, ensure_ascii=False, indent=indent)

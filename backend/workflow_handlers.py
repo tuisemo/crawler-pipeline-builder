@@ -7,6 +7,7 @@ of node handler logic without full graph traversal context.
 import logging
 from typing import Any, Dict, Optional
 
+from .record_sinks import RecordSinkError, emit_records
 from .workflow_schemas import NodeResult, LogLevel
 from extraction.selector_tester import SelectorTester
 
@@ -129,13 +130,37 @@ class NodeHandlers:
     def handle_emit_record(self, node, ctx, result):
         """Execute emit_record node."""
         records = ctx.state.get("extracted_records", [])
-
         bounded_records = records[:ctx.max_items]
+        emit_offsets = ctx.state.setdefault("_emit_offsets", {})
+        emit_offset = emit_offsets.get(node.id, 0)
+        pending_records = bounded_records[emit_offset:]
+        emit_offsets[node.id] = len(bounded_records)
+
         result.result = {
-            "emitted_count": len(bounded_records),
-            "records": bounded_records
+            "emitted_count": len(pending_records),
+            "records": pending_records,
         }
-        ctx.add_log(LogLevel.INFO, f"Emitted {len(records)} records", node_id=node.id)
+        try:
+            sink_result = emit_records(
+                node.data,
+                pending_records,
+                context={
+                    "page_url": getattr(ctx.session.page, "url", ""),
+                    "run_id": f"ctx-{int(ctx.start_time)}",
+                },
+            )
+        except RecordSinkError as error:
+            result.error = f"Failed to persist emitted records: {error}"
+            raise
+
+        if sink_result.get("output_mode") != "memory":
+            result.result.update(sink_result)
+        ctx.add_log(
+            LogLevel.INFO,
+            f"Emitted {len(pending_records)} new records",
+            node_id=node.id,
+            details={"output_mode": sink_result.get("output_mode", "memory")},
+        )
 
     def handle_loop(self, node, ctx, result):
         """Execute loop node.

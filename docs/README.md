@@ -10,6 +10,10 @@ This directory keeps the documents that still match the current repository state
   Executable refactor backlog derived from the architecture review.
 - `ui-ux-multilayer-redesign.md`
   Current frontend multilayer workspace model and implemented redesign notes.
+- `sqlite-output-resume-upgrade-plan.md`
+  Design plan for optional SQLite output, durable sinks, and checkpoint-based resume.
+- `script-first-production-crawler-plan.md`
+  Revised plan for delivering SQLite/resume through multi-stage script generation, rewrite, and evaluation.
 - `workflows/eworldship_product_1772.json`
   Example workflow DSL for the `eworldship` collection scenario.
 

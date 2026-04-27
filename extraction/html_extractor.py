@@ -31,6 +31,20 @@ class HtmlExtractor:
     """Extracts HTML fragments from pages for LLM context."""
 
     MAX_FRAGMENT_SIZE = 15 * 1024  # 15KB limit
+    PAGINATION_SELECTOR_CANDIDATES = (
+        '.pagination',
+        '.pager',
+        '.kq-pager',
+        '[class*="pagination"]',
+        '[class*="pager"]',
+        '[id*="pagination"]',
+        '[id*="pager"]',
+        'nav[aria-label*="page" i]',
+        'nav',
+    )
+    PAGINATION_TEXT_RE = re.compile(r'(下一页|下页|上一页|首页|尾页|末页|next|prev|previous|load more|more|加载更多)', re.IGNORECASE)
+    PAGE_NUMBER_RE = re.compile(r'^\d{1,3}$')
+    PAGE_HREF_RE = re.compile(r'(page=|p=|index_|next)', re.IGNORECASE)
 
     def __init__(self, max_size: int | None = None):
         """Initialize extractor.
@@ -56,33 +70,9 @@ class HtmlExtractor:
             if not items:
                 return HtmlExtractionResult(html='', item_count=0)
 
-            html_parts = []
-            for item in items[:max_items]:
-                try:
-                    html = item.inner_html()
-                    html_parts.append(self._clean_html(html))
-                except Exception:
-                    continue
-
-            full_html = '\n'.join(html_parts)
-            original_size = len(full_html.encode('utf-8'))
-
-            truncated = False
-            if original_size > self.max_size:
-                # Truncate with marker
-                truncated = True
-                full_html = full_html[:self.max_size] + '\n<!-- TRUNCATED -->'
-                truncated_size = len(full_html.encode('utf-8'))
-            else:
-                truncated_size = original_size
-
-            return HtmlExtractionResult(
-                html=full_html,
-                truncated=truncated,
-                original_size=original_size,
-                truncated_size=truncated_size,
-                item_count=len(html_parts)
-            )
+            total_items = len(items)
+            full_html = self._collect_item_html(items, max_items=max_items)
+            return self._finalize_result(full_html, total_items)
 
         except Exception as e:
             return HtmlExtractionResult(html=f'<!-- Error: {e} -->', item_count=0)
@@ -105,6 +95,7 @@ class HtmlExtractor:
             if not items:
                 return HtmlExtractionResult(html='', item_count=0)
 
+            total_items = len(items)
             # Get parent container of first item
             first_item = items[0]
             try:
@@ -112,26 +103,135 @@ class HtmlExtractor:
             except Exception:
                 parent = first_item.inner_html()
 
-            original_size = len(parent.encode('utf-8'))
-            truncated = False
-
-            if original_size > self.max_size:
-                truncated = True
-                parent = parent[:self.max_size] + '\n<!-- TRUNCATED -->'
-                truncated_size = len(parent.encode('utf-8'))
-            else:
-                truncated_size = original_size
-
-            return HtmlExtractionResult(
-                html=parent,
-                truncated=truncated,
-                original_size=original_size,
-                truncated_size=truncated_size,
-                item_count=len(items[:max_items])
-            )
+            return self._finalize_result(parent, total_items)
 
         except Exception as e:
             return HtmlExtractionResult(html=f'<!-- Error: {e} -->', item_count=0)
+
+    def extract_pagination_context(self, page, item_selector: str, max_items: int = 3) -> HtmlExtractionResult:
+        """Extract item samples plus the most likely pagination container."""
+        try:
+            items = page.query_selector_all(item_selector)
+            if not items:
+                return HtmlExtractionResult(html='', item_count=0)
+
+            total_items = len(items)
+            sections = []
+
+            item_html = self._collect_item_html(items, max_items=max_items, use_outer_html=True)
+            if item_html:
+                sections.append(f'<!-- ITEM_SAMPLES -->\n{item_html}')
+
+            pagination_html = self._find_pagination_html(page)
+            if pagination_html:
+                sections.append(f'<!-- PAGINATION -->\n{pagination_html}')
+
+            full_html = '\n'.join(section for section in sections if section).strip()
+            return self._finalize_result(full_html, total_items)
+        except Exception as e:
+            return HtmlExtractionResult(html=f'<!-- Error: {e} -->', item_count=0)
+
+    def _collect_item_html(self, items, max_items: int, use_outer_html: bool = False) -> str:
+        html_parts = []
+        for item in items[:max_items]:
+            try:
+                if use_outer_html:
+                    html = item.evaluate('el => el.outerHTML')
+                else:
+                    html = item.inner_html()
+                html_parts.append(self._clean_html(html))
+            except Exception:
+                continue
+        return '\n'.join(html_parts)
+
+    def _finalize_result(self, html: str, item_count: int) -> HtmlExtractionResult:
+        original_size = len(html.encode('utf-8'))
+        truncated = False
+
+        if original_size > self.max_size:
+            truncated = True
+            html = html[:self.max_size] + '\n<!-- TRUNCATED -->'
+            truncated_size = len(html.encode('utf-8'))
+        else:
+            truncated_size = original_size
+
+        return HtmlExtractionResult(
+            html=html,
+            truncated=truncated,
+            original_size=original_size,
+            truncated_size=truncated_size,
+            item_count=item_count,
+        )
+
+    def _find_pagination_html(self, page) -> str:
+        best_html = ''
+        best_score = 0
+        seen_keys: set[str] = set()
+
+        for selector in self.PAGINATION_SELECTOR_CANDIDATES:
+            try:
+                candidates = page.query_selector_all(selector)
+            except Exception:
+                continue
+
+            for node in candidates:
+                try:
+                    raw_html = node.evaluate('el => el.outerHTML')
+                    if not raw_html:
+                        continue
+
+                    dedupe_key = raw_html[:400]
+                    if dedupe_key in seen_keys:
+                        continue
+                    seen_keys.add(dedupe_key)
+
+                    text = node.inner_text().strip()
+                    controls = node.query_selector_all('a, button, [role="button"], span')
+                    if len(controls) < 2:
+                        continue
+
+                    score = 0
+                    if self.PAGINATION_TEXT_RE.search(text):
+                        score += 8
+                    class_id = f"{node.get_attribute('id') or ''} {node.get_attribute('class') or ''}"
+                    if re.search(r'(page|pagination|pager|fy|fenye)', class_id, re.IGNORECASE):
+                        score += 4
+
+                    for control in controls[:20]:
+                        try:
+                            control_text = control.inner_text().strip()
+                        except Exception:
+                            control_text = ''
+                        if self.PAGE_NUMBER_RE.match(control_text):
+                            score += 2
+                        href = control.get_attribute('href') or ''
+                        if self.PAGE_HREF_RE.search(href):
+                            score += 2
+
+                    if score > best_score:
+                        best_score = score
+                        best_html = self._clean_html(raw_html)
+                except Exception:
+                    continue
+
+        if best_html:
+            return best_html
+
+        try:
+            next_links = page.query_selector_all('a, button, [role="button"]')
+        except Exception:
+            return ''
+
+        for node in next_links:
+            try:
+                text = node.inner_text().strip()
+                if not self.PAGINATION_TEXT_RE.search(text):
+                    continue
+                parent_html = node.evaluate('el => (el.parentElement && el.parentElement.outerHTML) || el.outerHTML')
+                return self._clean_html(parent_html)
+            except Exception:
+                continue
+        return ''
 
     def _clean_html(self, html: str) -> str:
         """Clean HTML for LLM context.

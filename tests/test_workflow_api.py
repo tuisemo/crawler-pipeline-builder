@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from server import app
-from backend.workflow_schemas import AssistLlmResponse
+from backend.workflow_schemas import AssistLlmResponse, AutoDetectResponse
 
 client = TestClient(app)
 
@@ -193,8 +193,10 @@ def test_to_prompt_valid():
     assert "http://example.com" in data["prompt"]
     assert ".item" in data["prompt"]
     assert "title" in data["prompt"]
+    assert "Selector Compatibility Contract" in data["prompt"]
     assert data["editable_prompt"] == data["prompt"]
     assert "Execution Plan (Deterministic)" in data["effective_prompt"]
+    assert "Output Strategy (In-Memory)" in data["effective_prompt"]
 
 
 # ----------------------------------------------------------------------
@@ -234,8 +236,15 @@ def test_generate_crawler_missing_item_selector():
     assert data["success"] is False
     assert "URL and item_selector are required" in data["error"]
 
-def test_generate_crawler_valid_without_llm():
-    """Test that generate-crawler works without LLM (prompt generation only)."""
+def test_generate_crawler_valid_without_llm(monkeypatch):
+    """Test that generate-crawler returns a structured response without real LLM I/O."""
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+
     response = client.post("/api/workflows/generate-crawler", json={
         "graph": {
             "nodes": [
@@ -247,8 +256,13 @@ def test_generate_crawler_valid_without_llm():
         }
     })
     data = response.json()
-    assert "success" in data
-    assert "prompt" in data
+    assert data["success"] is True
+    assert "Execution Plan (Deterministic)" in data["prompt"]
+    assert "Output Strategy (In-Memory)" in data["prompt"]
+    assert "Non-Negotiable Implementation Guardrails" in data["prompt"]
+    assert "Deterministic Skeleton (Reference Base)" in data["prompt"]
+    assert data["generation_mode"] == "lite"
+    assert data["generation_trace"][0]["stage"] == "draft_generation"
 
 
 def test_generate_skeleton_missing_graph():
@@ -370,12 +384,119 @@ def test_compile_plan_valid():
     assert any(edge["branch"] == "true" for edge in data["plan"]["edges"])
 
 
-def test_assist_auto_detect_requires_context():
+def test_assist_auto_detect_surfaces_session_errors(monkeypatch):
+    monkeypatch.setattr(
+        "backend.assist_routes.auto_detect",
+        lambda _request: AutoDetectResponse(success=False, error="No active browser session found"),
+    )
     response = client.post("/api/assist/auto-detect", json={})
     assert response.status_code == 200
     data = response.json()
     assert data["success"] is False
     assert "No active browser session found" in data["error"]
+
+
+def test_assist_extract_html_reports_total_match_count_not_sample_size(monkeypatch):
+    class FakeItem:
+        def __init__(self, html: str):
+            self._html = html
+
+        def inner_html(self):
+            return self._html
+
+    class FakePage:
+        def query_selector_all(self, _selector: str):
+            return [FakeItem(f"<div>item-{idx}</div>") for idx in range(5)]
+
+    class FakeSession:
+        id = "session-1"
+        page = FakePage()
+
+    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+
+    response = client.post("/api/assist/extract-html", json={
+        "item_selector": ".item",
+        "max_items": 3,
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["metadata"]["item_count"] == 5
+    assert "item-0" in payload["html_fragment"]
+    assert "item-2" in payload["html_fragment"]
+    assert "item-3" not in payload["html_fragment"]
+
+
+def test_assist_extract_html_can_include_pagination_context(monkeypatch):
+    class FakeItem:
+        def __init__(self, html: str):
+            self._html = html
+
+        def inner_html(self):
+            return self._html
+
+        def evaluate(self, _script: str):
+            return f"<div class='item'>{self._html}</div>"
+
+    class FakeControl:
+        def __init__(self, text: str, href: str = ""):
+            self._text = text
+            self._href = href
+
+        def inner_text(self):
+            return self._text
+
+        def get_attribute(self, name: str):
+            if name == "href":
+                return self._href
+            return ""
+
+    class FakePager:
+        def evaluate(self, _script: str):
+            return '<div class="kq-pager"><span class="current">1</span><a href="/list?p=2">2</a><a href="/list?p=2">下一页</a></div>'
+
+        def inner_text(self):
+            return "1 2 下一页"
+
+        def query_selector_all(self, selector: str):
+            if selector == 'a, button, [role="button"], span':
+                return [FakeControl("1"), FakeControl("2", "/list?p=2"), FakeControl("下一页", "/list?p=2")]
+            return []
+
+        def get_attribute(self, name: str):
+            if name == "class":
+                return "kq-pager"
+            if name == "id":
+                return ""
+            return ""
+
+    class FakePage:
+        def query_selector_all(self, selector: str):
+            if selector == ".item":
+                return [FakeItem(f"<div>item-{idx}</div>") for idx in range(5)]
+            if selector == ".kq-pager":
+                return [FakePager()]
+            return []
+
+    class FakeSession:
+        id = "session-1"
+        page = FakePage()
+
+    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+
+    response = client.post("/api/assist/extract-html", json={
+        "item_selector": ".item",
+        "max_items": 3,
+        "include_pagination": True,
+    })
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["metadata"]["item_count"] == 5
+    assert "下一页" in payload["html_fragment"]
+    assert "kq-pager" in payload["html_fragment"]
 
 
 def test_assist_clean_data_requires_raw_data_and_type():

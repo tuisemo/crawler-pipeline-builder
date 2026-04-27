@@ -8,6 +8,8 @@ export type WorkflowNodeType =
   | 'emit_record'
   | 'end'
 
+export type ScriptGenerationMode = 'lite' | 'pro'
+
 export type ExtractionField = {
   name?: string
   field_name?: string
@@ -41,7 +43,15 @@ export type WorkflowNodeData = {
   // paginate
   pagination_selector?: string
   pagination_strategy?: string
-  // emit_record / end
+  // emit_record
+  output_mode?: 'memory' | 'json_file' | 'sqlite' | string
+  json_file_path?: string
+  sqlite_path?: string
+  sqlite_table?: string
+  write_mode?: 'append' | 'upsert' | string
+  dedupe_keys?: string[]
+  batch_size?: number
+  // end
   [key: string]: unknown
 }
 

@@ -159,6 +159,13 @@ class NodeData(BaseModel):
     expression_mode: Optional[str] = None
     on_error: Optional[str] = None
     label: Optional[str] = None
+    output_mode: Optional[str] = None
+    json_file_path: Optional[str] = None
+    sqlite_path: Optional[str] = None
+    sqlite_table: Optional[str] = None
+    write_mode: Optional[str] = None
+    dedupe_keys: Optional[List[str]] = None
+    batch_size: Optional[int] = None
 
 
 # ----------------------------------------------------------------------
@@ -281,6 +288,7 @@ class GenerateCrawlerRequest(BaseModel):
     """Request to generate a Playwright crawler script from a DSL workflow graph."""
     graph: WorkflowGraph
     prompt_override: Optional[str] = None
+    generation_mode: Optional[str] = "lite"
 
 
 class GenerateCrawlerResponse(BaseModel):
@@ -292,6 +300,10 @@ class GenerateCrawlerResponse(BaseModel):
     filename: Optional[str] = None
     model: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
+    generation_mode: Optional[str] = None
+    generation_trace: Optional[List[Dict[str, Any]]] = None
+    warnings: List[str] = []
+    review_summary: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -376,6 +388,7 @@ class AssistHtmlExtractRequest(BaseModel):
     session_id: Optional[str] = None
     url: Optional[str] = None
     max_items: int = 3
+    include_pagination: bool = False
 
 
 class AssistHtmlExtractResponse(BaseModel):

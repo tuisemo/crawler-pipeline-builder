@@ -1,4 +1,4 @@
-import { Button, Card, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import {
   AppstoreOutlined,
   BarsOutlined,
@@ -14,6 +14,7 @@ import {
   NodeIndexOutlined
 } from '@ant-design/icons'
 import type { ReactNode } from 'react'
+import type { ScriptGenerationMode } from '../workflowContracts'
 
 export type WorkbenchAction =
   | 'validate'
@@ -38,6 +39,8 @@ type WorkbenchToolbarProps = {
     hasPagination: boolean
   }
   onRunAction: (action: WorkbenchAction) => void
+  generationMode: ScriptGenerationMode
+  onGenerationModeChange: (mode: ScriptGenerationMode) => void
   layout: {
     leftPanelOpen: boolean
     rightPanelOpen: boolean
@@ -70,7 +73,15 @@ function formatLimit(value: number | null, suffix: string) {
   return value === null ? `未设${suffix}` : `${value.toLocaleString('zh-CN')}${suffix}`
 }
 
-export function WorkbenchToolbar({ runningAction, selectedNodeId, workflowStats, onRunAction, layout }: WorkbenchToolbarProps) {
+export function WorkbenchToolbar({
+  runningAction,
+  selectedNodeId,
+  workflowStats,
+  onRunAction,
+  generationMode,
+  onGenerationModeChange,
+  layout,
+}: WorkbenchToolbarProps) {
   const executionSummary = [
     formatLimit(workflowStats.maxItems, '条'),
     formatLimit(workflowStats.maxPages, '页'),
@@ -78,93 +89,130 @@ export function WorkbenchToolbar({ runningAction, selectedNodeId, workflowStats,
   ].join(' / ')
 
   return (
-    <Card className="ant-toolbar-card" styles={{ body: { padding: '8px 16px' } }} variant="outlined">
-      <div className="toolbar-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <div className="toolbar-brand" style={{ display: 'flex', alignItems: 'center' }}>
-          <Space size={10}>
-            <CompassOutlined style={{ color: 'var(--sd-color-primary-strong)', fontSize: 18 }} />
-            <Typography.Text strong className="toolbar-brand-title" style={{ fontSize: 15, whiteSpace: 'nowrap' }}>
-              Scraper Flow Studio
-            </Typography.Text>
-          </Space>
-          <div className="toolbar-meta-chips" style={{ marginLeft: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Tag variant="filled" style={{ background: 'var(--sd-color-bg-softest)', color: 'var(--sd-color-primary-strong)', fontWeight: 700, borderRadius: 6, margin: 0 }}>
-              选中: {selectedNodeId || '未选择'}
-            </Tag>
-            <Tag variant="borderless" color="blue" style={{ margin: 0 }}>节点 {workflowStats.nodeCount}</Tag>
-            <Tag variant="borderless" color="cyan" style={{ margin: 0 }}>连线 {workflowStats.edgeCount}</Tag>
-            <Tag variant="borderless" color="purple" style={{ margin: 0 }}>字段 {workflowStats.fieldCount}</Tag>
+    <Card className="ant-toolbar-card" styles={{ body: { padding: '10px 14px' } }} variant="outlined">
+      <div className="toolbar-shell">
+        <div className="toolbar-top">
+          <div className="toolbar-brand">
+            <div className="toolbar-brand-row">
+              <div className="toolbar-brand-badge">
+                <CompassOutlined />
+              </div>
+              <div className="toolbar-brand-copy">
+                <Typography.Text className="toolbar-eyebrow">
+                  Workflow Orchestration Workbench
+                </Typography.Text>
+                <Typography.Text strong className="toolbar-brand-title">
+                  Scraper Flow Studio
+                </Typography.Text>
+              </div>
+              <Tag variant="filled" className="toolbar-chip toolbar-chip-active toolbar-chip-inline">
+                {selectedNodeId || '未选择节点'}
+              </Tag>
+            </div>
+            <div className="toolbar-summary-line">
+              <div className="toolbar-meta-chips">
+                <Tag color="blue" className="toolbar-chip">节点 {workflowStats.nodeCount}</Tag>
+                <Tag color="cyan" className="toolbar-chip">连线 {workflowStats.edgeCount}</Tag>
+                <Tag color="purple" className="toolbar-chip">字段 {workflowStats.fieldCount}</Tag>
+                {workflowStats.hasPagination ? <Tag color="gold" className="toolbar-chip">分页</Tag> : null}
+              </div>
+              <Typography.Text type="secondary" className="toolbar-summary-label">
+                执行边界
+              </Typography.Text>
+              <Typography.Text className="toolbar-summary-value">
+                {executionSummary}
+              </Typography.Text>
+            </div>
           </div>
-          <div style={{ marginLeft: 24 }}>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              执行边界: <Typography.Text strong style={{ color: 'var(--sd-color-text)', fontSize: 12 }}>{executionSummary}</Typography.Text>
-            </Typography.Text>
+
+          <div className="toolbar-inline-rail">
+            <div className="toolbar-control-row">
+              <Typography.Text type="secondary" className="toolbar-group-title">
+                模式
+              </Typography.Text>
+              <Segmented
+                size="small"
+                value={generationMode}
+                onChange={(value) => onGenerationModeChange(value as ScriptGenerationMode)}
+                options={[
+                  { label: 'Lite', value: 'lite' },
+                  { label: 'Pro', value: 'pro' },
+                ]}
+              />
+            </div>
+
+            <div className="toolbar-control-row">
+              <Typography.Text type="secondary" className="toolbar-group-title">
+                工作区
+              </Typography.Text>
+              <Space.Compact>
+                <Tooltip title="显示或隐藏左侧节点库">
+                  <Button
+                    className="toolbar-action-btn toolbar-toggle-btn"
+                    size="small"
+                    type={layout.leftPanelOpen ? 'primary' : 'default'}
+                    icon={<LayoutOutlined />}
+                    onClick={() => layout.setLeftPanelOpen(!layout.leftPanelOpen)}
+                  >
+                    节点库
+                  </Button>
+                </Tooltip>
+                <Tooltip title="显示或隐藏右侧属性配置">
+                  <Button
+                    className="toolbar-action-btn toolbar-toggle-btn"
+                    size="small"
+                    type={layout.rightPanelOpen ? 'primary' : 'default'}
+                    icon={<AppstoreOutlined />}
+                    onClick={() => layout.setRightPanelOpen(!layout.rightPanelOpen)}
+                  >
+                    属性
+                  </Button>
+                </Tooltip>
+                <Tooltip title="打开执行结果工作区">
+                  <Button
+                    className="toolbar-action-btn toolbar-toggle-btn"
+                    size="small"
+                    type={layout.bottomDockOpen && layout.activeDockTab === 'results' ? 'primary' : 'default'}
+                    icon={<BarsOutlined />}
+                    onClick={() => layout.openDockTab('results')}
+                  >
+                    结果
+                  </Button>
+                </Tooltip>
+                <Tooltip title="打开 DSL 编辑器">
+                  <Button
+                    className="toolbar-action-btn toolbar-toggle-btn"
+                    size="small"
+                    type={layout.bottomDockOpen && layout.activeDockTab === 'dsl' ? 'primary' : 'default'}
+                    icon={<SaveOutlined />}
+                    onClick={() => layout.openDockTab('dsl')}
+                  >
+                    DSL
+                  </Button>
+                </Tooltip>
+              </Space.Compact>
+            </div>
           </div>
         </div>
 
-        <div className="workspace-switcher" style={{ display: 'flex', alignItems: 'center' }}>
-          <Space.Compact>
-            <Tooltip title="显示或隐藏左侧节点库">
-              <Button
-                size="small"
-                type={layout.leftPanelOpen ? 'primary' : 'default'}
-                icon={<LayoutOutlined />}
-                onClick={() => layout.setLeftPanelOpen(!layout.leftPanelOpen)}
-              >
-                节点库
-              </Button>
-            </Tooltip>
-            <Tooltip title="显示或隐藏右侧属性配置">
-              <Button
-                size="small"
-                type={layout.rightPanelOpen ? 'primary' : 'default'}
-                icon={<AppstoreOutlined />}
-                onClick={() => layout.setRightPanelOpen(!layout.rightPanelOpen)}
-              >
-                属性
-              </Button>
-            </Tooltip>
-            <Tooltip title="打开执行结果工作区">
-              <Button
-                size="small"
-                type={layout.bottomDockOpen && layout.activeDockTab === 'results' ? 'primary' : 'default'}
-                icon={<BarsOutlined />}
-                onClick={() => layout.openDockTab('results')}
-              >
-                结果
-              </Button>
-            </Tooltip>
-            <Tooltip title="打开 DSL 编辑器">
-              <Button
-                size="small"
-                type={layout.bottomDockOpen && layout.activeDockTab === 'dsl' ? 'primary' : 'default'}
-                icon={<SaveOutlined />}
-                onClick={() => layout.openDockTab('dsl')}
-              >
-                DSL
-              </Button>
-            </Tooltip>
-          </Space.Compact>
-        </div>
-
-        <div className="toolbar-actions" style={{ display: 'flex', gap: 16 }}>
+        <div className="toolbar-actions toolbar-actions-compact">
           {groupedActions.map((group) => (
-            <div key={group.title} className="toolbar-action-group" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 800 }}>
+            <div key={group.title} className="toolbar-action-group toolbar-action-group-compact">
+              <Typography.Text type="secondary" className="toolbar-group-title">
                 {group.title}
               </Typography.Text>
-              <Space size={6}>
+              <Space size={8} wrap>
                 {group.actions.map((action) => {
                   const cfg = actionConfig[action]
                   return (
                     <Button
                       key={action}
+                      className={group.primary === action ? 'toolbar-action-btn toolbar-action-btn-primary' : 'toolbar-action-btn'}
                       size="small"
                       type={group.primary === action ? 'primary' : 'default'}
                       disabled={runningAction !== null || (action === 'test-node' && !selectedNodeId)}
                       onClick={() => onRunAction(action)}
                       icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
-                      style={{ borderRadius: 6 }}
                     >
                       {cfg.label}
                     </Button>

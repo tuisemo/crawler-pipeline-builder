@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App as AntdApp, ConfigProvider, theme } from 'antd'
+import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import './index.css'
 import App from './App.tsx'
@@ -10,57 +10,69 @@ createRoot(document.getElementById('root')!).render(
     <ConfigProvider
       locale={zhCN}
       theme={{
-        algorithm: theme.defaultAlgorithm,
         token: {
-          colorPrimary: 'var(--sd-color-primary)',
-          colorSuccess: 'var(--sd-color-success)',
-          colorWarning: '#d97706',
-          colorError: '#dc2626',
-          colorInfo: 'var(--sd-color-primary)',
-          borderRadius: 10,
-          borderRadiusSM: 8,
-          borderRadiusLG: 14,
-          fontFamily: 'var(--sd-font-ui)',
-          controlHeight: 32,
-          controlHeightSM: 28,
-          controlHeightLG: 36,
-          lineHeight: 1.55,
-          colorBgContainer: 'var(--sd-color-surface)',
-          colorBgLayout: 'var(--sd-color-bg-base)',
-          colorBorder: 'var(--sd-color-border-soft)',
-          colorText: 'var(--sd-color-text)',
-          colorTextSecondary: 'var(--sd-color-text-secondary)',
-          colorTextDescription: 'var(--sd-color-text-secondary)',
-          colorTextPlaceholder: 'var(--sd-color-text-secondary)',
-          boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
-          boxShadowSecondary: '0 14px 34px rgba(15, 23, 42, 0.08)',
+          fontFamily: "'Geist', Arial, -apple-system, system-ui, 'Segoe UI', Helvetica, sans-serif",
+          fontSize: 14,
+          colorPrimary: '#111111',
+          colorLink: '#111111',
+          colorInfo: '#111111',
+          colorSuccess: '#10b981',
+          colorWarning: '#f59e0b',
+          colorError: '#ef4444',
+          colorText: '#0f172a',
+          colorTextSecondary: '#475569',
+          colorTextTertiary: '#64748b',
+          colorBgContainer: '#ffffff',
+          colorBgLayout: '#f4f5f7',
           colorBgElevated: '#ffffff',
+          colorBorder: 'rgba(148, 163, 184, 0.24)',
+          colorBorderSecondary: 'rgba(148, 163, 184, 0.16)',
+          colorFillSecondary: 'rgba(15, 23, 42, 0.04)',
+          colorFillTertiary: 'rgba(15, 23, 42, 0.02)',
+          borderRadius: 10,
+          borderRadiusLG: 12,
+          borderRadiusSM: 6,
+          boxShadow: '0 0 0 1px rgba(148, 163, 184, 0.14), 0 14px 28px rgba(15, 23, 42, 0.06)',
+          boxShadowSecondary: '0 0 0 1px rgba(148, 163, 184, 0.16), 0 18px 42px rgba(15, 23, 42, 0.08)',
         },
         components: {
           Button: {
+            borderRadius: 7,
+            fontWeight: 500,
             controlHeight: 32,
-            fontWeight: 600,
+            paddingInline: 14,
+            defaultShadow: 'none',
+            primaryShadow: '0 8px 18px rgba(15, 23, 42, 0.14)',
           },
           Card: {
-            borderRadiusLG: 14,
+            borderRadiusLG: 12,
+            boxShadow: '0 0 0 1px rgba(148, 163, 184, 0.12), 0 12px 24px rgba(15, 23, 42, 0.05)',
           },
           Input: {
-            controlHeight: 32,
-          },
-          Select: {
-            controlHeight: 32,
-            optionSelectedColor: 'var(--sd-color-primary-strong)',
-            optionSelectedBg: 'var(--sd-color-primary-surface)',
+            borderRadius: 8,
+            activeShadow: '0 0 0 3px rgba(15, 23, 42, 0.12)',
           },
           InputNumber: {
-            controlHeight: 32,
+            borderRadius: 8,
+            activeShadow: '0 0 0 3px rgba(15, 23, 42, 0.12)',
+          },
+          Select: {
+            borderRadius: 8,
           },
           Tag: {
-  
-            fontSize: 10,
+            borderRadiusSM: 9999,
           },
-          Table: {
-            borderRadius: 12,
+          Tabs: {
+            fontWeightStrong: 600,
+            inkBarColor: '#111111',
+            itemSelectedColor: '#0f172a',
+          },
+          Collapse: {
+            borderRadiusLG: 12,
+          },
+          Segmented: {
+            borderRadius: 8,
+            borderRadiusSM: 6,
           },
         },
       }}

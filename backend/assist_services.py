@@ -129,11 +129,18 @@ def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtrac
         return AssistHtmlExtractResponse(success=False, error=error)
 
     extractor = HtmlExtractor()
-    result = extractor.extract_item_container(
-        session.page,
-        request.item_selector,
-        max_items=request.max_items,
-    )
+    if request.include_pagination:
+        result = extractor.extract_pagination_context(
+            session.page,
+            request.item_selector,
+            max_items=request.max_items,
+        )
+    else:
+        result = extractor.extract_item_container(
+            session.page,
+            request.item_selector,
+            max_items=request.max_items,
+        )
     return AssistHtmlExtractResponse(
         success=True,
         session_id=session.id,

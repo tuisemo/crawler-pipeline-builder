@@ -263,6 +263,47 @@ def test_graph_to_prompt_returns_dict_on_success():
     assert "effective_prompt" in result
     assert "http://example.com" in result["prompt"]
     assert ".item" in result["prompt"]
+    assert "Selector Compatibility Contract" in result["prompt"]
+    assert "Output Contract" in result["prompt"]
+    assert "Execution Plan (Deterministic)" in result["effective_prompt"]
+    assert "Output Strategy (In-Memory)" in result["effective_prompt"]
+
+
+def test_graph_to_prompt_includes_html_and_field_samples():
+    request = ToPromptRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(
+                        html_fragment="<article class='item'><span class='price'>$12.34</span></article>",
+                        fields=[
+                            {
+                                "name": "price",
+                                "selector": ".price",
+                                "type": "text",
+                                "clean_data_type": "price",
+                                "normalized_sample": "12.34",
+                                "sample_value": "$12.34",
+                            }
+                        ],
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = graph_to_prompt(request)
+
+    assert result["success"] is True
+    assert "Page Evidence (HTML Sample)" in result["prompt"]
+    assert "<article class='item'>" in result["prompt"]
+    assert "normalize as `price`" in result["prompt"]
+    assert "expected normalized sample: `12.34`" in result["prompt"]
 
 
 def test_graph_to_prompt_raises_on_missing_url():
@@ -346,12 +387,98 @@ def test_compile_plan_uses_explicit_max_items_instead_of_default():
     assert result.plan["limits"]["max_items"] == 13020
 
 
+def test_compile_plan_includes_emit_record_output_config():
+    request = CompilePlanRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(
+                        output_mode="sqlite",
+                        sqlite_path="output/products.db",
+                        sqlite_table="products",
+                        write_mode="upsert",
+                        dedupe_keys=["detail_url"],
+                        batch_size=25,
+                    ),
+                ),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+                WorkflowEdge(id="e3", source="n3", target="n4"),
+            ],
+        )
+    )
+
+    result = compile_plan(request)
+
+    assert result.success is True
+    assert result.plan["output"] == {
+        "mode": "sqlite",
+        "json_file_path": "output/crawler_output.json",
+        "sqlite_path": "output/products.db",
+        "sqlite_table": "products",
+        "write_mode": "upsert",
+        "dedupe_keys": ["detail_url"],
+        "batch_size": 25,
+    }
+
+
+def test_compile_plan_defaults_emit_record_to_memory_when_output_mode_unspecified():
+    request = CompilePlanRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(id="n4", type="emit_record", data=NodeData()),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+                WorkflowEdge(id="e3", source="n3", target="n4"),
+            ],
+        )
+    )
+
+    result = compile_plan(request)
+
+    assert result.success is True
+    assert result.plan["output"] == {
+        "mode": "memory",
+        "json_file_path": "output/crawler_output.json",
+        "sqlite_path": "output/crawler_output.db",
+        "sqlite_table": "records",
+        "write_mode": "append",
+        "dedupe_keys": [],
+        "batch_size": 50,
+    }
+
+
 # ----------------------------------------------------------------------
 # generate_crawler tests
 # ----------------------------------------------------------------------
 
-def test_generate_crawler_returns_domain_response():
+def test_generate_crawler_returns_domain_response(monkeypatch):
     """generate_crawler returns GenerateCrawlerResponse, not JSONResponse."""
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 1, "completion_tokens": 1},
+                )
+            return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
             nodes=[
@@ -362,21 +489,26 @@ def test_generate_crawler_returns_domain_response():
             edges=[]
         )
     )
-    # Note: This may fail if LLM is not configured, but it should return a domain response, not JSONResponse
     result = generate_crawler(request)
     assert hasattr(result, "success")  # It's a Pydantic model, not a JSONResponse
-    # If LLM is not configured, success will be False but it's still a domain response
-    if not result.success:
-        assert result.error is not None
+    assert result.success is True
+    assert result.generation_mode == "lite"
+    assert result.review_summary is None
 
 
 def test_generate_crawler_uses_prompt_override(monkeypatch):
-    captured = {"user": ""}
+    captured_calls = []
 
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            captured["user"] = user
             from llm_client import LLMResponse
+            captured_calls.append({"system": system, "user": user})
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 1, "completion_tokens": 1},
+                )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
     monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
@@ -394,11 +526,163 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
     )
 
     result = generate_crawler(request)
+    generation_prompt = captured_calls[0]["user"]
 
     assert result.success is True
+    assert len(captured_calls) == 1
     assert result.editable_prompt == "Use robust retries and export newline-delimited JSON."
-    assert "Use robust retries and export newline-delimited JSON." in captured["user"]
-    assert "Execution Plan (Deterministic)" in captured["user"]
+    assert "Use robust retries and export newline-delimited JSON." in generation_prompt
+    assert "Execution Plan (Deterministic)" in generation_prompt
+    assert "Output Strategy (In-Memory)" in generation_prompt
+    assert "Non-Negotiable Implementation Guardrails" in generation_prompt
+    assert "Deterministic Skeleton (Reference Base)" in generation_prompt
+    assert "sync_playwright" in generation_prompt
+
+
+def test_generate_crawler_uses_sqlite_capable_skeleton_as_base(monkeypatch):
+    captured_calls = []
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            captured_calls.append({"system": system, "user": user})
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 1, "completion_tokens": 1},
+                )
+            return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(
+                        output_mode="sqlite",
+                        sqlite_path="output/products.db",
+                        sqlite_table="products",
+                        write_mode="upsert",
+                        dedupe_keys=["detail_url"],
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+    generation_prompt = captured_calls[0]["user"]
+    generation_system = captured_calls[0]["system"]
+
+    assert result.success is True
+    assert len(captured_calls) == 1
+    assert "Output Strategy (SQLite)" in generation_prompt
+    assert "Deterministic Skeleton (Reference Base)" in generation_prompt
+    assert "OUTPUT_MODE = 'sqlite'" in generation_prompt
+    assert "OUTPUT_SQLITE_PATH = 'output/products.db'" in generation_prompt
+    assert "persist_sqlite_records" in generation_prompt
+    assert "reference skeleton" in generation_system.lower()
+
+
+def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            self.calls.append(system)
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content=(
+                        '{"approve": false, "summary": "needs persistence fix", '
+                        '"issues": [{"severity": "high", "category": "output", "finding": "missing sqlite upsert", '
+                        '"fix": "preserve sqlite persistence helper"}], '
+                        '"revision_instructions": ["restore sqlite persistence helper and keep output contract"]}'
+                    ),
+                    model="fake-model",
+                    usage={"prompt_tokens": 2, "completion_tokens": 2},
+                )
+            if "revise the provided crawler draft" in system.lower():
+                return LLMResponse(
+                    content="print('revised')",
+                    model="fake-model",
+                    usage={"prompt_tokens": 3, "completion_tokens": 3},
+                )
+            return LLMResponse(
+                content="print('draft')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    fake_client = FakeClient()
+    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: fake_client)
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/products.db", sqlite_table="products"),
+                ),
+            ],
+            edges=[],
+        ),
+        generation_mode="pro",
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert result.script == "print('revised')"
+    assert result.review_summary is not None
+    assert result.review_summary["approve"] is False
+    assert result.generation_mode == "pro"
+    assert result.usage == {"prompt_tokens": 6, "completion_tokens": 6}
+    assert len(fake_client.calls) == 3
+
+
+def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(
+                content="print('truncated')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+                finish_reason="length",
+            )
+
+    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert result.generation_mode == "lite"
+    assert result.warnings == ["Draft generation reached the model token limit; the returned content may be truncated."]
 
 
 def test_generate_skeleton_returns_script_with_required_input():
@@ -419,6 +703,67 @@ def test_generate_skeleton_returns_script_with_required_input():
     assert result.success is True
     assert result.filename == "crawler_skeleton.py"
     assert "sync_playwright" in result.script
+
+
+def test_generate_skeleton_embeds_sqlite_output_config():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(
+                        output_mode="sqlite",
+                        sqlite_path="output/products.db",
+                        sqlite_table="products",
+                        write_mode="upsert",
+                        dedupe_keys=["detail_url"],
+                    ),
+                ),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+                WorkflowEdge(id="e3", source="n3", target="n4"),
+            ],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert "OUTPUT_MODE = 'sqlite'" in result.script
+    assert "OUTPUT_SQLITE_PATH = 'output/products.db'" in result.script
+    assert "OUTPUT_SQLITE_TABLE = 'products'" in result.script
+    assert "DEDUPE_KEYS = [" in result.script
+    assert "_sea_identity_key" in result.script
+    assert 'ON CONFLICT ({", ".join(quote_ident(column) for column in conflict_columns)})' in result.script
+
+
+def test_generate_skeleton_uses_aligned_default_json_output_path():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(id="n4", type="emit_record", data=NodeData()),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+                WorkflowEdge(id="e3", source="n3", target="n4"),
+            ],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert "OUTPUT_JSON_FILE = 'output/crawler_output.json'" in result.script
 
 
 def test_format_script_normalizes_python_whitespace():

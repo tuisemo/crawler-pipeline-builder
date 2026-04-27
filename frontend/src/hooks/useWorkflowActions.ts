@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { getErrorMessage } from '../workflowState'
-import type { WorkflowGraph } from '../workflowContracts'
+import type { ScriptGenerationMode, WorkflowGraph } from '../workflowContracts'
 import { postWorkflowAction } from '../services/workflowApi'
 import type { WorkbenchAction } from '../components/WorkbenchToolbar'
 
@@ -20,6 +20,7 @@ type UseWorkflowActionsArgs = {
   selectedNodeId: string
   graphKey: string
   getPromptOverride: (graphKey: string) => string
+  generationMode: ScriptGenerationMode
 }
 
 const actionLabels: Record<WorkbenchAction, string> = {
@@ -30,6 +31,7 @@ const actionLabels: Record<WorkbenchAction, string> = {
   'test-node': 'Run Node Test',
   'test-subflow': 'Run Subflow Test',
   'generate-script': 'Generate Script',
+  'auto-layout': 'Auto Layout',
 }
 
 function classifyResult(action: WorkbenchAction, responseOk: boolean, payload: unknown): ResultTone {
@@ -60,7 +62,7 @@ function resolveResultMessage(action: WorkbenchAction, responseOk: boolean, payl
   return `${actionLabels[action]} failed. Inspect the structured output below.`
 }
 
-export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, getPromptOverride }: UseWorkflowActionsArgs) {
+export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, getPromptOverride, generationMode }: UseWorkflowActionsArgs) {
   const [resultState, setResultState] = useState<ResultState>({
     tone: 'idle',
     title: 'Idle',
@@ -81,7 +83,11 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
     setResultState({
       tone: 'loading',
       title: `${actionLabels[action]} running`,
-      message: previousPayload ? 'Loading new result; previous output remains below.' : 'Loading workflow result...',
+      message: previousPayload
+        ? `Loading new result; previous output remains below.${action === 'generate-script' ? ` Current mode: ${generationMode}.` : ''}`
+        : action === 'generate-script'
+          ? `Loading workflow result... Current mode: ${generationMode}.`
+          : 'Loading workflow result...',
       payload: previousPayload,
       action,
       graphKey,
@@ -94,7 +100,9 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
         : action === 'test-subflow'
           ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined, max_items: 5, max_pages: 2, max_steps: 20 } }
           : action === 'generate-script' && promptOverride
-            ? { graph: canonicalGraph, prompt_override: promptOverride }
+            ? { graph: canonicalGraph, prompt_override: promptOverride, generation_mode: generationMode }
+            : action === 'generate-script'
+              ? { graph: canonicalGraph, generation_mode: generationMode }
             : { graph: canonicalGraph }
       const path = action === 'validate'
         ? '/api/workflows/validate'

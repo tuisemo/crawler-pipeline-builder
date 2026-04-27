@@ -1,33 +1,78 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* ===================================================================
+   Sea Data Workbench — Visual Tokens
+   Compact neutral shell with restrained semantic accents
+   =================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --sd-font-ui: 'Space Grotesk', 'Noto Sans SC', 'Segoe UI', sans-serif;
-  --sd-font-mono: 'JetBrains Mono', SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  /* ── Typography ───────────────────────────────────── */
+  --sd-font-ui: 'Geist', Arial, -apple-system, system-ui, 'Segoe UI', Helvetica, sans-serif;
+  --sd-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Roboto Mono, Menlo, monospace;
 
+  /* ── Surfaces & Neutrals ─────────────────────────── */
   --sd-color-ink: #0f172a;
   --sd-color-text: #0f172a;
   --sd-color-text-secondary: #475569;
-  --sd-color-bg-base: #f3f7fb;
-  --sd-color-bg-soft: #edf3f9;
-  --sd-color-bg-softest: #e8eff7;
-  --sd-color-surface: #ffffff;
-  --sd-color-surface-muted: #f8fbff;
-  --sd-color-border-soft: #cbd5e1;
-  --sd-color-border-strong: #64748b;
-  --sd-color-border-muted: #e5edf6;
-  --sd-color-border-faint: #f1f5f9;
-  --sd-color-primary: #2563eb;
-  --sd-color-primary-strong: #1d4ed8;
-  --sd-color-primary-soft: #93c5fd;
-  --sd-color-primary-surface: #eff6ff;
-  --sd-color-graph-edge: #60a5fa;
-  --sd-color-success: #16a34a;
-  --sd-color-success-soft: #f0fdf4;
-  --sd-color-success-border: #bbf7d0;
-  --sd-color-dock: #0f172a;
-  --sd-color-dock-text: #dbeafe;
-  --sd-color-surface-subtle: #f8fafc;
+  --sd-color-text-tertiary: #64748b;
+  --sd-color-text-muted: #94a3b8;
+  --sd-color-bg-base: #f4f5f7;
+  --sd-color-bg-soft: #eef1f4;
+  --sd-color-bg-softest: #f8f9fb;
+  --sd-color-surface: rgba(255, 255, 255, 0.96);
+  --sd-color-surface-strong: #ffffff;
+  --sd-color-surface-muted: #f7f8fa;
+  --sd-color-surface-hover: rgba(15, 23, 42, 0.04);
+  --sd-color-surface-tint: rgba(255, 255, 255, 0.78);
 
+  /* ── Brand & Semantic Workflow Accents ───────────── */
+  --sd-color-primary: #111111;
+  --sd-color-primary-strong: #020617;
+  --sd-color-primary-soft: rgba(15, 23, 42, 0.14);
+  --sd-color-focus: rgba(15, 23, 42, 0.14);
+  --sd-color-link: #111111;
+  --sd-color-source: #2563eb;
+  --sd-color-source-soft: rgba(37, 99, 235, 0.12);
+  --sd-color-collect: #0891b2;
+  --sd-color-collect-soft: rgba(8, 145, 178, 0.12);
+  --sd-color-transform: #7c3aed;
+  --sd-color-transform-soft: rgba(124, 58, 237, 0.12);
+  --sd-color-output: #059669;
+  --sd-color-output-soft: rgba(5, 150, 105, 0.12);
+  --sd-color-warning: #f59e0b;
+  --sd-color-warning-soft: rgba(245, 158, 11, 0.14);
+  --sd-color-error: #ef4444;
+  --sd-color-error-soft: rgba(239, 68, 68, 0.14);
+  --sd-color-success: #10b981;
+  --sd-color-success-soft: rgba(16, 185, 129, 0.14);
+
+  /* ── Borders & Elevation ─────────────────────────── */
+  --sd-color-border-soft: rgba(148, 163, 184, 0.24);
+  --sd-color-border-strong: rgba(15, 23, 42, 0.14);
+  --sd-color-border-contrast: rgba(15, 23, 42, 0.16);
+  --sd-shadow-border: 0 0 0 1px rgba(148, 163, 184, 0.16);
+  --sd-shadow-border-light: 0 0 0 1px rgba(148, 163, 184, 0.12);
+  --sd-shadow-card:
+    0 0 0 1px rgba(148, 163, 184, 0.14),
+    0 14px 28px rgba(15, 23, 42, 0.06);
+  --sd-shadow-deep:
+    0 0 0 1px rgba(148, 163, 184, 0.16),
+    0 18px 38px rgba(15, 23, 42, 0.08),
+    0 32px 64px rgba(15, 23, 42, 0.06);
+  --sd-shadow-panel:
+    0 0 0 1px rgba(148, 163, 184, 0.14),
+    0 18px 42px rgba(15, 23, 42, 0.08);
+  --sd-shadow-raised:
+    0 0 0 1px rgba(96, 165, 250, 0.18),
+    0 20px 48px rgba(37, 99, 235, 0.12);
+  --sd-shadow-focus: 0 0 0 3px var(--sd-color-focus);
+
+  /* ── Dock / Result panels ────────────────────────── */
+  --sd-color-dock: rgba(255, 255, 255, 0.98);
+  --sd-color-dock-text: var(--sd-color-text);
+
+  /* ── Spacing (8px base) ──────────────────────────── */
   --sd-space-0: 2px;
   --sd-space-1: 4px;
   --sd-space-2: 8px;
@@ -38,22 +83,22 @@
   --sd-space-7: 32px;
   --sd-space-8: 40px;
 
-  --sd-radius-sm: 8px;
-  --sd-radius-md: 12px;
-  --sd-radius-lg: 16px;
-  --sd-radius-xl: 18px;
-  --sd-radius-node: 14px;
-  --sd-radius-pill: 999px;
+  /* ── Radius ───────────────────────────────────────── */
+  --sd-radius-micro: 4px;
+  --sd-radius-sm: 6px;
+  --sd-radius-md: 10px;
+  --sd-radius-lg: 12px;
+  --sd-radius-node: 10px;
+  --sd-radius-pill: 9999px;
 
-  --sd-shadow-panel: 0 12px 30px rgba(15, 23, 42, 0.07);
-  --sd-shadow-raised: 0 18px 42px rgba(15, 23, 42, 0.09);
-  --sd-shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.1);
-
+  /* ── Z-index ──────────────────────────────────────── */
   --sd-z-canvas-overlay: 5;
   --sd-z-dock: 8;
   --sd-z-modal: 20;
 
+  /* ── Global rendering ─────────────────────────────── */
   font-family: var(--sd-font-ui);
+  font-feature-settings: "liga" 1; /* Ligatures everywhere */
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -70,7 +115,7 @@ body {
   min-width: 320px;
   margin: 0;
   min-height: 100vh;
-  background: linear-gradient(180deg, var(--sd-color-bg-base) 0%, var(--sd-color-bg-soft) 46%, var(--sd-color-bg-softest) 100%);
+  background: #f4f5f7;
 }
 
 #root {

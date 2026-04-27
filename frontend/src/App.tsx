@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loader } from '@monaco-editor/react'
-import { App as AntdApp, Button, Card, Tabs, Tag, Tooltip } from 'antd'
+import { App as AntdApp, Button, Drawer, Tabs, Tag, Typography } from 'antd'
 import {
   AppstoreOutlined,
   BarsOutlined,
@@ -26,7 +26,7 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
 } from './workflowState'
-import type { CanonicalWorkflowEdge, ExtractionField, WorkflowNodeData, WorkflowNodeType } from './workflowContracts'
+import type { CanonicalWorkflowEdge, ExtractionField, ScriptGenerationMode, WorkflowNodeData, WorkflowNodeType } from './workflowContracts'
 import { DslEditorPanel } from './components/DslEditorPanel'
 import { NodePalette, type PaletteItem } from './components/NodePalette'
 import { PropertyPanel } from './components/PropertyPanel'
@@ -141,7 +141,7 @@ function createDefaultData(type: WorkflowNodeType): WorkflowNodeData {
     case 'paginate':
       return { label: '分页', pagination_selector: '', pagination_strategy: 'click_next', max_pages: 2 }
     case 'emit_record':
-      return { label: '输出记录' }
+      return { label: '输出记录', output_mode: 'memory', write_mode: 'append', dedupe_keys: [], batch_size: 50 }
     case 'end':
       return { label: '结束' }
   }
@@ -204,11 +204,13 @@ export default function App() {
   const [assistApplyMode, setAssistApplyMode] = useState<AssistApplyMode>('related-nodes')
   const [assistSessionId, setAssistSessionId] = useState<string | null>(null)
   const [canvasFitToken, setCanvasFitToken] = useState(0)
+  const [workspaceVisibilityToken, setWorkspaceVisibilityToken] = useState(0)
   const [savedPromptDrafts, setSavedPromptDrafts] = useState<SavedPromptDraftMap>(() => loadSavedPromptDrafts())
   const [promptDraftByGraph, setPromptDraftByGraph] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(loadSavedPromptDrafts()).map(([key, value]) => [key, value.text])),
   )
   const [promptBaseByGraph, setPromptBaseByGraph] = useState<Record<string, string>>({})
+  const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
 
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null
   const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
@@ -268,6 +270,7 @@ export default function App() {
     selectedNodeId,
     graphKey,
     getPromptOverride,
+    generationMode,
   })
 
   const conditionOutgoingEdges = useMemo(() => {
@@ -686,6 +689,7 @@ export default function App() {
       const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
         item_selector: itemSelector,
         url: entryUrl || undefined,
+        include_pagination: true,
       }))
       const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
       if (extractError) throw new Error(extractError)
@@ -863,6 +867,13 @@ export default function App() {
     setActiveDockTab(tab)
   }
 
+  const workspaceShellClassName = [
+    'workspace-shell',
+    leftPanelOpen ? 'workspace-shell--left-open' : 'workspace-shell--left-closed',
+    rightPanelOpen ? 'workspace-shell--right-open' : 'workspace-shell--right-closed',
+  ].join(' ')
+  const activeWorkspaceLabel = activeDockTab === 'dsl' ? 'DSL 编辑器' : '执行结果'
+
   return (
     <div className="console-root">
       <div className="console-toolbar">
@@ -871,6 +882,8 @@ export default function App() {
           selectedNodeId={selectedNodeId}
           workflowStats={workflowStats}
           onRunAction={handleRunWorkflowAction}
+          generationMode={generationMode}
+          onGenerationModeChange={setGenerationMode}
           layout={{
             leftPanelOpen,
             rightPanelOpen,
@@ -883,7 +896,7 @@ export default function App() {
         />
       </div>
 
-      <div className="workspace-shell">
+      <div className={workspaceShellClassName}>
         {leftPanelOpen && (
           <aside className="workbench-panel layout-panel-left">
             <div className="workbench-panel-header">
@@ -891,7 +904,7 @@ export default function App() {
                 <LayoutOutlined />
                 <span>节点面板</span>
               </div>
-              <Tag color="blue">{paletteItems.length} 种</Tag>
+              <Tag color="blue" style={{ margin: 0, border: 'none', boxShadow: 'var(--sd-shadow-border-light)' }}>{paletteItems.length} 种</Tag>
             </div>
             <NodePalette items={paletteItems} onAddNode={addPaletteNode} />
           </aside>
@@ -909,61 +922,14 @@ export default function App() {
                 setSelectedNodeId(node.id)
                 setRightPanelOpen(true)
               }}
-              onPaneClick={() => {}}
+              onPaneClick={() => { }}
               sourceNodeTypeById={sourceNodeTypeById}
               fitViewToken={canvasFitToken}
             />
           </div>
-
-          {bottomDockOpen ? (
-            <Card
-              className="bottom-dock"
-              styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 } }}
-            >
-              <div className="bottom-dock-header">
-                <div className="console-panel-title">
-                  {activeDockTab === 'results' ? <BarsOutlined /> : <SaveOutlined />}
-                  <span>{activeDockTab === 'results' ? '执行结果工作区' : 'DSL 编辑工作区'}</span>
-                  {runningAction && <Tag color="processing">运行中</Tag>}
-                </div>
-                <Button size="small" onClick={() => setBottomDockOpen(false)}>收起</Button>
-              </div>
-              <Tabs
-                activeKey={activeDockTab}
-                onChange={(key) => setActiveDockTab(key as DockTabKey)}
-                className="bottom-dock-tabs"
-                items={[
-                  {
-                    key: 'results',
-                    label: '执行结果',
-                    children: (
-                      <ResultsPanel
-                        resultState={resultState}
-                        runningAction={runningAction}
-                        promptWorkspace={promptWorkspace}
-                      />
-                    ),
-                  },
-                  {
-                    key: 'dsl',
-                    label: 'DSL 编辑器',
-                    children: (
-                      <DslEditorPanel
-                        dslStatus={dslStatus}
-                        dslFeedback={dslFeedback}
-                        dslText={dslText}
-                        onChange={handleDslChange}
-                      />
-                    ),
-                  },
-                ]}
-              />
-            </Card>
-          ) : (
-            <button className="bottom-dock-collapsed" type="button" onClick={() => openDockTab('results')}>
-              展开执行结果 / DSL 工作区
-            </button>
-          )}
+          <button className="bottom-dock-collapsed" type="button" onClick={() => openDockTab('results')}>
+            打开结果与 DSL 工作区
+          </button>
         </div>
 
         {rightPanelOpen && (
@@ -999,6 +965,99 @@ export default function App() {
           </aside>
         )}
       </div>
+
+      <Drawer
+        placement="bottom"
+        open={bottomDockOpen}
+        mask={false}
+        keyboard
+        forceRender
+        height="84vh"
+        title={(
+          <div className="workspace-drawer-title">
+            <Typography.Text strong>结果与 DSL 工作区</Typography.Text>
+            <Typography.Text type="secondary" className="workspace-drawer-subtitle">
+              聚合复杂输出、日志与 DSL 编辑内容
+            </Typography.Text>
+          </div>
+        )}
+        extra={(
+          <div className="workspace-drawer-extra">
+            <Tag className="workspace-drawer-extra-tag">{activeWorkspaceLabel}</Tag>
+            <Tag className="workspace-drawer-extra-tag">{selectedNodeId || '未选择节点'}</Tag>
+          </div>
+        )}
+        onClose={() => setBottomDockOpen(false)}
+        afterOpenChange={(open) => {
+          if (open) setWorkspaceVisibilityToken((current) => current + 1)
+        }}
+        rootClassName="workspace-drawer"
+        styles={{
+          body: { padding: 0, display: 'flex', minHeight: 0 },
+          header: { padding: '14px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)' },
+          content: { overflow: 'hidden' },
+        }}
+      >
+        <Tabs
+          activeKey={activeDockTab}
+          onChange={(key) => {
+            setActiveDockTab(key as DockTabKey)
+            setWorkspaceVisibilityToken((current) => current + 1)
+          }}
+          className="workspace-drawer-tabs"
+          destroyInactiveTabPane={false}
+          animated={false}
+          items={[
+            {
+              key: 'results',
+              label: (
+                <span className="workspace-drawer-tab-label">
+                  <BarsOutlined />
+                  <span>执行结果</span>
+                </span>
+              ),
+              children: (
+                <div className="workspace-drawer-pane">
+                  <ResultsPanel
+                    resultState={resultState}
+                    runningAction={runningAction}
+                    promptWorkspace={promptWorkspace}
+                    selectedNodeId={selectedNodeId}
+                    visibilityToken={activeDockTab === 'results' ? workspaceVisibilityToken : undefined}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: 'dsl',
+              label: (
+                <span className="workspace-drawer-tab-label">
+                  <SaveOutlined />
+                  <span>DSL 编辑器</span>
+                </span>
+              ),
+              children: (
+                <div className="workspace-drawer-pane">
+                  <DslEditorPanel
+                    dslStatus={dslStatus}
+                    dslFeedback={dslFeedback}
+                    dslText={dslText}
+                    onChange={handleDslChange}
+                    showHeader={false}
+                    contextSummary={{
+                      selectedNodeId,
+                      nodeCount: workflowStats.nodeCount,
+                      edgeCount: workflowStats.edgeCount,
+                      fieldCount: workflowStats.fieldCount,
+                    }}
+                    visibilityToken={activeDockTab === 'dsl' ? workspaceVisibilityToken : undefined}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Drawer>
     </div>
   )
 }

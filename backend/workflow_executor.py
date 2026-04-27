@@ -11,13 +11,12 @@ import logging
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass, field
 from copy import deepcopy
-
 from .workflow_schemas import (
     WorkflowGraph, WorkflowNode, WorkflowEdge, NodeData,
     LogLevel, ExecutionLog, NodeResult,
     TestNodeRequest, TestNodeResponse,
     TestSubflowRequest, TestSubflowResponse,
-    SubflowBoundary
+    SubflowBoundary,
 )
 from .async_bridge import run_blocking
 from .browser_session import PageSession, page_session_mgr

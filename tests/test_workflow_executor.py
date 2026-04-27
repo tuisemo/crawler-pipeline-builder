@@ -1,4 +1,6 @@
 import pytest
+import sqlite3
+from pathlib import Path
 
 from backend.workflow_executor import WorkflowExecutor
 from backend.workflow_schemas import TestSubflowRequest
@@ -217,6 +219,61 @@ async def test_subflow_executes_emit_record_and_paginate_smoke(monkeypatch):
     assert response.node_results[3].result == {"emitted_count": 1, "records": [{"_index": 0, "name": "One"}]}
     assert response.node_results[4].result["found"] is True
     assert "single-page testing" in response.node_results[4].result["message"]
+
+
+@pytest.mark.anyio
+async def test_subflow_emit_record_can_persist_sqlite(monkeypatch):
+    workspace_root = Path(__file__).resolve().parent / ".tmp" / "executor-emit-sqlite"
+    if workspace_root.exists():
+        for child in sorted(workspace_root.rglob("*"), reverse=True):
+            if child.is_file():
+                child.unlink()
+            elif child.is_dir():
+                child.rmdir()
+        workspace_root.rmdir()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+
+    session = FakeSession()
+    item_one = FakeElement(text="One", children={".name": [FakeElement(text="One")], ".detail": [FakeElement(text="https://example.com/p/1")]})
+    session.page._selectors[".item"] = [item_one]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+    monkeypatch.setattr("backend.record_sinks.WORKSPACE_ROOT", workspace_root)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item"}),
+                node("extract", "extract_field", {"fields": [
+                    {"name": "name", "selector": ".name", "type": "text"},
+                    {"name": "detail_url", "selector": ".detail", "type": "text"},
+                ]}),
+                node("emit", "emit_record", {
+                    "output_mode": "sqlite",
+                    "sqlite_path": "output/runtime.db",
+                    "sqlite_table": "records",
+                    "write_mode": "upsert",
+                    "dedupe_keys": ["detail_url"],
+                }),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "list"},
+                {"id": "e2", "source": "list", "target": "extract"},
+                {"id": "e3", "source": "extract", "target": "emit"},
+            ],
+        ),
+        "boundary": {"max_items": 5, "max_steps": 10},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    emit_result = response.node_results[-1].result
+    assert emit_result["output_mode"] == "sqlite"
+    db_path = workspace_root / "output" / "runtime.db"
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT name, detail_url FROM records").fetchone()
+    assert row == ("One", "https://example.com/p/1")
 
 
 @pytest.mark.anyio

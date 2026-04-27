@@ -35,13 +35,19 @@ function nodeSummary(type: WorkflowNodeType, data: WorkflowNodeData) {
   if (type === 'paginate') return `${data.pagination_strategy || 'click_next'} · ${data.max_pages ?? 1} 页`
   if (type === 'loop') return `${data.max_items ?? 5} 条上限`
   if (type === 'condition') return String(data.condition || '设置条件')
+  if (type === 'emit_record') {
+    const mode = String(data.output_mode || 'memory')
+    if (mode === 'sqlite') return `sqlite · ${String(data.sqlite_table || 'records')}`
+    if (mode === 'json_file') return `json · ${String(data.json_file_path || 'output/crawler_output.json')}`
+    return 'memory'
+  }
   return 'Ready'
 }
 
 function resolveNodeVisual(type: WorkflowNodeType) {
   if (type === 'open_page') return { className: 'node-category-source', tagColor: 'blue', group: 'Source' }
   if (type === 'select_list' || type === 'paginate') return { className: 'node-category-collector', tagColor: 'cyan', group: 'Collect' }
-  if (type === 'extract_field' || type === 'loop' || type === 'condition') return { className: 'node-category-transform', tagColor: 'geekblue', group: 'Transform' }
+  if (type === 'extract_field' || type === 'loop' || type === 'condition') return { className: 'node-category-transform', tagColor: 'purple', group: 'Transform' }
   return { className: 'node-category-sink', tagColor: 'green', group: 'Output' }
 }
 
@@ -158,20 +164,20 @@ export function WorkflowCanvas({
       title={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <Typography.Text strong style={{ fontSize: 16, color: '#0f172a' }}>流程画布</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>流程画布</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
-              拖拽排布、连接执行链路，并通过悬浮面板在多层空间完成编排。
+              在主舞台中编排抓取链路、观察节点关系，并联动下方结果区完成验证与迭代。
             </Typography.Paragraph>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <Tag color={graphHealth.issues.length === 0 ? 'green' : 'orange'}>
+            <Tag color={graphHealth.issues.length === 0 ? 'success' : 'warning'} style={{ border: 'none', boxShadow: 'var(--sd-shadow-border)' }}>
               健康度 {graphHealth.score}
             </Tag>
-            <Tag color="blue">{nodes.length} 节点</Tag>
-            <Tag color={graphHealth.hasTerminal ? 'cyan' : 'red'}>
+            <Tag color="default" style={{ border: 'none', boxShadow: 'var(--sd-shadow-border)' }}>{nodes.length} 节点</Tag>
+            <Tag color={graphHealth.hasTerminal ? 'success' : 'error'} style={{ border: 'none', boxShadow: 'var(--sd-shadow-border)' }}>
               {graphHealth.hasTerminal ? '含终止节点' : '缺少终止节点'}
             </Tag>
-            {graphHealth.disconnectedCount > 0 ? <Tag color="gold">{graphHealth.disconnectedCount} 孤立</Tag> : null}
+            {graphHealth.disconnectedCount > 0 ? <Tag color="warning" style={{ border: 'none', boxShadow: 'var(--sd-shadow-border)' }}>{graphHealth.disconnectedCount} 孤立</Tag> : null}
           </div>
         </div>
       }
@@ -179,12 +185,12 @@ export function WorkflowCanvas({
       className="canvas-region ant-canvas-card"
       variant="outlined"
     >
-      <div className="canvas-surface">
-        <div className="canvas-overlay">
-          <Typography.Text strong style={{ fontSize: 13, color: '#0f172a' }}>操作区</Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            支持拖拽、连线、选择与删除；新节点会自动加入可见区域。
-          </Typography.Text>
+        <div className="canvas-surface">
+          <div className="canvas-overlay">
+            <Typography.Text strong style={{ fontSize: 13, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>工作提示</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+              支持拖拽、连线、选择与删除；新增节点会自动对齐到可视区域。
+            </Typography.Text>
           {graphHealth.issues.length > 0 ? (
             <Typography.Text type="warning" style={{ fontSize: 11 }}>
               {graphHealth.issues[0]}

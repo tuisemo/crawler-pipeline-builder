@@ -8,7 +8,7 @@ import re
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from llm_client import get_default_client, CRAWLER_SYSTEM_PROMPT
 from prompts import CrawlerPromptGenerator
@@ -93,6 +93,9 @@ class ScriptPersistenceError(Exception):
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_GENERATION_MAX_TOKENS = 12000
+SCRIPT_REVIEW_MAX_TOKENS = 2500
+SUPPORTED_GENERATION_MODES = {"lite", "pro"}
 
 
 SUPPORTED_EXECUTABLE_NODE_TYPES = {
@@ -105,6 +108,34 @@ SUPPORTED_EXECUTABLE_NODE_TYPES = {
     "condition",
     "end",
 }
+
+
+CRAWLER_REVIEW_SYSTEM_PROMPT = """You are a principal reviewer for production Playwright crawlers.
+
+Review the provided script against the deterministic execution plan, the requested output strategy, and the user intent.
+Do not rewrite the script. Return JSON only with this shape:
+{
+  "approve": true,
+  "summary": "short review summary",
+  "issues": [
+    {
+      "severity": "high|medium|low",
+      "category": "plan|pagination|extraction|output|resilience|quality",
+      "finding": "what is wrong or risky",
+      "fix": "specific fix direction"
+    }
+  ],
+  "revision_instructions": ["specific instruction 1", "specific instruction 2"]
+}
+
+Set "approve" to false when issues remain that should be fixed before returning the final script."""
+
+
+CRAWLER_REVISION_SYSTEM_PROMPT = """You are an expert Python Web Scraping Engineer specializing in Playwright.
+
+Revise the provided crawler draft using the structured review feedback.
+Preserve the deterministic execution plan, stable helper functions, and the output contract.
+Return only the final complete Python script."""
 
 
 def _validate_field_schema(raw_field: object, index: int) -> None:
@@ -476,8 +507,8 @@ def _extract_prompt_config(graph: WorkflowGraph) -> dict:
         "item_selector": "",
         "fields": [],
         "pagination_selector": "",
-        "pagination_strategy": "click_next",
-        "max_pages": 50,
+        "pagination_strategy": "none",
+        "max_pages": 1,
         "html_fragment": "",
     }
 
@@ -501,6 +532,160 @@ def _extract_prompt_config(graph: WorkflowGraph) -> dict:
     return config
 
 
+def _resolve_output_mode(plan_dict: dict) -> str:
+    output = plan_dict.get("output", {})
+    if isinstance(output, dict):
+        mode = str(output.get("mode", "memory") or "memory").strip().lower()
+        if mode == "memory":
+            return "memory"
+        if mode == "sqlite":
+            return "sqlite"
+    return "json_file"
+
+
+def _build_output_strategy_prompt(plan_dict: dict) -> str:
+    output = plan_dict.get("output", {})
+    if not isinstance(output, dict):
+        output = {}
+
+    output_mode = _resolve_output_mode(plan_dict)
+    if output_mode == "memory":
+        memory_strategy = {
+            "mode": "memory",
+            "write_mode": output.get("write_mode", "append"),
+            "dedupe_keys": output.get("dedupe_keys", []),
+            "batch_size": output.get("batch_size", 50),
+        }
+        return (
+            "## Output Strategy (In-Memory)\n"
+            "```json\n"
+            f"{json.dumps(memory_strategy, ensure_ascii=False, indent=2)}\n"
+            "```\n"
+            "Keep records in memory unless the deterministic execution plan explicitly requests JSON file or SQLite persistence.\n"
+            "Do not silently add file writes, database writes, or export side effects when the mode is `memory`.\n\n"
+        )
+
+    if output_mode == "sqlite":
+        sqlite_strategy = {
+            "mode": "sqlite",
+            "sqlite_path": output.get("sqlite_path", "output/crawler_output.db"),
+            "sqlite_table": output.get("sqlite_table", "records"),
+            "write_mode": output.get("write_mode", "append"),
+            "dedupe_keys": output.get("dedupe_keys", []),
+            "batch_size": output.get("batch_size", 50),
+        }
+        return (
+            "## Output Strategy (SQLite)\n"
+            "```json\n"
+            f"{json.dumps(sqlite_strategy, ensure_ascii=False, indent=2)}\n"
+            "```\n"
+            "Implement local SQLite persistence with `sqlite3`.\n"
+            "Keep schema creation, safe identifier handling, metadata columns, and deterministic upsert behavior.\n"
+            "If dedupe keys are configured, preserve them as the primary conflict target; otherwise fall back to a record hash.\n\n"
+        )
+
+    json_strategy = {
+        "mode": "json_file",
+        "json_file_path": output.get("json_file_path", "crawler_output.json"),
+        "write_mode": output.get("write_mode", "append"),
+        "dedupe_keys": output.get("dedupe_keys", []),
+    }
+    return (
+        "## Output Strategy (JSON File)\n"
+        "```json\n"
+        f"{json.dumps(json_strategy, ensure_ascii=False, indent=2)}\n"
+        "```\n"
+        "Implement file output as a valid local JSON document containing records.\n"
+        "If `write_mode` is `upsert`, merge records deterministically using configured dedupe keys or a record hash.\n"
+        "Do not silently switch this workflow to SQLite unless the execution plan explicitly requests it.\n\n"
+    )
+
+
+def _build_model_guardrails_prompt(plan_dict: dict) -> str:
+    pagination = plan_dict.get("pagination", {})
+    if not isinstance(pagination, dict):
+        pagination = {}
+    output = plan_dict.get("output", {})
+    if not isinstance(output, dict):
+        output = {}
+
+    return (
+        "## Non-Negotiable Implementation Guardrails\n"
+        "- Treat the deterministic execution plan as the single source of truth for control flow, limits, field schema, and output behavior.\n"
+        "- Every selector used in the generated script must remain a standard CSS selector executable via Playwright `page.query_selector(...)`, `page.query_selector_all(...)`, or `locator(...)`.\n"
+        "- Returned selectors must also stay compatible with `document.querySelector(...)` and `document.querySelectorAll(...)`.\n"
+        "- Do not introduce Playwright-only locator syntax such as `get_by_role(...)`, `get_by_text(...)`, `text=...`, `:has-text(...)`, `nth=`, `>>`, or XPath unless the execution plan explicitly provides it.\n"
+        f"- Pagination strategy is `{pagination.get('strategy', 'none')}` and pagination selector is `{pagination.get('selector', '')}`; do not invent extra pagination behavior beyond that contract.\n"
+        f"- Output mode is `{output.get('mode', 'memory')}`; do not silently switch persistence strategy.\n\n"
+    )
+
+
+def _extract_json_object(content: str) -> dict:
+    raw = (content or "").strip()
+    if not raw:
+        raise ValueError("empty JSON response")
+
+    fenced_match = re.search(r"```json\s*(\{.*\})\s*```", raw, re.DOTALL)
+    candidate = fenced_match.group(1) if fenced_match else raw
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        parsed = json.loads(raw[start:end + 1])
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise ValueError("response did not contain a JSON object")
+
+
+def _review_requires_revision(review_summary: dict) -> bool:
+    if review_summary.get("approve") is False:
+        return True
+    issues = review_summary.get("issues")
+    if isinstance(issues, list) and issues:
+        return True
+    revision_instructions = review_summary.get("revision_instructions")
+    if isinstance(revision_instructions, list) and revision_instructions:
+        return True
+    return False
+
+
+def _merge_usage(*usages: dict | None) -> dict[str, int] | None:
+    totals: dict[str, int] = {}
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        for key, value in usage.items():
+            if isinstance(value, int):
+                totals[key] = totals.get(key, 0) + value
+    return totals or None
+
+
+def _resolve_generation_mode(value: str | None) -> str:
+    mode = str(value or "lite").strip().lower()
+    return mode if mode in SUPPORTED_GENERATION_MODES else "lite"
+
+
+def _append_trace(trace: list[dict[str, Any]], stage: str, status: str, **extra: Any) -> None:
+    item: dict[str, Any] = {"stage": stage, "status": status}
+    for key, value in extra.items():
+        if value is not None:
+            item[key] = value
+    trace.append(item)
+
+
+def _capture_length_warning(response, stage: str) -> str | None:
+    if getattr(response, "finish_reason", None) == "length":
+        return f"{stage} reached the model token limit; the returned content may be truncated."
+    return None
+
+
 def _build_generation_prompt(graph: WorkflowGraph, prompt_override: str | None = None) -> tuple[str, str, dict]:
     config = _extract_prompt_config(graph)
     if not config["url"] or not config["item_selector"]:
@@ -510,27 +695,29 @@ def _build_generation_prompt(graph: WorkflowGraph, prompt_override: str | None =
 
     plan = compile_graph_to_plan(graph)
     plan_dict = execution_plan_to_dict(plan)
-    base_prompt = CrawlerPromptGenerator().generate_from_simple_config(**config)
+    pagination = plan_dict.get("pagination", {})
+    if not isinstance(pagination, dict):
+        pagination = {}
+    limits = plan_dict.get("limits", {})
+    if not isinstance(limits, dict):
+        limits = {}
+    base_prompt = CrawlerPromptGenerator().generate_from_simple_config(
+        url=plan_dict.get("entry_url", config["url"]),
+        item_selector=plan_dict.get("item_selector", config["item_selector"]),
+        fields=plan_dict.get("field_specs", []),
+        pagination_selector=str(pagination.get("selector", "") or ""),
+        pagination_strategy=str(pagination.get("strategy", "none") or "none"),
+        max_pages=int(pagination.get("max_pages") or limits.get("max_pages") or 1),
+        html_fragment=config.get("html_fragment", ""),
+        output_contract=plan_dict.get("output", {}),
+        execution_limits=limits,
+        conditions=plan_dict.get("conditions", []),
+        node_types=plan_dict.get("node_types", []),
+    )
     editable_prompt = prompt_override.strip() if isinstance(prompt_override, str) and prompt_override.strip() else base_prompt
 
-    cleaning_rules = [
-        {
-            "name": field.get("name"),
-            "clean_data_type": field.get("clean_data_type"),
-            "normalized_sample": field.get("normalized_sample"),
-        }
-        for field in plan_dict.get("field_specs", [])
-        if isinstance(field, dict) and isinstance(field.get("clean_data_type"), str) and field.get("clean_data_type")
-    ]
-    cleaning_prompt = ""
-    if cleaning_rules:
-        cleaning_prompt = (
-            "## Field Cleaning Rules\n"
-            "```json\n"
-            f"{json.dumps(cleaning_rules, ensure_ascii=False, indent=2)}\n"
-            "```\n"
-            "For these fields, apply the declared normalization after extraction.\n\n"
-        )
+    strategy_prompt = _build_output_strategy_prompt(plan_dict)
+    guardrails_prompt = _build_model_guardrails_prompt(plan_dict)
     plan_prompt = (
         "## Execution Plan (Deterministic)\n"
         "```json\n"
@@ -538,8 +725,89 @@ def _build_generation_prompt(graph: WorkflowGraph, prompt_override: str | None =
         "```\n\n"
         "Please preserve this execution plan's control flow and field schema.\n\n"
     )
-    final_prompt = f"{plan_prompt}{cleaning_prompt}{editable_prompt}"
+    final_prompt = f"{plan_prompt}{strategy_prompt}{guardrails_prompt}{editable_prompt}"
     return final_prompt, editable_prompt, plan_dict
+
+
+def _build_skeleton_enhancement_prompt(
+    graph: WorkflowGraph,
+    prompt_override: str | None = None,
+) -> tuple[str, str, dict, str]:
+    """Build an LLM prompt that enhances the deterministic skeleton instead of free-writing.
+
+    This keeps `generate-crawler` aligned with the script-first production plan:
+    1. compile deterministic execution plan
+    2. generate trusted skeleton
+    3. ask the LLM to improve that concrete scaffold
+    """
+    final_prompt, editable_prompt, plan_dict = _build_generation_prompt(graph, prompt_override)
+    skeleton_script = generate_playwright_skeleton(plan_dict)
+    enhancement_prompt = (
+        f"{final_prompt}"
+        "## Deterministic Skeleton (Reference Base)\n"
+        "Below is the exact baseline script generated from the execution plan.\n"
+        "Revise and improve this script instead of writing a crawler from scratch.\n"
+        "Preserve its overall control flow, extraction schema, and output contract.\n"
+        "If SQLite helpers or persistence helpers are present, keep and strengthen them rather than removing them.\n"
+        "Return only the final complete Python script.\n\n"
+        "```python\n"
+        f"{skeleton_script}\n"
+        "```\n"
+    )
+    return enhancement_prompt, editable_prompt, plan_dict, skeleton_script
+
+
+def _build_review_prompt(
+    plan_dict: dict,
+    editable_prompt: str,
+    generated_script: str,
+) -> str:
+    return (
+        "## Review Target\n"
+        "Audit the crawler draft against the execution plan and output strategy.\n\n"
+        "## User Intent\n"
+        f"{editable_prompt}\n\n"
+        "## Execution Plan\n"
+        "```json\n"
+        f"{json.dumps(plan_dict, ensure_ascii=False, indent=2)}\n"
+        "```\n\n"
+        f"{_build_output_strategy_prompt(plan_dict)}"
+        "## Draft Script\n"
+        "```python\n"
+        f"{generated_script}\n"
+        "```\n\n"
+        "Check for control-flow drift, pagination mistakes, extraction schema mismatches, "
+        "output persistence regressions, and weak error handling.\n"
+        "Return JSON only.\n"
+    )
+
+
+def _build_revision_prompt(
+    plan_dict: dict,
+    editable_prompt: str,
+    current_script: str,
+    review_summary: dict,
+) -> str:
+    return (
+        "## Revision Goal\n"
+        "Apply the review feedback to the crawler draft while preserving the deterministic plan and output contract.\n\n"
+        "## User Intent\n"
+        f"{editable_prompt}\n\n"
+        "## Execution Plan\n"
+        "```json\n"
+        f"{json.dumps(plan_dict, ensure_ascii=False, indent=2)}\n"
+        "```\n\n"
+        f"{_build_output_strategy_prompt(plan_dict)}"
+        "## Review Feedback\n"
+        "```json\n"
+        f"{json.dumps(review_summary, ensure_ascii=False, indent=2)}\n"
+        "```\n\n"
+        "## Current Script\n"
+        "```python\n"
+        f"{current_script}\n"
+        "```\n\n"
+        "Return only the final complete Python script.\n"
+    )
 
 
 def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse:
@@ -551,7 +819,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
     4. Returns {success, prompt, script, filename, model, usage} or error
     """
     try:
-        final_prompt, editable_prompt, _plan_dict = _build_generation_prompt(
+        final_prompt, editable_prompt, plan_dict, _skeleton_script = _build_skeleton_enhancement_prompt(
             request.graph,
             request.prompt_override,
         )
@@ -564,22 +832,142 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
     # Call LLM
     try:
         client = get_default_client()
-        response = client.generate_with_system(
+        generation_mode = _resolve_generation_mode(request.generation_mode)
+        generation_trace: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        draft_response = client.generate_with_system(
             system=CRAWLER_SYSTEM_PROMPT,
-            user=final_prompt
+            user=final_prompt,
+            max_tokens=SCRIPT_GENERATION_MAX_TOKENS,
+        )
+        _append_trace(
+            generation_trace,
+            "draft_generation",
+            "completed" if not draft_response.error else "failed",
+            model=draft_response.model,
+            finish_reason=draft_response.finish_reason,
         )
 
-        if response.error:
+        if draft_response.error:
             return GenerateCrawlerResponse(
                 success=False,
-                error=response.error
+                generation_mode=generation_mode,
+                generation_trace=generation_trace,
+                error=draft_response.error
             )
 
-        # Extract filename from script content if present
+        draft_script = draft_response.content
+        length_warning = _capture_length_warning(draft_response, "Draft generation")
+        if length_warning:
+            warnings.append(length_warning)
+
+        if generation_mode == "lite":
+            filename = "crawler.py"
+            filename_match = re.search(r'crawler_\w+\.py', draft_script)
+            if filename_match:
+                filename = filename_match.group(0)
+            return GenerateCrawlerResponse(
+                success=True,
+                prompt=final_prompt,
+                editable_prompt=editable_prompt,
+                script=draft_script,
+                filename=filename,
+                model=draft_response.model,
+                usage=draft_response.usage,
+                generation_mode=generation_mode,
+                generation_trace=generation_trace,
+                warnings=warnings,
+            )
+
+        review_prompt = _build_review_prompt(plan_dict, editable_prompt, draft_script)
+        review_response = client.generate_with_system(
+            system=CRAWLER_REVIEW_SYSTEM_PROMPT,
+            user=review_prompt,
+            max_tokens=SCRIPT_REVIEW_MAX_TOKENS,
+        )
+        _append_trace(
+            generation_trace,
+            "script_review",
+            "completed" if not review_response.error else "failed",
+            model=review_response.model,
+            finish_reason=review_response.finish_reason,
+        )
+        if review_response.error:
+            return GenerateCrawlerResponse(
+                success=False,
+                prompt=final_prompt,
+                editable_prompt=editable_prompt,
+                script=draft_script,
+                model=draft_response.model,
+                usage=_merge_usage(draft_response.usage, review_response.usage),
+                generation_mode=generation_mode,
+                generation_trace=generation_trace,
+                warnings=warnings,
+                error=review_response.error,
+            )
+
+        review_length_warning = _capture_length_warning(review_response, "Script review")
+        if review_length_warning:
+            warnings.append(review_length_warning)
+
+        try:
+            review_summary = _extract_json_object(review_response.content)
+        except Exception as e:
+            return GenerateCrawlerResponse(
+                success=False,
+                prompt=final_prompt,
+                editable_prompt=editable_prompt,
+                script=draft_script,
+                model=draft_response.model,
+                usage=_merge_usage(draft_response.usage, review_response.usage),
+                generation_mode=generation_mode,
+                generation_trace=generation_trace,
+                warnings=warnings,
+                error=f"Script review returned invalid JSON: {e}",
+            )
+
         filename = "crawler.py"
-        script_content = response.content
+        final_script = draft_script
+        model_name = draft_response.model
+        total_usage = _merge_usage(draft_response.usage, review_response.usage)
+
+        if _review_requires_revision(review_summary):
+            revision_prompt = _build_revision_prompt(plan_dict, editable_prompt, draft_script, review_summary)
+            revision_response = client.generate_with_system(
+                system=CRAWLER_REVISION_SYSTEM_PROMPT,
+                user=revision_prompt,
+                max_tokens=SCRIPT_GENERATION_MAX_TOKENS,
+            )
+            _append_trace(
+                generation_trace,
+                "revision_enhancement",
+                "completed" if not revision_response.error else "failed",
+                model=revision_response.model,
+                finish_reason=revision_response.finish_reason,
+            )
+            if revision_response.error:
+                return GenerateCrawlerResponse(
+                    success=False,
+                    prompt=final_prompt,
+                    editable_prompt=editable_prompt,
+                    script=draft_script,
+                    model=draft_response.model,
+                    usage=_merge_usage(draft_response.usage, review_response.usage, revision_response.usage),
+                    generation_mode=generation_mode,
+                    generation_trace=generation_trace,
+                    warnings=warnings,
+                    review_summary=review_summary,
+                    error=revision_response.error,
+                )
+            final_script = revision_response.content
+            model_name = revision_response.model or model_name
+            total_usage = _merge_usage(draft_response.usage, review_response.usage, revision_response.usage)
+            revision_length_warning = _capture_length_warning(revision_response, "Revision enhancement")
+            if revision_length_warning:
+                warnings.append(revision_length_warning)
+
         # Try to find a filename like crawler_*.py in the content
-        filename_match = re.search(r'crawler_\w+\.py', script_content)
+        filename_match = re.search(r'crawler_\w+\.py', final_script)
         if filename_match:
             filename = filename_match.group(0)
 
@@ -587,10 +975,14 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
             success=True,
             prompt=final_prompt,
             editable_prompt=editable_prompt,
-            script=script_content,
+            script=final_script,
             filename=filename,
-            model=response.model,
-            usage=response.usage,
+            model=model_name,
+            usage=total_usage,
+            generation_mode=generation_mode,
+            generation_trace=generation_trace,
+            warnings=warnings,
+            review_summary=review_summary,
         )
     except Exception as e:
         return GenerateCrawlerResponse(

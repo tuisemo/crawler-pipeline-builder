@@ -71,6 +71,17 @@ const ON_ERROR_OPTIONS = [
   { value: 'stop', label: '立即停止（stop）' },
 ]
 
+const OUTPUT_MODE_OPTIONS = [
+  { value: 'memory', label: '内存结果（memory）' },
+  { value: 'json_file', label: 'JSON 文件（json_file）' },
+  { value: 'sqlite', label: 'SQLite 数据库（sqlite）' },
+]
+
+const WRITE_MODE_OPTIONS = [
+  { value: 'append', label: '追加写入（append）' },
+  { value: 'upsert', label: '去重更新（upsert）' },
+]
+
 const EXPRESSION_MODES = [
   { value: 'simple', label: '简单模式（推荐）' },
   { value: 'advanced', label: '高级模式' },
@@ -168,6 +179,21 @@ function buildNodeIssues(node: WorkflowNode, workflowContext: PropertyPanelProps
   if (node.type === 'emit_record' && !workflowContext.hasTerminalNode) {
     issues.push('建议在 emit_record 后增加 end 节点，形成清晰终止路径。')
   }
+  if (node.type === 'emit_record') {
+    const mode = normalizeText(node.data.output_mode ?? 'memory')
+    const jsonFilePath = normalizeText(node.data.json_file_path)
+    const sqlitePath = normalizeText(node.data.sqlite_path)
+    const sqliteTable = normalizeText(node.data.sqlite_table)
+    if (mode === 'json_file' && !jsonFilePath) {
+      issues.push('json_file 模式建议配置 json_file_path。')
+    }
+    if (mode === 'sqlite' && !sqlitePath) {
+      issues.push('sqlite 模式建议配置 sqlite_path。')
+    }
+    if (mode === 'sqlite' && !sqliteTable) {
+      issues.push('sqlite 模式建议配置 sqlite_table。')
+    }
+  }
 
   return issues
 }
@@ -216,6 +242,9 @@ export function PropertyPanel({
   const nodeIssues = buildNodeIssues(selectedNode, workflowContext)
   const fields = selectedNode.data.fields ?? []
   const fieldValidation = buildFieldValidation(fields)
+  const emitDedupeKeys = Array.isArray(selectedNode.data.dedupe_keys)
+    ? selectedNode.data.dedupe_keys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
+    : []
   const showSelectorDependencyHint = (
     (selectedNode.type === 'extract_field' || selectedNode.type === 'paginate') && !workflowContext.hasSelectListNode
   )
@@ -625,13 +654,84 @@ export function PropertyPanel({
                   )}
 
                   {selectedNode.type === 'emit_record' && (
-                    <Alert
-                      title="输出节点"
-                      description="建议在输出后接 end 节点，形成稳定终止路径。"
-                      type="success"
-                      showIcon
-                      style={{ borderRadius: 10 }}
-                    />
+                    <>
+                      <Alert
+                        title="输出节点"
+                        description="默认仅把记录保留在结果面板中；如需落盘，可切换为 JSON 文件或 SQLite。"
+                        type="success"
+                        showIcon
+                        style={{ borderRadius: 10, marginBottom: 12 }}
+                      />
+                      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>输出模式</Typography.Text>}>
+                        <Select
+                          value={String(selectedNode.data.output_mode ?? 'memory')}
+                          options={OUTPUT_MODE_OPTIONS}
+                          onChange={(value) => updateSelectedNodeData({ output_mode: value })}
+                        />
+                      </Form.Item>
+                      {String(selectedNode.data.output_mode ?? 'memory') === 'json_file' && (
+                        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>JSON 文件路径</Typography.Text>}>
+                          <Input
+                            placeholder="output/crawler_output.json"
+                            value={String(selectedNode.data.json_file_path ?? '')}
+                            onChange={(e) => updateSelectedNodeData({ json_file_path: e.target.value })}
+                          />
+                        </Form.Item>
+                      )}
+                      {String(selectedNode.data.output_mode ?? 'memory') === 'sqlite' && (
+                        <>
+                          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>SQLite 文件路径</Typography.Text>}>
+                            <Input
+                              placeholder="output/crawler_output.db"
+                              value={String(selectedNode.data.sqlite_path ?? '')}
+                              onChange={(e) => updateSelectedNodeData({ sqlite_path: e.target.value })}
+                            />
+                          </Form.Item>
+                          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>数据表名</Typography.Text>}>
+                            <Input
+                              placeholder="records"
+                              value={String(selectedNode.data.sqlite_table ?? '')}
+                              onChange={(e) => updateSelectedNodeData({ sqlite_table: e.target.value })}
+                            />
+                          </Form.Item>
+                        </>
+                      )}
+                      {String(selectedNode.data.output_mode ?? 'memory') !== 'memory' && (
+                        <>
+                          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>写入模式</Typography.Text>}>
+                            <Select
+                              value={String(selectedNode.data.write_mode ?? 'append')}
+                              options={WRITE_MODE_OPTIONS}
+                              onChange={(value) => updateSelectedNodeData({ write_mode: value })}
+                            />
+                          </Form.Item>
+                          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>去重键</Typography.Text>}>
+                            <Input
+                              placeholder="detail_url, product_id"
+                              value={emitDedupeKeys.join(', ')}
+                              onChange={(e) => updateSelectedNodeData({
+                                dedupe_keys: e.target.value
+                                  .split(',')
+                                  .map((item) => item.trim())
+                                  .filter(Boolean),
+                              })}
+                            />
+                            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0', fontSize: 11 }}>
+                              多个字段用逗号分隔。留空时，系统会回退到整条记录哈希去重。
+                            </Typography.Paragraph>
+                          </Form.Item>
+                          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>批量写入条数</Typography.Text>}>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              style={{ width: '100%' }}
+                              value={Number(selectedNode.data.batch_size ?? 50)}
+                              onChange={(value) => updateSelectedNodeData({ batch_size: clampNumberInput(String(value ?? 50), 1, 1000, 50) })}
+                            />
+                          </Form.Item>
+                        </>
+                      )}
+                    </>
                   )}
 
                   {selectedNode.type === 'end' && (

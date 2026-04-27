@@ -20,7 +20,7 @@ import {
   RedoOutlined,
   SaveOutlined,
 } from '@ant-design/icons'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { extractEffectivePrompt, normalizeMultilineText, summarizeText } from '../promptDrafts'
 import { postWorkflowAction } from '../services/workflowApi'
 import { getErrorMessage } from '../workflowState'
@@ -57,6 +57,15 @@ type ResultDetailsProps = {
   payload?: unknown
   promptWorkspace?: PromptWorkspace | null
   view?: ResultDetailsView
+  focusMode?: boolean
+  visibilityToken?: number
+}
+
+type CollapseItemConfig = {
+  key: string
+  label: ReactNode
+  children: ReactNode
+  extra?: ReactNode
 }
 
 export type ResultDetailsView = 'all' | 'script' | 'prompt' | 'records' | 'logs' | 'diagnostics'
@@ -110,6 +119,7 @@ function EditorShell({
   theme = 'vs-dark',
   wordWrap = 'on',
   onChange,
+  visibilityToken,
 }: {
   value: string
   language: string
@@ -118,9 +128,22 @@ function EditorShell({
   theme?: 'vs' | 'vs-dark'
   wordWrap?: 'on' | 'off'
   onChange?: (value: string) => void
+  visibilityToken?: number
 }) {
+  const editorRef = useRef<{ layout: () => void } | null>(null)
+
+  useEffect(() => {
+    if (!editorRef.current || visibilityToken === undefined) return
+    requestAnimationFrame(() => editorRef.current?.layout())
+    window.setTimeout(() => editorRef.current?.layout(), 120)
+    window.setTimeout(() => editorRef.current?.layout(), 260)
+  }, [visibilityToken])
+
   return (
-    <div className="result-editor-shell" style={{ height: height || '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      className="result-editor-shell"
+      style={{ height: height || '100%', width: '100%', display: 'flex', flex: '1 1 auto', minWidth: 0, minHeight: 0, flexDirection: 'column' }}
+    >
       <Editor
         height="100%"
         language={language}
@@ -138,6 +161,7 @@ function EditorShell({
           wrappingIndent: 'indent',
         }}
         onMount={(editor) => {
+          editorRef.current = editor
           window.setTimeout(() => editor.layout(), 0)
           window.setTimeout(() => editor.layout(), 120)
         }}
@@ -150,7 +174,7 @@ function EditorShell({
   )
 }
 
-export function ResultDetails({ payload, promptWorkspace, view = 'all' }: ResultDetailsProps) {
+export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMode = false, visibilityToken }: ResultDetailsProps) {
   const [copiedKey, setCopiedKey] = useState<string>('')
   const [scriptWrapMode, setScriptWrapMode] = useState<'off' | 'on'>('off')
   const [scriptEditable, setScriptEditable] = useState(false)
@@ -177,13 +201,36 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
     : record.result && typeof record.result === 'object'
       ? [record.result as NodeExecutionResult]
       : []
-  const records = Array.isArray(record.records) ? record.records : []
+  const records = Array.isArray(record.records)
+    ? record.records
+    : Array.isArray(record.records_sample)
+      ? record.records_sample
+      : []
+  const outputInfo = record.output && typeof record.output === 'object' ? record.output as Record<string, unknown> : null
+  const checkpoint = record.checkpoint && typeof record.checkpoint === 'object' ? record.checkpoint as Record<string, unknown> : null
+  const runId = typeof record.run_id === 'string' ? record.run_id : ''
+  const jobId = typeof record.job_id === 'string' ? record.job_id : ''
+  const sessionId = typeof record.session_id === 'string' ? record.session_id : ''
+  const resumed = record.resumed === true
+  const pagesProcessed = typeof record.pages_processed === 'number' ? record.pages_processed : null
+  const emittedCount = typeof record.emitted_count === 'number' ? record.emitted_count : null
+  const generationMode = typeof record.generation_mode === 'string' ? record.generation_mode : ''
+  const generationTrace = Array.isArray(record.generation_trace)
+    ? record.generation_trace.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    : []
+  const warnings = Array.isArray(record.warnings)
+    ? record.warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const reviewSummary = record.review_summary && typeof record.review_summary === 'object'
+    ? record.review_summary as Record<string, unknown>
+    : null
 
   const promptValue = promptWorkspace?.value ?? ''
   const scriptResultKey = `${promptWorkspace?.graphKey ?? 'standalone'}:${filename}:${script}`
   const promptStats = useMemo(() => summarizeText(promptValue), [promptValue])
   const effectivePromptStats = useMemo(() => summarizeText(effectivePrompt), [effectivePrompt])
   const scriptStats = useMemo(() => summarizeText(scriptDraft), [scriptDraft])
+  const scriptDirty = scriptDraft !== normalizedScript
 
   useEffect(() => {
     setScriptDraft(normalizedScript)
@@ -268,7 +315,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
     }
   }
 
-  const collapseItems = []
+  const collapseItems: CollapseItemConfig[] = []
 
   if (promptWorkspace && promptValue) {
     collapseItems.push({
@@ -304,6 +351,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
             height={280}
             readOnly={false}
             onChange={promptWorkspace.onChange}
+            visibilityToken={visibilityToken}
           />
         </div>
       ),
@@ -332,6 +380,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
             language="markdown"
             height={240}
             readOnly={true}
+            visibilityToken={visibilityToken}
           />
         </div>
       ),
@@ -363,6 +412,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
             language="markdown"
             height={260}
             readOnly={true}
+            visibilityToken={visibilityToken}
           />
         </div>
       ),
@@ -370,7 +420,6 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
   }
 
   if (normalizedScript) {
-    const scriptDirty = scriptDraft !== normalizedScript
     collapseItems.push({
       key: 'script',
       label: (
@@ -447,20 +496,34 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
             theme="vs-dark"
             wordWrap={scriptWrapMode}
             onChange={setScriptDraft}
+            visibilityToken={visibilityToken}
           />
         </div>
       ),
     })
   }
 
-  if (usage || model || filename) {
+  if (usage || model || filename || outputInfo || checkpoint || runId || jobId || sessionId || pagesProcessed !== null || emittedCount !== null || generationMode) {
     collapseItems.push({
       key: 'meta',
       label: <Typography.Text strong>生成元数据</Typography.Text>,
       children: (
         <Descriptions size="small" column={1} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
+          {generationMode ? <Descriptions.Item label="生成模式">{generationMode}</Descriptions.Item> : null}
+          {jobId ? <Descriptions.Item label="作业 ID">{jobId}</Descriptions.Item> : null}
+          {runId ? <Descriptions.Item label="运行 ID">{runId}</Descriptions.Item> : null}
+          {sessionId ? <Descriptions.Item label="会话 ID">{sessionId}</Descriptions.Item> : null}
+          {jobId || runId ? <Descriptions.Item label="续跑状态">{resumed ? '已从 checkpoint 恢复' : '全新运行'}</Descriptions.Item> : null}
+          {pagesProcessed !== null ? <Descriptions.Item label="处理页数">{pagesProcessed}</Descriptions.Item> : null}
+          {emittedCount !== null ? <Descriptions.Item label="写入记录">{emittedCount}</Descriptions.Item> : null}
           <Descriptions.Item label="模型">{model || '—'}</Descriptions.Item>
           <Descriptions.Item label="文件名">{filename || '—'}</Descriptions.Item>
+          <Descriptions.Item label="输出模式">{typeof outputInfo?.output_mode === 'string' ? outputInfo.output_mode : '—'}</Descriptions.Item>
+          <Descriptions.Item label="输出目标">{typeof outputInfo?.output_path === 'string' ? outputInfo.output_path : '—'}</Descriptions.Item>
+          <Descriptions.Item label="输出表">{typeof outputInfo?.sqlite_table === 'string' ? outputInfo.sqlite_table : '—'}</Descriptions.Item>
+          <Descriptions.Item label="Checkpoint 页">{typeof checkpoint?.page_index === 'number' ? checkpoint.page_index : '—'}</Descriptions.Item>
+          <Descriptions.Item label="Checkpoint URL">{typeof checkpoint?.current_url === 'string' ? checkpoint.current_url : '—'}</Descriptions.Item>
+          <Descriptions.Item label="Checkpoint 状态">{checkpoint?.finished === true ? 'finished' : checkpoint ? 'in_progress' : '—'}</Descriptions.Item>
           <Descriptions.Item label="Prompt Tokens">
             {typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : '—'}
           </Descriptions.Item>
@@ -468,6 +531,52 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
             {typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : '—'}
           </Descriptions.Item>
         </Descriptions>
+      ),
+    })
+  }
+
+  if (generationTrace.length > 0 || warnings.length > 0 || reviewSummary) {
+    collapseItems.push({
+      key: 'generation-trace',
+      label: <Typography.Text strong>生成轨迹</Typography.Text>,
+      children: (
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          {warnings.length > 0 ? (
+            <div>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>Warnings</Typography.Text>
+              {warnings.map((warning, index) => (
+                <Tag key={`${warning}-${index}`} color="orange" style={{ marginBottom: 6, whiteSpace: 'normal' }}>
+                  {warning}
+                </Tag>
+              ))}
+            </div>
+          ) : null}
+          {generationTrace.length > 0 ? (
+            <Descriptions size="small" column={1} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
+              {generationTrace.map((item, index) => {
+                const stage = typeof item.stage === 'string' ? item.stage : `stage_${index + 1}`
+                const status = typeof item.status === 'string' ? item.status : 'unknown'
+                const modelName = typeof item.model === 'string' ? item.model : '—'
+                const finishReason = typeof item.finish_reason === 'string' ? item.finish_reason : '—'
+                return (
+                  <Descriptions.Item key={`${stage}-${index}`} label={`${index + 1}. ${stage}`}>
+                    {`${status} | model=${modelName} | finish=${finishReason}`}
+                  </Descriptions.Item>
+                )
+              })}
+            </Descriptions>
+          ) : null}
+          {reviewSummary ? (
+            <Descriptions size="small" column={1} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
+              <Descriptions.Item label="Review Summary">
+                {typeof reviewSummary.summary === 'string' ? reviewSummary.summary : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Approved">
+                {reviewSummary.approve === true ? 'true' : reviewSummary.approve === false ? 'false' : '—'}
+              </Descriptions.Item>
+            </Descriptions>
+          ) : null}
+        </Space>
       ),
     })
   }
@@ -605,6 +714,113 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all' }: Result
   const shouldRenderRawJson = view === 'all' || view === 'diagnostics'
 
   const isSpecificView = view !== 'all' && view !== 'diagnostics'
+
+  if (focusMode && view === 'script' && normalizedScript) {
+    return (
+      <div className="result-details-root result-details-focus">
+        <div className="script-focus-header">
+          <div className="script-focus-meta">
+            <StatTags value={filename} accent="blue" />
+            <StatTags value={`${scriptStats.lines} 行`} />
+            <StatTags value={`${scriptStats.chars} 字符`} />
+            {scriptDirty ? <StatTags value="已编辑" accent="orange" /> : <StatTags value="原始版本" accent="green" />}
+            {scriptEditable ? <StatTags value="编辑模式" accent="red" /> : <StatTags value="只读模式" />}
+            {model ? <StatTags value={`via ${model}`} accent="green" /> : null}
+          </div>
+          <Space wrap size={8} className="script-focus-actions">
+            <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy('script', scriptDraft)}>
+              {copiedKey === 'script' ? '已复制' : '复制'}
+            </Button>
+            <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(scriptDraft, filename)}>
+              下载
+            </Button>
+            <Button size="small" icon={<EditOutlined />} type={scriptEditable ? 'primary' : 'default'} onClick={() => setScriptEditable((current) => !current)}>
+              {scriptEditable ? '结束编辑' : '编辑'}
+            </Button>
+            <Button size="small" loading={formatBusy} onClick={() => void handleFormatScript()}>
+              格式化
+            </Button>
+            <Button size="small" icon={<RedoOutlined />} onClick={() => {
+              setScriptDraft(normalizedScript)
+              setScriptNoticeTone('info')
+              setScriptNotice('已恢复到最近一次生成结果。')
+            }}>
+              恢复
+            </Button>
+            <Button size="small" type="primary" icon={<SaveOutlined />} loading={saveBusy} onClick={() => void handleSaveScript()}>
+              保存
+            </Button>
+            <Segmented
+              size="small"
+              value={scriptWrapMode}
+              onChange={(value) => setScriptWrapMode(value as 'off' | 'on')}
+              options={[
+                { label: '不换行', value: 'off' },
+                { label: '自动换行', value: 'on' },
+              ]}
+            />
+          </Space>
+        </div>
+
+        <Collapse
+          size="small"
+          className="script-focus-collapse"
+          items={[
+            {
+              key: 'save-options',
+              label: <Typography.Text type="secondary">保存与元数据</Typography.Text>,
+              children: (
+                <div className="script-focus-secondary">
+                  <div className="script-save-row" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                    <Input
+                      value={savePath}
+                      onChange={(event) => setSavePath(event.target.value)}
+                      placeholder="generated/crawler.py"
+                      addonBefore="保存路径"
+                      style={{ flex: '1 1 320px', minWidth: 280 }}
+                    />
+                    <Checkbox checked={overwriteTarget} onChange={(event) => setOverwriteTarget(event.target.checked)}>
+                      覆盖已有文件
+                    </Checkbox>
+                  </div>
+                  {(usage || model || filename || outputInfo || checkpoint || runId || jobId || sessionId || pagesProcessed !== null || emittedCount !== null || generationMode) ? (
+                    <Descriptions size="small" column={2} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
+                      {generationMode ? <Descriptions.Item label="生成模式">{generationMode}</Descriptions.Item> : null}
+                      {model ? <Descriptions.Item label="模型">{model}</Descriptions.Item> : null}
+                      <Descriptions.Item label="文件名">{filename || '—'}</Descriptions.Item>
+                      {jobId ? <Descriptions.Item label="作业 ID">{jobId}</Descriptions.Item> : null}
+                      {runId ? <Descriptions.Item label="运行 ID">{runId}</Descriptions.Item> : null}
+                      {pagesProcessed !== null ? <Descriptions.Item label="处理页数">{pagesProcessed}</Descriptions.Item> : null}
+                      {emittedCount !== null ? <Descriptions.Item label="写入记录">{emittedCount}</Descriptions.Item> : null}
+                    </Descriptions>
+                  ) : null}
+                </div>
+              ),
+            },
+          ]}
+        />
+
+        {scriptNotice ? (
+          <Typography.Paragraph type={scriptNoticeTone === 'error' ? 'danger' : scriptNoticeTone === 'warning' ? 'warning' : 'secondary'} style={{ margin: '0 0 10px' }}>
+            {scriptNotice}
+          </Typography.Paragraph>
+        ) : null}
+
+        <div className="script-focus-editor">
+          <EditorShell
+            value={scriptDraft}
+            language="python"
+            height="100%"
+            readOnly={!scriptEditable}
+            theme="vs-dark"
+            wordWrap={scriptWrapMode}
+            onChange={setScriptDraft}
+            visibilityToken={visibilityToken}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="result-details-root">
