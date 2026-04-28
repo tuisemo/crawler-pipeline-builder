@@ -1,34 +1,33 @@
-"""LLM client for sea-data.
+"""LLM client for crawler-workflow.
 
 Provides integration with OpenAI-compatible APIs (OpenAI + vLLM) for crawler script generation.
 Supports loading configuration from .env file.
 """
 
 import os
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-
-def load_env_config() -> dict[str, str]:
-    """Load configuration from .env file in project root."""
-    env_path = Path(__file__).parent / ".env"
-    config = {}
-    
-    if env_path.exists():
-        with open(env_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, value = line.split('=', 1)
-                    config[key.strip()] = value.strip()
-    
-    return config
+from backend.core.app_logging import audit_event
+from backend.core.settings import get_settings, load_env_config
 
 
-# Load env config at module level
-ENV_CONFIG = load_env_config()
+def _should_retry_without_response_format(error: Exception) -> bool:
+    message = str(error).lower()
+    markers = (
+        "response_format",
+        "json_object",
+        "json schema",
+        "json_schema",
+        "unsupported",
+        "extra_forbidden",
+        "extra inputs are not permitted",
+        "unknown field",
+        "unknown parameter",
+    )
+    return any(marker in message for marker in markers)
 
 
 @dataclass
@@ -52,28 +51,12 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> "LLMConfig":
         """Create config from environment variables or .env file."""
-        # Priority: environment variable > .env file > defaults
-        config = load_env_config()
-        
-        provider = os.environ.get("LLM_PROVIDER", config.get("PROVIDER", "openai"))
-        
-        # Handle vLLM/OpenAI compatible endpoints
-        api_base = os.environ.get("API_BASE_URL", config.get("API_BASE_URL", ""))
-        api_token = os.environ.get("API_TOKEN", config.get("API_TOKEN", ""))
-        
-        # Determine model based on provider
-        model = os.environ.get("MODEL_NAME", config.get("MODEL_NAME", ""))
-        
-        if provider == "vllm" or (api_base and "vllm" in api_base.lower()):
-            provider = "vllm"
-            if not model:
-                model = config.get("MODEL_NAME", "qwen3-30b-a3b-instruct")
-        
+        settings = get_settings()
         return cls(
-            provider=provider,
-            api_key=api_token,
-            base_url=api_base,
-            model=model
+            provider=settings.llm_provider,
+            api_key=settings.api_token,
+            base_url=settings.api_base_url,
+            model=settings.model_name,
         )
 
 
@@ -94,10 +77,11 @@ class BaseLLMClient(ABC):
 class OpenAIClient(BaseLLMClient):
     """OpenAI API client (also works with vLLM and OpenAI-compatible endpoints)."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, model: str = "gpt-4"):
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "") or ENV_CONFIG.get("API_TOKEN", "")
-        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", "") or ENV_CONFIG.get("API_BASE_URL", "")
-        self.model = model or os.environ.get("MODEL_NAME", "") or ENV_CONFIG.get("MODEL_NAME", "gpt-4")
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, model: str | None = None):
+        settings = get_settings()
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "") or settings.api_token
+        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", "") or settings.api_base_url
+        self.model = model or os.environ.get("MODEL_NAME", "") or settings.model_name
 
     def generate(self, prompt: str, **kwargs) -> LLMResponse:
         """Generate content using OpenAI-compatible API."""
@@ -115,24 +99,119 @@ class OpenAIClient(BaseLLMClient):
         # For vLLM, you might need to set base_url to the gateway URL
         # and ensure api_key is set appropriately
 
+        request_id = str(kwargs.get("request_id") or uuid.uuid4().hex[:12])
+        request_name = str(kwargs.get("request_name") or "generic_generate")
+        audit_event(
+            "llm_request",
+            request_id=request_id,
+            request_name=request_name,
+            method="generate",
+            model=kwargs.get("model", self.model),
+            temperature=kwargs.get("temperature", 0.2),
+            max_tokens=kwargs.get("max_tokens", 16000),
+            response_format=kwargs.get("response_format"),
+            prompt=prompt,
+        )
+
         try:
             client = openai.OpenAI(**client_kwargs)
-            response = client.chat.completions.create(
-                model=kwargs.get("model", self.model),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", 0.2),
-                max_tokens=kwargs.get("max_tokens", 4000)
-            )
+            create_kwargs = {
+                "model": kwargs.get("model", self.model),
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": kwargs.get("temperature", 0.2),
+                "max_tokens": kwargs.get("max_tokens", 16000),
+            }
+            response_format = kwargs.get("response_format")
+            if response_format is not None:
+                create_kwargs["response_format"] = response_format
+            response = client.chat.completions.create(**create_kwargs)
             if response.choices is None or len(response.choices) == 0:
+                audit_event(
+                    "llm_empty_choices",
+                    request_id=request_id,
+                    request_name=request_name,
+                    method="generate",
+                    model=kwargs.get("model", self.model),
+                )
                 return LLMResponse(content="", error="LLM returned no choices")
-            return LLMResponse(
+            llm_response = LLMResponse(
                 content=response.choices[0].message.content or "",
                 model=response.model,
                 usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
                 finish_reason=response.choices[0].finish_reason,
             )
+            audit_event(
+                "llm_response",
+                request_id=request_id,
+                request_name=request_name,
+                method="generate",
+                model=llm_response.model,
+                usage=llm_response.usage,
+                finish_reason=llm_response.finish_reason,
+                content=llm_response.content,
+            )
+            return llm_response
         except Exception as e:
+            if kwargs.get("response_format") is not None and _should_retry_without_response_format(e):
+                audit_event(
+                    "llm_response_format_retry",
+                    request_id=request_id,
+                    request_name=request_name,
+                    method="generate",
+                    error=str(e),
+                )
+                try:
+                    client = openai.OpenAI(**client_kwargs)
+                    response = client.chat.completions.create(
+                        model=kwargs.get("model", self.model),
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=kwargs.get("temperature", 0.2),
+                        max_tokens=kwargs.get("max_tokens", 16000),
+                    )
+                    if response.choices is None or len(response.choices) == 0:
+                        audit_event(
+                            "llm_empty_choices",
+                            request_id=request_id,
+                            request_name=request_name,
+                            method="generate",
+                            model=kwargs.get("model", self.model),
+                        )
+                        return LLMResponse(content="", error="LLM returned no choices")
+                    llm_response = LLMResponse(
+                        content=response.choices[0].message.content or "",
+                        model=response.model,
+                        usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
+                        finish_reason=response.choices[0].finish_reason,
+                    )
+                    audit_event(
+                        "llm_response",
+                        request_id=request_id,
+                        request_name=request_name,
+                        method="generate",
+                        model=llm_response.model,
+                        usage=llm_response.usage,
+                        finish_reason=llm_response.finish_reason,
+                        content=llm_response.content,
+                    )
+                    return llm_response
+                except Exception as retry_error:
+                    audit_event(
+                        "llm_error",
+                        request_id=request_id,
+                        request_name=request_name,
+                        method="generate",
+                        error=str(retry_error),
+                    )
+                    return LLMResponse(content="", error=str(retry_error))
+            audit_event(
+                "llm_error",
+                request_id=request_id,
+                request_name=request_name,
+                method="generate",
+                error=str(e),
+            )
             return LLMResponse(content="", error=str(e))
+        
 
     def generate_with_system(self, system: str, user: str, **kwargs) -> LLMResponse:
         """Generate content with system and user messages."""
@@ -147,37 +226,135 @@ class OpenAIClient(BaseLLMClient):
         if self.base_url:
             client_kwargs["base_url"] = self.base_url
 
+        request_id = str(kwargs.get("request_id") or uuid.uuid4().hex[:12])
+        request_name = str(kwargs.get("request_name") or "system_generate")
+        audit_event(
+            "llm_request",
+            request_id=request_id,
+            request_name=request_name,
+            method="generate_with_system",
+            model=kwargs.get("model", self.model),
+            temperature=kwargs.get("temperature", 0.2),
+            max_tokens=kwargs.get("max_tokens", 16000),
+            response_format=kwargs.get("response_format"),
+            system=system,
+            user=user,
+        )
+
         try:
             client = openai.OpenAI(**client_kwargs)
-            response = client.chat.completions.create(
-                model=kwargs.get("model", self.model),
-                messages=[
+            create_kwargs = {
+                "model": kwargs.get("model", self.model),
+                "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user}
                 ],
-                temperature=kwargs.get("temperature", 0.2),
-                max_tokens=kwargs.get("max_tokens", 4000)
-            )
+                "temperature": kwargs.get("temperature", 0.2),
+                "max_tokens": kwargs.get("max_tokens", 16000),
+            }
+            response_format = kwargs.get("response_format")
+            if response_format is not None:
+                create_kwargs["response_format"] = response_format
+            response = client.chat.completions.create(**create_kwargs)
             if response.choices is None or len(response.choices) == 0:
+                audit_event(
+                    "llm_empty_choices",
+                    request_id=request_id,
+                    request_name=request_name,
+                    method="generate_with_system",
+                    model=kwargs.get("model", self.model),
+                )
                 return LLMResponse(content="", error="LLM returned no choices")
-            return LLMResponse(
+            llm_response = LLMResponse(
                 content=response.choices[0].message.content or "",
                 model=response.model,
                 usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
                 finish_reason=response.choices[0].finish_reason,
             )
+            audit_event(
+                "llm_response",
+                request_id=request_id,
+                request_name=request_name,
+                method="generate_with_system",
+                model=llm_response.model,
+                usage=llm_response.usage,
+                finish_reason=llm_response.finish_reason,
+                content=llm_response.content,
+            )
+            return llm_response
         except Exception as e:
+            if kwargs.get("response_format") is not None and _should_retry_without_response_format(e):
+                audit_event(
+                    "llm_response_format_retry",
+                    request_id=request_id,
+                    request_name=request_name,
+                    method="generate_with_system",
+                    error=str(e),
+                )
+                try:
+                    client = openai.OpenAI(**client_kwargs)
+                    response = client.chat.completions.create(
+                        model=kwargs.get("model", self.model),
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user}
+                        ],
+                        temperature=kwargs.get("temperature", 0.2),
+                        max_tokens=kwargs.get("max_tokens", 16000),
+                    )
+                    if response.choices is None or len(response.choices) == 0:
+                        audit_event(
+                            "llm_empty_choices",
+                            request_id=request_id,
+                            request_name=request_name,
+                            method="generate_with_system",
+                            model=kwargs.get("model", self.model),
+                        )
+                        return LLMResponse(content="", error="LLM returned no choices")
+                    llm_response = LLMResponse(
+                        content=response.choices[0].message.content or "",
+                        model=response.model,
+                        usage={"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens} if response.usage is not None else None,
+                        finish_reason=response.choices[0].finish_reason,
+                    )
+                    audit_event(
+                        "llm_response",
+                        request_id=request_id,
+                        request_name=request_name,
+                        method="generate_with_system",
+                        model=llm_response.model,
+                        usage=llm_response.usage,
+                        finish_reason=llm_response.finish_reason,
+                        content=llm_response.content,
+                    )
+                    return llm_response
+                except Exception as retry_error:
+                    audit_event(
+                        "llm_error",
+                        request_id=request_id,
+                        request_name=request_name,
+                        method="generate_with_system",
+                        error=str(retry_error),
+                    )
+                    return LLMResponse(content="", error=str(retry_error))
+            audit_event(
+                "llm_error",
+                request_id=request_id,
+                request_name=request_name,
+                method="generate_with_system",
+                error=str(e),
+            )
             return LLMResponse(content="", error=str(e))
 
 
 class VLLMClient(OpenAIClient):
     """vLLM client - OpenAI-compatible, uses gateway URL and API token."""
     
-    def __init__(self, api_key: str | None = None, base_url: str | None = None, model: str = "qwen3-30b-a3b-instruct"):
-        # vLLM uses API_TOKEN from env
-        api_key = api_key or os.environ.get("API_TOKEN", "") or ENV_CONFIG.get("API_TOKEN", "")
-        base_url = base_url or os.environ.get("API_BASE_URL", "") or ENV_CONFIG.get("API_BASE_URL", "")
-        model = model or os.environ.get("MODEL_NAME", "") or ENV_CONFIG.get("MODEL_NAME", "qwen3-30b-a3b-instruct")
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, model: str | None = None):
+        settings = get_settings()
+        api_key = api_key or os.environ.get("API_TOKEN", "") or settings.api_token
+        base_url = base_url or os.environ.get("API_BASE_URL", "") or settings.api_base_url
+        model = model or os.environ.get("MODEL_NAME", "") or settings.model_name
         super().__init__(api_key=api_key, base_url=base_url, model=model)
 
 
@@ -254,60 +431,55 @@ Always verify your selectors will work on the actual page structure provided."""
 
 
 # AI Enhancement Prompts for various features
-FIELD_INFERENCE_PROMPT = """Given this HTML fragment from a web page, infer the semantic meaning of each element.
+FIELD_INFERENCE_PROMPT = """Analyze the HTML fragment below and extract structured field selectors for a web scraper.
 
 HTML:
 {html_fragment}
 
-Task:
-1. Identify the main list/grid container
-2. For each list item, determine:
-   - What data fields it contains (title, price, image, date, etc.)
-   - The CSS selector path to each field
-   - The best extraction method (text, attribute, etc.)
-3. Suggest a field name for each extracted value
-4. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
-   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
-   `document.querySelector(...)` / `querySelectorAll(...)`.
-5. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
-   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
-6. Prefer short, stable, semantic CSS selectors based on tag name, stable class names, ID, and data attributes.
+## Selector Precision Rules (CRITICAL)
+You MUST produce **progressively-converging** (逐级收敛) selectors that are globally unambiguous on the page:
 
-Output format:
-```json
-{{
-  "item_selector": "suggested CSS selector for list container",
-  "fields": [
-    {{"name": "title", "selector": "h2", "type": "text", "confidence": 0.9}},
-    {{"name": "price", "selector": ".price", "type": "text", "confidence": 0.8}}
-  ]
-}}
-```"""
+1. **item_selector** — a CSS selector that matches ONLY the repeating list items, not any other elements.
+   - Prefer a scoped path: `<ancestor> > <tag>.<stable-class>` (e.g. `ul.news-list > li`, `div.results-grid > article`).
+   - If the item has a unique class, verify it is not shared by navigation, sidebar, or footer elements.
+   - Do NOT return a bare tag like `li` or `div` that matches hundreds of unrelated elements.
 
-SELECTOR_OPTIMIZATION_PROMPT = """Given an initial CSS selector and sample HTML, optimize it to be more robust.
+2. **field selectors** — relative to each list item element (i.e. evaluated inside the item, not the whole document).
+   - Use `:scope > ...` or a short relative path when possible (e.g. `:scope > a > .title`, `.card-body > h3.title`).
+   - If the class name could appear globally (e.g. `.title`, `.date`, `.name`), prefix it with the nearest stable ancestor: `div.card-body > span.date`.
+   - Avoid bare generic selectors like `p`, `span`, `div` that match many things.
+
+3. Every selector MUST be a **standard CSS selector** compatible with `querySelector` / `querySelectorAll` and Playwright `locator()`.
+4. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
+
+## Field Coverage
+For each repeating item, extract ALL meaningful fields present:
+- `title` — main heading or article name (text)
+- `link` — the primary anchor URL (attr:href)
+- `publish_date` — publication or update date/time (text)
+- `summary` — excerpt or description if present (text)
+- `image` — thumbnail image if present (attr:src or attr:data-src)
+- `source` — author, category, or source tag if present (text)
+- Any other domain-specific fields visible in the HTML
+
+Snake_case field names. Aim for 3–6 fields per item."""
+
+SELECTOR_OPTIMIZATION_PROMPT = """Optimize the CSS selector below to be globally unambiguous and resilient to minor DOM changes.
 
 Initial selector: {initial_selector}
+
 Sample HTML:
 {html_fragment}
 
-Task:
-1. Analyze why the current selector might be fragile
-2. Suggest a more robust alternative
-3. Consider: stable classes, semantic tags, avoiding nth-child with high numbers
-4. The optimized selector MUST remain a standard CSS selector that can be executed directly in Playwright via
-   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
-   `document.querySelector(...)` / `querySelectorAll(...)`.
-5. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
-   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
-6. Prefer selectors built from stable tag/class/id/data-attribute combinations that are likely to survive minor DOM changes.
-
-Output format:
-```json
-{{
-  "optimized_selector": "improved CSS selector",
-  "reason": "explanation of improvements"
-}}
-```"""
+## Optimization Steps
+1. **Diagnose ambiguity**: count how many elements on the page the current selector could match. If more than the expected item count, it is too broad.
+2. **Converge progressively**: build a scoped path by walking UP the DOM tree to the nearest stable semantic ancestor (landmark element, unique ID, or stable class), then walk DOWN to the target.
+   - Good: `section.news-container > ul > li.news-item`
+   - Bad: `.news-item` (naked class, may appear elsewhere)
+3. **Prefer stable attributes**: IDs (if truly unique), stable class names, `data-*` attributes, or semantic HTML tags.
+4. **Trim redundancy**: remove intermediate nodes that don't add disambiguation value.
+5. The optimized selector MUST be a standard CSS selector compatible with `querySelector` / `querySelectorAll` and Playwright `locator()`.
+6. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors."""
 
 PAGINATION_ANALYSIS_PROMPT = """Given HTML content containing pagination elements, analyze the pagination pattern and extract highly robust selectors.
 
@@ -321,13 +493,25 @@ Task:
    - 'infinite_scroll': No button, triggers on scroll.
    - 'load_more': Explicit button to append items.
    - 'none': No pagination found.
-3. Provide a ROBUST CSS selector for the next/load-more button. Prefer semantic classes (e.g., '.next', '.pagination-next', 'a[rel="next"]'), ID, or stable data-attributes over brittle nth-child paths.
-4. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
-5. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
+3. Provide a ROBUST CSS selector for the single actionable next/load-more control, not for the whole pagination container and not for the whole set of page number buttons.
+4. If the HTML includes a `PAGINATION_CONTROL_SUMMARY`, use it as strong evidence to distinguish:
+   - the current page indicator,
+   - numbered page buttons,
+   - the real next/previous/load-more control.
+5. For `click_next`, `next_button_selector` must target the concrete next-page control only.
+   It must NOT be a selector that matches:
+   - all pagination anchors or buttons,
+   - all numbered page buttons,
+   - the entire pagination container.
+6. Only populate `page_number_selectors` with selectors for numbered page buttons. Do not put the next/load-more selector into `page_number_selectors`.
+7. If there is no distinct next/load-more control, return `pagination_strategy: "none"` or an empty `next_button_selector` rather than guessing a broad selector.
+8. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
+9. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
    `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
    `document.querySelector(...)` / `querySelectorAll(...)`.
-6. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
+10. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
    `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
+11. Prefer semantic next-button selectors such as `.next`, `.pagination-next`, `a[rel="next"]`, `[aria-label*="next" i]`, or other stable attributes before considering generic position-based selectors.
 
 Output format:
 ```json
