@@ -1,27 +1,27 @@
-# Sea Data
+# Crawler Workflow
 
-`sea-data` is a DSL-based crawler orchestration workbench. It combines a FastAPI backend, Playwright-backed browser sessions, and a React frontend for visual workflow authoring, bounded execution, and AI-assisted script generation.
+`crawler-workflow` 是一个基于 DSL 的浏览器爬虫工作流系统。它将 FastAPI 后端、Playwright 浏览器会话与 React 可视化工作台组合在一起，用于完成工作流编排、有界执行测试，以及 AI 辅助脚本生成。
 
-## Current Scope
+## 当前范围
 
-- Workflow DSL validation and graph editing
-- Bounded `test-node` / `test-subflow` execution
-- Prompt preview, skeleton generation, crawler script generation
-- AI assist actions for selector detection, field inference, pagination analysis, and data cleaning
-- Editable script and prompt workspaces in the frontend workbench
+- 工作流 DSL 校验与图编辑
+- 有界的 `test-node` / `test-subflow` 执行
+- Prompt 预览、骨架脚本生成、完整爬虫脚本生成
+- 选择器检测、字段推断、分页分析、数据清洗等 AI 辅助动作
+- 前端工作台中的脚本与提示词编辑工作区
 
-## Quick Start
+## 快速开始
 
-### Python backend
+### Python 后端
 
 ```bash
 uv sync
 python server.py
 ```
 
-Backend default URL: `http://127.0.0.1:8000`
+后端默认地址：`http://127.0.0.1:8000`
 
-### React workbench
+### React 工作台
 
 ```bash
 cd frontend
@@ -29,47 +29,49 @@ npm install
 npm run dev -- --host 127.0.0.1 --port 3101
 ```
 
-Frontend default URL: `http://127.0.0.1:3101`
+前端默认地址：`http://127.0.0.1:3101`
 
-## Key Commands
+## 常用命令
 
 ```bash
-# backend tests
+# 后端测试
 .venv\Scripts\python.exe -m pytest tests -v
 
-# frontend tests
+# 前端测试
 cd frontend
 npm run test
 
-# frontend build
+# 前端构建
 cd frontend
 npm run build
 ```
 
-## Project Structure
+## 项目结构
 
 ```text
-sea-data/
-├── server.py                  # FastAPI entrypoint
-├── llm_client.py              # OpenAI-compatible LLM client
-├── backend/                   # workflow APIs, assist APIs, executor, schemas
-├── frontend/                  # React workbench
-├── extraction/                # selector and HTML extraction helpers
-├── prompts/                   # crawler prompt templates
-├── docs/                      # active architecture and UX docs
-├── tests/                     # backend and manifest tests
-└── .factory/                  # local automation scripts and service manifest
+crawler-workflow/
+├── server.py                  # FastAPI 入口
+├── llm_client.py              # OpenAI 兼容 LLM 客户端
+├── backend/                   # workflow API、assist API、执行器、schema
+├── frontend/                  # React 工作台
+├── extraction/                # 选择器与 HTML 提取辅助模块
+├── prompts/                   # crawler prompt 模板
+├── docs/                      # 当前有效文档与归档文档
+└── tests/                     # 后端测试
 ```
 
-## Documentation
+## 文档入口
 
-- [docs/README.md](/D:/WY-DATASETS/sea-data/docs/README.md)
-- [DESIGN.md](/D:/WY-DATASETS/sea-data/DESIGN.md)
-- [docs/architecture-review-and-plan.md](/D:/WY-DATASETS/sea-data/docs/architecture-review-and-plan.md)
-- [docs/refactor-task-roadmap.md](/D:/WY-DATASETS/sea-data/docs/refactor-task-roadmap.md)
-- [docs/ui-ux-multilayer-redesign.md](/D:/WY-DATASETS/sea-data/docs/ui-ux-multilayer-redesign.md)
+- [docs/README.md](docs/README.md)
+- [docs/documentation-audit.md](docs/documentation-audit.md)
+- [docs/product-guide.md](docs/product-guide.md)
+- [docs/technical-guide.md](docs/technical-guide.md)
+- [docs/engineering-diagnosis-and-optimization-plan.md](docs/engineering-diagnosis-and-optimization-plan.md)
+- [docs/optimization-implementation-plan.md](docs/optimization-implementation-plan.md)
+- [docs/developer-checklist.md](docs/developer-checklist.md)
+- [DESIGN.md](DESIGN.md)
 
-## Notes
+## 备注
 
-- `GET /` currently returns a simple API message. The main authoring surface is the React workbench.
-- Temporary screenshots, debug dumps, and one-off planning notes should not be kept in the repository root.
+- `GET /` 当前返回简单的 API 说明信息，主要的编排界面在 React 工作台中。
+- 临时截图、调试输出、一次性规划笔记不应保留在仓库根目录。

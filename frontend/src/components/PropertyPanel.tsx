@@ -11,9 +11,17 @@ import {
   Space,
   Typography,
 } from 'antd'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined } from '@ant-design/icons'
 import type { WorkflowNode } from '../workflowState'
 import type { CanonicalWorkflowEdge, ExtractionField, WorkflowNodeData } from '../workflowContracts'
+import {
+  EndEditor,
+  LoopEditor,
+  OpenPageEditor,
+  PaginateEditor,
+  SelectListEditor,
+} from './node-editors/BasicNodeEditors'
+import { ExtractFieldEditor } from './node-editors/ExtractFieldEditor'
 
 type AssistApplyMode = 'current-only' | 'related-nodes'
 
@@ -48,28 +56,6 @@ type PropertyPanelProps = {
   removeExtractField: (index: number) => void
   onDeleteNode: () => void
 }
-
-const EXTRACTION_TYPES = [
-  { value: 'text', label: 'text' },
-  { value: 'attr:href', label: 'attr:href' },
-  { value: 'attr:src', label: 'attr:src' },
-  { value: 'attr:href:abs', label: 'attr:href:abs' },
-  { value: 'html', label: 'html' },
-  { value: 'all(text)', label: 'all(text)' },
-  { value: 'all(@href)', label: 'all(@href)' },
-]
-
-const PAGINATION_STRATEGIES = [
-  { value: 'click_next', label: 'click_next' },
-  { value: 'infinite_scroll', label: 'infinite_scroll' },
-  { value: 'load_more', label: 'load_more' },
-  { value: 'none', label: 'none' },
-]
-
-const ON_ERROR_OPTIONS = [
-  { value: 'skip', label: '跳过当前项（skip）' },
-  { value: 'stop', label: '立即停止（stop）' },
-]
 
 const OUTPUT_MODE_OPTIONS = [
   { value: 'memory', label: '内存结果（memory）' },
@@ -340,248 +326,57 @@ export function PropertyPanel({
               children: (
                 <Space orientation="vertical" size={8} style={{ width: '100%' }}>
                   {selectedNode.type === 'open_page' && (
-                    <>
-                      <Form.Item
-                        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>目标地址</Typography.Text>}
-                        validateStatus={normalizeText(selectedNode.data.url) ? undefined : 'error'}
-                        help={normalizeText(selectedNode.data.url) ? undefined : '请输入入口 URL。'}
-                      >
-                        <Input
-                          placeholder="https://example.com/page"
-                          value={String(selectedNode.data.url ?? '')}
-                          onChange={(e) => updateSelectedNodeData({ url: e.target.value })}
-                        />
-                      </Form.Item>
-                      <Space size={8} style={{ width: '100%' }}>
-                        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大页数</Typography.Text>} style={{ flex: 1 }}>
-                          <InputNumber
-                            min={1}
-                            max={1000}
-                            style={{ width: '100%' }}
-                            value={Number(selectedNode.data.max_pages ?? 2)}
-                            onChange={(val) => updateSelectedNodeData({ max_pages: clampNumberInput(String(val ?? 2), 1, 1000, 2) })}
-                          />
-                        </Form.Item>
-                        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大步骤</Typography.Text>} style={{ flex: 1 }}>
-                          <InputNumber
-                            min={1}
-                            max={50}
-                            style={{ width: '100%' }}
-                            value={Number(selectedNode.data.max_steps ?? 20)}
-                            onChange={(val) => updateSelectedNodeData({ max_steps: clampNumberInput(String(val ?? 20), 1, 50, 20) })}
-                          />
-                        </Form.Item>
-                      </Space>
-                    </>
+                    <OpenPageEditor
+                      selectedNode={selectedNode}
+                      clampNumberInput={clampNumberInput}
+                      updateSelectedNodeData={updateSelectedNodeData}
+                    />
                   )}
 
                   {selectedNode.type === 'select_list' && (
-                    <>
-                      <Space wrap size={8} style={{ width: '100%', marginBottom: 4 }}>
-                        <Button size="small" loading={assistBusyAction === 'auto-detect'} onClick={onAutoDetectSelectList}>
-                          自动检测列表
-                        </Button>
-                        <Button size="small" loading={assistBusyAction === 'optimize-selector'} onClick={onOptimizeListSelector}>
-                          优化选择器
-                        </Button>
-                        <Button
-                          size="small"
-                          loading={assistBusyAction === 'test-selector'}
-                          onClick={() => onTestSelector(String(selectedNode.data.item_selector ?? ''), '列表选择器')}
-                        >
-                          测试选择器
-                        </Button>
-                      </Space>
-                      <Form.Item
-                        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>列表选择器</Typography.Text>}
-                        validateStatus={normalizeText(selectedNode.data.item_selector) ? undefined : 'error'}
-                        help={normalizeText(selectedNode.data.item_selector) ? undefined : '请填写 item_selector。'}
-                      >
-                        <Input.TextArea
-                          autoSize={{ minRows: 1, maxRows: 4 }}
-                          placeholder=".item-card"
-                          value={String(selectedNode.data.item_selector ?? '')}
-                          onChange={(e) => updateSelectedNodeData({ item_selector: e.target.value })}
-                        />
-                      </Form.Item>
-                      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大条目</Typography.Text>}>
-                        <InputNumber
-                          min={1}
-                          max={50000}
-                          style={{ width: '100%' }}
-                          value={Number(selectedNode.data.max_items ?? 5)}
-                          onChange={(val) => updateSelectedNodeData({ max_items: clampNumberInput(String(val ?? 5), 1, 50000, 5) })}
-                        />
-                      </Form.Item>
-                    </>
+                    <SelectListEditor
+                      selectedNode={selectedNode}
+                      clampNumberInput={clampNumberInput}
+                      updateSelectedNodeData={updateSelectedNodeData}
+                      assistBusyAction={assistBusyAction}
+                      onAutoDetectSelectList={onAutoDetectSelectList}
+                      onOptimizeListSelector={onOptimizeListSelector}
+                      onTestSelector={onTestSelector}
+                    />
                   )}
 
                   {selectedNode.type === 'extract_field' && (
-                    <>
-                      <Space wrap size={8} style={{ width: '100%', marginBottom: 4 }}>
-                        <Button size="small" loading={assistBusyAction === 'infer-fields'} onClick={onInferExtractFields}>
-                          AI 推断字段
-                        </Button>
-                      </Space>
-                      <Typography.Text strong style={{ fontSize: 13, color: '#0f172a', display: 'block', marginBottom: 4 }}>
-                        字段抽取
-                      </Typography.Text>
-                      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '0 0 10px' }}>
-                        为输出结构定义字段名、选择器与抽取方式。
-                      </Typography.Paragraph>
-                      {fields.map((field, index) => {
-                        const hasMissingName = fieldValidation.missingNameIndexes.has(index)
-                        const hasMissingSelector = fieldValidation.missingSelectorIndexes.has(index)
-                        const hasDuplicateName = fieldValidation.duplicateNameIndexes.has(index)
-                        return (
-                          <Card key={`${selectedNode.id}-field-${index}`} size="small" style={{ marginBottom: 8, background: '#f8fafc', border: '1px solid #e5edf6' }}>
-                            <Space orientation="vertical" size={6} style={{ width: '100%' }}>
-                              <Space size={6} style={{ width: '100%', alignItems: 'flex-start' }}>
-                                <Input
-                                  placeholder="字段名"
-                                  status={hasMissingName || hasDuplicateName ? 'error' : undefined}
-                                  value={field.name}
-                                  style={{ flex: 1 }}
-                                  onChange={(e) => updateExtractField(index, { name: e.target.value })}
-                                />
-                                <Select
-                                  value={field.type}
-                                  style={{ width: 140 }}
-                                  options={EXTRACTION_TYPES}
-                                  onChange={(val) => updateExtractField(index, { type: val })}
-                                />
-                                <Button
-                                  danger
-                                  size="small"
-                                  icon={<DeleteOutlined />}
-                                  onClick={() => removeExtractField(index)}
-                                  style={{ marginTop: 4 }}
-                                />
-                              </Space>
-                              
-                              <Input.TextArea
-                                placeholder="多层级选择器路径 (例如: div > a.title)"
-                                status={hasMissingSelector ? 'error' : undefined}
-                                value={field.selector}
-                                autoSize={{ minRows: 1, maxRows: 4 }}
-                                style={{ width: '100%' }}
-                                onChange={(e) => updateExtractField(index, { selector: e.target.value })}
-                              />
-                              {hasMissingName ? <Typography.Text type="danger" style={{ fontSize: 11 }}>字段名不能为空。</Typography.Text> : null}
-                              {hasDuplicateName ? <Typography.Text type="danger" style={{ fontSize: 11 }}>字段名重复，结果会被覆盖。</Typography.Text> : null}
-                              {hasMissingSelector ? <Typography.Text type="danger" style={{ fontSize: 11 }}>选择器不能为空。</Typography.Text> : null}
-                              <Space size={6} style={{ width: '100%' }}>
-                                <Input
-                                  placeholder="样例原始值（用于 AI 清洗）"
-                                  value={typeof field.sample_value === 'string' ? field.sample_value : ''}
-                                  style={{ flex: 1.6 }}
-                                  onChange={(e) => updateExtractField(index, { sample_value: e.target.value })}
-                                />
-                                <Input
-                                  placeholder="清洗类型（可选）"
-                                  value={typeof field.clean_data_type === 'string' ? field.clean_data_type : ''}
-                                  style={{ flex: 1 }}
-                                  onChange={(e) => updateExtractField(index, { clean_data_type: e.target.value })}
-                                />
-                                <Button size="small" loading={assistBusyAction === 'clean-data'} onClick={() => onCleanExtractField(index)}>
-                                  AI 清洗
-                                </Button>
-                                <Button
-                                  size="small"
-                                  loading={assistBusyAction === 'test-selector'}
-                                  onClick={() => onTestSelector(String(field.selector ?? ''), `字段 ${field.name || index + 1} 选择器`)}
-                                >
-                                  测试
-                                </Button>
-                              </Space>
-                              <Input
-                                placeholder="清洗结果"
-                                value={typeof field.normalized_sample === 'string' ? field.normalized_sample : ''}
-                                readOnly
-                              />
-                            </Space>
-                          </Card>
-                        )
-                      })}
-                      <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addExtractField} style={{ width: '100%', marginTop: 4 }}>
-                        新增字段
-                      </Button>
-                    </>
+                    <ExtractFieldEditor
+                      selectedNode={selectedNode}
+                      fields={fields}
+                      fieldValidation={fieldValidation}
+                      assistBusyAction={assistBusyAction}
+                      updateExtractField={updateExtractField}
+                      addExtractField={addExtractField}
+                      removeExtractField={removeExtractField}
+                      onInferExtractFields={onInferExtractFields}
+                      onCleanExtractField={onCleanExtractField}
+                      onTestSelector={onTestSelector}
+                    />
                   )}
 
                   {selectedNode.type === 'paginate' && (
-                    <>
-                      <Space wrap size={8} style={{ width: '100%', marginBottom: 4 }}>
-                        <Button size="small" loading={assistBusyAction === 'analyze-pagination'} onClick={onAnalyzePagination}>
-                          AI 分析分页
-                        </Button>
-                        <Button
-                          size="small"
-                          loading={assistBusyAction === 'test-selector'}
-                          onClick={() => onTestSelector(String(selectedNode.data.pagination_selector ?? ''), '分页选择器')}
-                        >
-                          测试选择器
-                        </Button>
-                      </Space>
-                      <Form.Item
-                        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>分页选择器</Typography.Text>}
-                        validateStatus={normalizeText(selectedNode.data.pagination_selector) ? undefined : 'error'}
-                        help={normalizeText(selectedNode.data.pagination_selector) ? undefined : '策略不是 none 时建议填写分页选择器。'}
-                      >
-                        <Input.TextArea
-                          autoSize={{ minRows: 1, maxRows: 4 }}
-                          placeholder="a.next"
-                          value={String(selectedNode.data.pagination_selector ?? '')}
-                          onChange={(e) => updateSelectedNodeData({ pagination_selector: e.target.value })}
-                        />
-                      </Form.Item>
-                      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>分页策略</Typography.Text>}>
-                        <Select
-                          value={String(selectedNode.data.pagination_strategy ?? 'click_next')}
-                          options={PAGINATION_STRATEGIES}
-                          onChange={(val) => updateSelectedNodeData({ pagination_strategy: val })}
-                        />
-                      </Form.Item>
-                      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大页数</Typography.Text>}>
-                        <InputNumber
-                          min={1}
-                          max={1000}
-                          style={{ width: '100%' }}
-                          value={Number(selectedNode.data.max_pages ?? 2)}
-                          onChange={(val) => updateSelectedNodeData({ max_pages: clampNumberInput(String(val ?? 2), 1, 1000, 2) })}
-                        />
-                      </Form.Item>
-                    </>
+                    <PaginateEditor
+                      selectedNode={selectedNode}
+                      clampNumberInput={clampNumberInput}
+                      updateSelectedNodeData={updateSelectedNodeData}
+                      assistBusyAction={assistBusyAction}
+                      onAnalyzePagination={onAnalyzePagination}
+                      onTestSelector={onTestSelector}
+                    />
                   )}
 
                   {selectedNode.type === 'loop' && (
-                    <>
-                      <Alert
-                        title="循环控制"
-                        description="消费上游 select_list 的数据集合，按配置逐项执行后续节点。"
-                        type="info"
-                        showIcon
-                        style={{ marginBottom: 12, borderRadius: 10 }}
-                      />
-                      <Space size={8} style={{ width: '100%' }}>
-                        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大条目</Typography.Text>} style={{ flex: 1 }}>
-                          <InputNumber
-                            min={1}
-                            max={50}
-                            style={{ width: '100%' }}
-                            value={Number(selectedNode.data.max_items ?? 5)}
-                            onChange={(val) => updateSelectedNodeData({ max_items: clampNumberInput(String(val ?? 5), 1, 50, 5) })}
-                          />
-                        </Form.Item>
-                        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>单条失败策略</Typography.Text>} style={{ flex: 1.4 }}>
-                          <Select
-                            value={String(selectedNode.data.on_error ?? 'skip')}
-                            options={ON_ERROR_OPTIONS}
-                            onChange={(val) => updateSelectedNodeData({ on_error: val as 'skip' | 'stop' })}
-                          />
-                        </Form.Item>
-                      </Space>
-                    </>
+                    <LoopEditor
+                      selectedNode={selectedNode}
+                      clampNumberInput={clampNumberInput}
+                      updateSelectedNodeData={updateSelectedNodeData}
+                    />
                   )}
 
                   {selectedNode.type === 'condition' && (
@@ -735,13 +530,7 @@ export function PropertyPanel({
                   )}
 
                   {selectedNode.type === 'end' && (
-                    <Alert
-                      title="结束节点"
-                      description="显式标记当前流程路径终止。执行到此处后，不再继续调度后续节点。"
-                      type="success"
-                      showIcon
-                      style={{ borderRadius: 10 }}
-                    />
+                    <EndEditor />
                   )}
                 </Space>
               ),

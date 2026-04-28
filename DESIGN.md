@@ -1,11 +1,23 @@
-# Design System: Sea Data Crawler Orchestration Workbench
+# Design System: Crawler Workflow
 
-**Product ID:** sea-data
+**Product ID:** crawler-workflow
 **Primary Screen:** visual workflow designer for browser-backed crawler pipelines
+
+## 适用范围
+
+本文档只负责说明 **前端界面的视觉规范与交互风格**。
+
+凡属非设计事实，请以下列文档为准：
+
+- 产品能力与当前行为：`docs/product-guide.md`
+- 工程架构与运行语义：`docs/technical-guide.md`
+- 文档结构与归档规则：`docs/README.md`
+
+如果本文档与当前代码或有效说明文档冲突，应以代码、产品说明和技术说明为准。本文档的职责，是约束界面“如何表达”，而不是重新定义后端语义或产品边界。
 
 ## 1. Visual Theme & Atmosphere
 
-Sea Data should feel like a **mission-control workbench for data acquisition**, not a generic admin dashboard. The interface is professional, calm, technical, and operationally trustworthy. Users are building browser automation pipelines, validating selectors, previewing prompts, generating crawler scripts, and saving executable artifacts, so the design must communicate precision and confidence.
+Crawler Workflow should feel like a **mission-control workbench for browser-backed extraction**, not a generic admin dashboard. The interface is professional, calm, technical, and operationally trustworthy. Users are building browser automation pipelines, validating selectors, previewing prompts, generating crawler scripts, and saving executable artifacts, so the design must communicate precision and confidence.
 
 The atmosphere should be **structured, luminous, and instrument-like**. The canvas is the main command surface, while side panels and bottom docks act as supporting instruments. The UI should avoid visual noise, floating drawer conflicts, and decorative effects that compete with configuration work.
 
@@ -244,4 +256,3 @@ When modifying the frontend:
 4. Treat script, prompt, DSL, and records as first-class artifacts.
 5. Verify real UI behavior with a headed browser after layout changes.
 6. Do not introduce overlapping drawers unless a focused modal task truly requires it.
-

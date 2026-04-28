@@ -9,6 +9,12 @@ from backend.workflow_schemas import AssistLlmResponse, AutoDetectResponse
 client = TestClient(app)
 
 
+def response_data(response):
+    body = response.json()
+    assert set(["success", "error_code", "error", "data", "warnings", "meta"]).issubset(body)
+    return body["data"]
+
+
 def make_test_workspace(name: str) -> Path:
     root = Path(__file__).resolve().parent / ".tmp" / name
     if root.exists():
@@ -115,9 +121,10 @@ def test_from_legacy_config_valid():
     })
     
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
-    assert data["warnings"] == []
+    body = response.json()
+    data = response_data(response)
+    assert body["success"] is True
+    assert body["warnings"] == []
     
     graph = data["graph"]
     nodes = graph["nodes"]
@@ -147,9 +154,10 @@ def test_from_legacy_config_omits_pagination_node_when_selector_omitted():
     })
 
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
-    assert data["warnings"] == []
+    body = response.json()
+    data = response_data(response)
+    assert body["success"] is True
+    assert body["warnings"] == []
 
     graph = data["graph"]
     assert [node["type"] for node in graph["nodes"]] == ["open_page", "select_list", "extract_field"]
@@ -188,8 +196,8 @@ def test_to_prompt_valid():
     })
     
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
+    data = response_data(response)
+    assert response.json()["success"] is True
     assert "http://example.com" in data["prompt"]
     assert ".item" in data["prompt"]
     assert "title" in data["prompt"]
@@ -243,7 +251,7 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
             from llm_client import LLMResponse
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
 
     response = client.post("/api/workflows/generate-crawler", json={
         "graph": {
@@ -255,8 +263,8 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
             "edges": []
         }
     })
-    data = response.json()
-    assert data["success"] is True
+    data = response_data(response)
+    assert response.json()["success"] is True
     assert "Execution Plan (Deterministic)" in data["prompt"]
     assert "Output Strategy (In-Memory)" in data["prompt"]
     assert "Non-Negotiable Implementation Guardrails" in data["prompt"]
@@ -302,8 +310,8 @@ def test_generate_skeleton_valid():
         }
     })
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
+    data = response_data(response)
+    assert response.json()["success"] is True
     assert data["filename"] == "crawler_skeleton.py"
     assert "sync_playwright" in data["script"]
     assert "ENTRY_URL = 'http://example.com'" in data["script"]
@@ -317,14 +325,14 @@ def test_format_script_endpoint_returns_formatted_content():
     })
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
+    payload = response_data(response)
+    assert response.json()["success"] is True
     assert payload["formatted_content"] == "def run():\n    return 1\n"
 
 
 def test_save_script_endpoint_persists_file(monkeypatch):
     workspace_root = make_test_workspace("api-save-script")
-    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     response = client.post("/api/workflows/save-script", json={
         "relative_path": "generated/api_saved.py",
@@ -333,15 +341,15 @@ def test_save_script_endpoint_persists_file(monkeypatch):
     })
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
+    payload = response_data(response)
+    assert response.json()["success"] is True
     assert payload["relative_path"] == "generated/api_saved.py"
     assert (workspace_root / "generated" / "api_saved.py").read_text(encoding="utf-8") == "print('saved')\n"
 
 
 def test_save_script_endpoint_rejects_existing_target_without_overwrite(monkeypatch):
     workspace_root = make_test_workspace("api-save-script-existing")
-    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
     target = workspace_root / "generated" / "existing.py"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("print('first')\n", encoding="utf-8")
@@ -375,8 +383,8 @@ def test_compile_plan_valid():
         }
     })
     assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
+    data = response_data(response)
+    assert response.json()["success"] is True
     assert data["plan"]["entry_url"] == "http://example.com"
     assert data["plan"]["item_selector"] == ".item"
     assert data["plan"]["limits"]["max_items"] == 3
@@ -420,8 +428,8 @@ def test_assist_extract_html_reports_total_match_count_not_sample_size(monkeypat
     })
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
+    payload = response_data(response)
+    assert response.json()["success"] is True
     assert payload["metadata"]["item_count"] == 5
     assert "item-0" in payload["html_fragment"]
     assert "item-2" in payload["html_fragment"]
@@ -492,8 +500,8 @@ def test_assist_extract_html_can_include_pagination_context(monkeypatch):
     })
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
+    payload = response_data(response)
+    assert response.json()["success"] is True
     assert payload["metadata"]["item_count"] == 5
     assert "下一页" in payload["html_fragment"]
     assert "kq-pager" in payload["html_fragment"]
@@ -519,8 +527,8 @@ def test_assist_clean_data_success(monkeypatch):
         "data_type": "count",
     })
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
+    payload = response_data(response)
+    assert response.json()["success"] is True
     assert payload["result"]["cleaned_value"] == 12000
 
 
@@ -542,8 +550,8 @@ def test_full_flow_from_legacy_to_compile_and_skeleton():
         "max_pages": 3,
     })
     assert legacy.status_code == 200
-    legacy_payload = legacy.json()
-    assert legacy_payload["success"] is True
+    legacy_payload = response_data(legacy)
+    assert legacy.json()["success"] is True
     graph = legacy_payload["graph"]
 
     validate = client.post("/api/workflows/validate", json={"graph": graph})
@@ -552,14 +560,14 @@ def test_full_flow_from_legacy_to_compile_and_skeleton():
 
     compile_resp = client.post("/api/workflows/compile-plan", json={"graph": graph})
     assert compile_resp.status_code == 200
-    compile_payload = compile_resp.json()
-    assert compile_payload["success"] is True
+    compile_payload = response_data(compile_resp)
+    assert compile_resp.json()["success"] is True
     assert compile_payload["plan"]["field_specs"][0]["clean_data_type"] == "price"
 
     skeleton_resp = client.post("/api/workflows/generate-skeleton", json={"graph": graph})
     assert skeleton_resp.status_code == 200
-    skeleton_payload = skeleton_resp.json()
-    assert skeleton_payload["success"] is True
+    skeleton_payload = response_data(skeleton_resp)
+    assert skeleton_resp.json()["success"] is True
     assert "normalize_value" in skeleton_payload["script"]
 
 
@@ -648,7 +656,8 @@ def test_validate_minimal_valid_graph_succeeds():
         "edges": []
     })
     assert response.status_code == 200
-    assert response.json() == {"success": True, "message": "Workflow is valid"}
+    assert response.json()["success"] is True
+    assert response_data(response) == {"message": "Workflow is valid"}
 
 
 def test_validate_accepts_structural_graph_with_extra_supported_node_data():

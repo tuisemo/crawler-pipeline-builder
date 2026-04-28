@@ -470,7 +470,7 @@ wheels = [
 ]
 
 [[package]]
-name = "sea-data"
+name = "crawler-workflow"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

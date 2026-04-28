@@ -1,4 +1,4 @@
-"""Selector testing and validation for sea-data."""
+"""Selector testing and validation for crawler-workflow."""
 
 import re
 from dataclasses import dataclass, field

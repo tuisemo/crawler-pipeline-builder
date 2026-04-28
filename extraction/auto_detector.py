@@ -24,7 +24,7 @@ class DetectionResult:
     item_count: int = 0
     item_signature: str = ""
     pagination_selector: str = ""
-    pagination_strategy: str = "click_next"  # "click_next", "infinite_scroll", "load_more", "none"
+    pagination_strategy: str = "none"  # "click_next", "infinite_scroll", "load_more", "none"
     pagination_score: int = 0
     confidence: float = 0.0
     fields: list[FieldCandidate] = field(default_factory=list)
@@ -45,7 +45,8 @@ JS_AUTO_DETECT = """
     ];
     const LIST_CONTAINER_SELECTORS = ['main', 'article', 'section', 'div', 'ul', 'ol', 'table', 'tbody', 'dl'];
     const PAGINATION_CONTAINER_SELECTORS = ['nav', 'div', 'section', 'ul', 'ol', 'table', 'tbody', 'tr', 'td', 'p', 'span', 'li'];
-    const PAGE_TEXT_RE = /^(?:\\d{1,3}|[<>]|>>|<<|›|‹|»|«|下一页|下页|上一页|首页|尾页|末页|next|prev|previous)$/i;
+    const PAGE_TEXT_RE = /^(?:\\d{1,3}|[<>]|>>|<<|›|‹|»|«|→|下一页|下页|上一页|首页|尾页|末页|next|next page|prev|previous|more|load more|加载更多)$/i;
+    const NEXT_CONTROL_RE = /(?:下一页|下页|next|next page|more|load more|加载更多|[›»→>])$/i;
     const DATE_RE = /(20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?)|(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2})/;
 
     function cleanup() {
@@ -72,7 +73,7 @@ JS_AUTO_DETECT = """
         if (!el || !(el instanceof HTMLElement)) return false;
         const s = window.getComputedStyle(el);
         const r = el.getBoundingClientRect();
-        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width >= 120 && r.height >= 40;
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0' && r.width >= 80 && r.height >= 10;
     }
 
     function textContent(el) {
@@ -83,6 +84,17 @@ JS_AUTO_DETECT = """
         return Array.from(el.classList || [])
             .filter(t => t && !/\\d/.test(t) && t.length > 2 && t.length < 30)
             .slice(0, 2);
+    }
+
+    function intersectStableClassTokens(elements) {
+        if (!elements.length) return [];
+        let shared = stableClassTokens(elements[0]);
+        for (const el of elements.slice(1)) {
+            const tokenSet = new Set(stableClassTokens(el));
+            shared = shared.filter(token => tokenSet.has(token));
+            if (shared.length === 0) break;
+        }
+        return shared;
     }
 
     function shouldIgnore(el) {
@@ -96,7 +108,8 @@ JS_AUTO_DETECT = """
         const cls = stableClassTokens(el).join('.');
         const anchors = el.querySelectorAll('a[href]').length > 0 ? 'a' : '-';
         const hasDate = DATE_RE.test(textContent(el)) ? 'd' : '-';
-        return el.tagName.toLowerCase() + '|' + cls + '|' + childTags + '|' + anchors + '|' + hasDate;
+        const nestedRowBucket = Math.min(el.querySelectorAll('tr').length, 6);
+        return el.tagName.toLowerCase() + '|' + cls + '|' + childTags + '|' + anchors + '|' + hasDate + '|r' + nestedRowBucket;
     }
 
     function analyzeRepeatedChildren(container) {
@@ -105,7 +118,10 @@ JS_AUTO_DETECT = """
             if (shouldIgnore(child)) return false;
             if (!isVisible(child)) return false;
             const text = textContent(child);
+            const nestedLinks = child.querySelectorAll('a[href]').length;
+            const nestedRows = child.querySelectorAll('tr').length;
             if (text.length < 12) return false;
+            if ((nestedLinks > 12 || nestedRows > 6) && text.length > 300) return false;
             if (child.querySelectorAll('a[href]').length === 0 && !DATE_RE.test(text) && text.length < 24) return false;
             return true;
         });
@@ -145,8 +161,11 @@ JS_AUTO_DETECT = """
 
     function paginationSignals(node) {
         if (!node || !(node instanceof HTMLElement) || shouldIgnore(node)) return null;
-        const elements = Array.from(node.querySelectorAll('a, button, [role="button"], span')).slice(0, 40);
-        if (elements.length < 2) return null;
+        const nestedElements = Array.from(node.querySelectorAll('a, button, [role="button"], span')).slice(0, 40);
+        const elements = node.matches('a, button, [role="button"], span')
+            ? [node, ...nestedElements.filter(el => el !== node)]
+            : nestedElements;
+        if (elements.length < 1) return null;
 
         let textHits = 0, numberHits = 0, hrefHits = 0, currentHits = 0;
         for (const el of elements) {
@@ -162,7 +181,10 @@ JS_AUTO_DETECT = """
 
         const classHint = /(page|pagination|pager|fy|fenye)/i.test(node.id + ' ' + node.className) ? 4 : 0;
         const renderedBonus = isVisible(node) ? 3 : 0;
-        const score = textHits * 3 + numberHits * 2 + hrefHits * 2 + currentHits + classHint + renderedBonus;
+        const standaloneNextBonus = elements.length === 1 && NEXT_CONTROL_RE.test(textContent(elements[0])) ? 6 : 0;
+        const actionableSignals = textHits + numberHits + hrefHits + standaloneNextBonus;
+        if (actionableSignals === 0 && classHint < 4) return null;
+        const score = textHits * 3 + numberHits * 2 + hrefHits * 2 + currentHits + classHint + renderedBonus + standaloneNextBonus;
 
         return { score, element: node, rendered: isVisible(node) };
     }
@@ -231,6 +253,80 @@ JS_AUTO_DETECT = """
             el = el.parentElement;
         }
         return ':scope > ' + parts.join(' > ');
+    }
+
+    function selectorMatchCount(selector) {
+        if (!selector) return 0;
+        try {
+            return document.querySelectorAll(selector).length;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function deriveItemSelector(analysis) {
+        const itemElements = analysis.items.map(item => item.element);
+        if (itemElements.length === 0) return '';
+
+        const firstItem = itemElements[0];
+        const tag = firstItem.tagName.toLowerCase();
+        const containerSelector = getCssPath(analysis.container);
+        const _rawRelative = getRelativeSelector(analysis.container, firstItem);
+        const relativeSelector = _rawRelative.startsWith(':scope > ') ? _rawRelative.slice(9) : _rawRelative;
+        const itemClasses = intersectStableClassTokens(itemElements);
+        const candidates = [];
+
+        // 1. Ancestor-scoped: container > tag.class (most precise)
+        if (itemClasses.length > 0 && containerSelector) {
+            candidates.push(`${containerSelector} > ${tag}.${itemClasses.join('.')}`);
+        }
+
+        // 2. Container > relativeSelector path
+        if (containerSelector && relativeSelector) {
+            candidates.push(`${containerSelector} > ${relativeSelector}`);
+        }
+
+        // 3. Bare class (fallback, may be ambiguous)
+        if (itemClasses.length > 0) {
+            candidates.push(`${tag}.${itemClasses.join('.')}`);
+        }
+
+        // 4. Direct-child class on a single-child wrapper
+        const directChild = firstItem.children.length === 1 ? firstItem.firstElementChild : null;
+        if (directChild && itemElements.every(el => el.children.length === 1 && el.firstElementChild && el.firstElementChild.tagName === directChild.tagName)) {
+            const childElements = itemElements.map(el => el.firstElementChild);
+            const childTag = directChild.tagName.toLowerCase();
+            const childClasses = intersectStableClassTokens(childElements);
+            if (childClasses.length > 0 && containerSelector) {
+                candidates.push(`${containerSelector} > ${childTag}.${childClasses.join('.')}`);
+            }
+        }
+
+        // 5. Full CSS path of first item (absolute fallback)
+        candidates.push(getCssPath(firstItem));
+
+        const uniqueCandidates = Array.from(new Set(candidates.filter(Boolean)));
+        let bestCandidate = '';
+        let bestScore = -Infinity;
+        for (const candidate of uniqueCandidates) {
+            const matchCount = selectorMatchCount(candidate);
+            if (matchCount === 0) continue;
+            const exactness = Math.abs(matchCount - analysis.itemCount);
+            // Heavily penalise selectors that match far more elements than the item count
+            // (global ambiguity: same class used in nav, sidebar, footer, etc.)
+            const ambiguityPenalty = matchCount > analysis.itemCount * 2 ? (matchCount - analysis.itemCount) * 6 : 0;
+            const semanticBonus = /(news|article|item|card|post|entry|product|list|result|row|record)/i.test(candidate) ? 4 : 0;
+            // Reward scoped paths (containing ' > ') over bare selectors
+            const scopeBonus = (candidate.match(/>/g) || []).length * 3;
+            const brevityBonus = Math.max(0, 5 - candidate.length / 30);
+            const score = semanticBonus + scopeBonus + brevityBonus - exactness * 4 - ambiguityPenalty;
+            if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = candidate;
+            }
+        }
+
+        return bestCandidate || getCssPath(firstItem);
     }
 
     function detectFields(itemEl) {
@@ -326,6 +422,12 @@ JS_AUTO_DETECT = """
             if (cand && cand.score >= 6) pagCandidates.push(cand);
         });
     });
+    document.querySelectorAll('a.morelink, a[rel="next"], .next a, .pager a, .pagination a').forEach(node => {
+        if (seen.has(node)) return;
+        seen.add(node);
+        const cand = paginationSignals(node);
+        if (cand && cand.score >= 6) pagCandidates.push(cand);
+    });
     pagCandidates.sort((a, b) => b.score - a.score);
 
     const best = listCandidates[0];
@@ -355,24 +457,28 @@ JS_AUTO_DETECT = """
     let pagStrategy = 'none';
     let pagSelector = '';
     if (bestPag) {
-        const pagButtons = Array.from(bestPag.element.querySelectorAll('a, button, [role="button"]'));
+        const pagButtons = bestPag.element.matches && bestPag.element.matches('a, button, [role="button"]')
+            ? [bestPag.element, ...Array.from(bestPag.element.querySelectorAll('a, button, [role="button"]')).filter(btn => btn !== bestPag.element)]
+            : Array.from(bestPag.element.querySelectorAll('a, button, [role="button"]'));
         const hasLoadMore = pagButtons.some(btn => /^(加载更多|load more|more)$/i.test(textContent(btn)));
+        const nextBtns = pagButtons.filter(btn => NEXT_CONTROL_RE.test(textContent(btn).trim()));
+        const numberedBtns = pagButtons.filter(btn => /^\\d+$/.test(textContent(btn).trim()));
         if (hasLoadMore) {
             pagStrategy = 'load_more';
-        } else {
+        } else if (nextBtns.length > 0 || numberedBtns.length > 0) {
             pagStrategy = 'click_next';
         }
         // Find next button specifically
-        const nextBtns = pagButtons.filter(btn => /^(下一页|下页|next|next page|>|›|»)$/i.test(textContent(btn)));
         if (nextBtns.length > 0) {
             pagSelector = getCssPath(nextBtns[0]);
         }
     }
 
+    const itemSelector = deriveItemSelector(best);
     return {
         success: true,
         confidence,
-        item_selector: getCssPath(best.container),
+        item_selector: itemSelector,
         item_count: best.itemCount,
         item_signature: best.sig,
         pagination_selector: pagSelector,

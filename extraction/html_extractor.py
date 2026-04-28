@@ -1,4 +1,4 @@
-"""HTML fragment extraction for sea-data.
+"""HTML fragment extraction for crawler-workflow.
 
 Extracts relevant HTML structure from pages for LLM context.
 """
@@ -37,12 +37,15 @@ class HtmlExtractor:
         '.kq-pager',
         '[class*="pagination"]',
         '[class*="pager"]',
+        '[class*="kq-pager"]',
         '[id*="pagination"]',
         '[id*="pager"]',
         'nav[aria-label*="page" i]',
         'nav',
     )
     PAGINATION_TEXT_RE = re.compile(r'(下一页|下页|上一页|首页|尾页|末页|next|prev|previous|load more|more|加载更多)', re.IGNORECASE)
+    NEXT_CONTROL_RE = re.compile(r'^(?:下一页|下页|next(?:\s+page)?(?:\s*[›»→>]+)?|load more|more)\s*$', re.IGNORECASE)
+    PREVIOUS_CONTROL_RE = re.compile(r'^(?:上一页|prev|previous|<|‹|«)\s*$', re.IGNORECASE)
     PAGE_NUMBER_RE = re.compile(r'^\d{1,3}$')
     PAGE_HREF_RE = re.compile(r'(page=|p=|index_|next)', re.IGNORECASE)
 
@@ -122,9 +125,18 @@ class HtmlExtractor:
             if item_html:
                 sections.append(f'<!-- ITEM_SAMPLES -->\n{item_html}')
 
-            pagination_html = self._find_pagination_html(page)
+            pagination_html, pagination_summary = self._find_local_pagination_bundle(items[0]) if items else ("", "")
+            pagination_node = None
+            if not pagination_html:
+                pagination_html, pagination_node = self._find_pagination_html(page)
             if pagination_html:
                 sections.append(f'<!-- PAGINATION -->\n{pagination_html}')
+            if pagination_summary:
+                sections.append(f'<!-- PAGINATION_CONTROL_SUMMARY -->\n{pagination_summary}')
+            elif pagination_node is not None:
+                pagination_summary = self._summarize_pagination_controls(pagination_node)
+                if pagination_summary:
+                    sections.append(f'<!-- PAGINATION_CONTROL_SUMMARY -->\n{pagination_summary}')
 
             full_html = '\n'.join(section for section in sections if section).strip()
             return self._finalize_result(full_html, total_items)
@@ -163,9 +175,128 @@ class HtmlExtractor:
             item_count=item_count,
         )
 
-    def _find_pagination_html(self, page) -> str:
+    def _find_local_pagination_bundle(self, item) -> tuple[str, str]:
+        try:
+            result = item.evaluate(
+                """(el, selectors) => {
+                    const TEXT_RE = /(下一页|下页|上一页|首页|尾页|末页|next|prev|previous|load more|more|加载更多)/i;
+                    const NEXT_RE = /^(?:下一页|下页|next(?:\\s+page)?(?:\\s*[›»→>]+)?|load more|more)\\s*$/i;
+                    const PREV_RE = /^(?:上一页|prev|previous|<|‹|«)\\s*$/i;
+                    const PAGE_NUMBER_RE = /^\\d{1,3}$/;
+
+                    function cleanText(node) {
+                        return (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+                    }
+
+                    function summarize(node) {
+                        const controls = [];
+                        const rawControls = node.matches('a, button, [role=\"button\"], span')
+                            ? [node, ...Array.from(node.querySelectorAll('a, button, [role=\"button\"], span')).filter(child => child !== node)]
+                            : Array.from(node.querySelectorAll('a, button, [role=\"button\"], span'));
+                        rawControls.slice(0, 20).forEach((control, index) => {
+                            const text = cleanText(control);
+                            const role = control.getAttribute('aria-current')
+                                ? 'current_page'
+                                : NEXT_RE.test(text)
+                                    ? 'next_candidate'
+                                    : PREV_RE.test(text)
+                                        ? 'previous_candidate'
+                                        : PAGE_NUMBER_RE.test(text)
+                                            ? 'page_number'
+                                            : 'nav_control';
+                            const parent = control.parentElement;
+                            const parts = [
+                                `[${index + 1}]`,
+                                `tag=${(control.tagName || '').toLowerCase() || '<unknown>'}`,
+                                `text=${text || '<empty>'}`,
+                                `role_hint=${role}`,
+                            ];
+                            const attrs = [
+                                ['href', control.getAttribute('href') || ''],
+                                ['rel', control.getAttribute('rel') || ''],
+                                ['aria_label', control.getAttribute('aria-label') || ''],
+                                ['aria_current', control.getAttribute('aria-current') || ''],
+                                ['class', control.getAttribute('class') || ''],
+                                ['parent_tag', parent ? (parent.tagName || '').toLowerCase() : ''],
+                                ['parent_class', parent ? (parent.getAttribute('class') || '') : ''],
+                            ];
+                            attrs.forEach(([key, value]) => {
+                                if (value) parts.push(`${key}=${value}`);
+                            });
+                            controls.push(parts.join(' | '));
+                        });
+                        return controls.join('\\n');
+                    }
+
+                    function scoreNode(node) {
+                        const text = cleanText(node);
+                        const attrs = `${node.id || ''} ${node.className || ''}`.toLowerCase();
+                        const controls = Array.from(node.querySelectorAll('a, button, [role=\"button\"], span')).slice(0, 30);
+                        let score = 0;
+                        if (TEXT_RE.test(text)) score += 8;
+                        if (/(page|pager|pagination|more)/.test(attrs)) score += 6;
+                        controls.forEach(control => {
+                            const ctlText = cleanText(control);
+                            if (PAGE_NUMBER_RE.test(ctlText)) score += 2;
+                            if (NEXT_RE.test(ctlText)) score += 6;
+                            const href = (control.getAttribute('href') || '').toLowerCase();
+                            if (/(page=|p=|page\\/|list)/.test(href)) score += 2;
+                        });
+                        return score;
+                    }
+
+                    const seen = new Set();
+                    const candidates = [];
+                    let current = el.parentElement;
+                    let depth = 0;
+                    while (current && depth < 6) {
+                        const roots = [current];
+                        let sibling = current.nextElementSibling;
+                        let siblingDepth = 0;
+                        while (sibling && siblingDepth < 4) {
+                            roots.push(sibling);
+                            sibling = sibling.nextElementSibling;
+                            siblingDepth += 1;
+                        }
+                        for (const root of roots) {
+                            for (const selector of selectors) {
+                                root.querySelectorAll(selector).forEach(node => {
+                                    if (seen.has(node)) return;
+                                    seen.add(node);
+                                    const score = scoreNode(node);
+                                    if (score >= 8) {
+                                        candidates.push({ node, score });
+                                    }
+                                });
+                            }
+                        }
+                        current = current.parentElement;
+                        depth += 1;
+                    }
+
+                    candidates.sort((a, b) => b.score - a.score);
+                    const best = candidates[0];
+                    if (!best) {
+                        return { html: '', summary: '' };
+                    }
+                    return {
+                        html: best.node.outerHTML || '',
+                        summary: summarize(best.node),
+                    };
+                }""",
+                list(self.PAGINATION_SELECTOR_CANDIDATES),
+            )
+        except Exception:
+            return '', ''
+
+        if not isinstance(result, dict):
+            return '', ''
+        return self._clean_html(result.get('html') or ''), (result.get('summary') or '').strip()
+
+    def _find_pagination_html(self, page) -> tuple[str, object | None]:
         best_html = ''
         best_score = 0
+        best_node = None
         seen_keys: set[str] = set()
 
         for selector in self.PAGINATION_SELECTOR_CANDIDATES:
@@ -186,8 +317,8 @@ class HtmlExtractor:
                     seen_keys.add(dedupe_key)
 
                     text = node.inner_text().strip()
-                    controls = node.query_selector_all('a, button, [role="button"], span')
-                    if len(controls) < 2:
+                    controls = self._collect_control_nodes(node)
+                    if len(controls) < 2 and not any(self._is_next_like_control(control) for control in controls):
                         continue
 
                     score = 0
@@ -211,27 +342,203 @@ class HtmlExtractor:
                     if score > best_score:
                         best_score = score
                         best_html = self._clean_html(raw_html)
+                        best_node = node
                 except Exception:
                     continue
 
         if best_html:
-            return best_html
+            return best_html, best_node
+
+        prioritized_controls = (
+            'a.morelink',
+            'a[rel="next"]',
+            'a[aria-label*="next" i]',
+            'button[aria-label*="next" i]',
+            '.next a',
+            'li.next a',
+            '.pager .next a',
+            '.pagination .next a',
+        )
+
+        for selector in prioritized_controls:
+            try:
+                next_links = page.query_selector_all(selector)
+            except Exception:
+                continue
+            if next_links:
+                node = next_links[0]
+                return self._clean_html(self._build_pagination_context_html(node)), node
 
         try:
             next_links = page.query_selector_all('a, button, [role="button"]')
         except Exception:
-            return ''
+            return '', None
 
         for node in next_links:
             try:
                 text = node.inner_text().strip()
-                if not self.PAGINATION_TEXT_RE.search(text):
+                href = node.get_attribute('href') or ''
+                if not self.NEXT_CONTROL_RE.match(text):
                     continue
-                parent_html = node.evaluate('el => (el.parentElement && el.parentElement.outerHTML) || el.outerHTML')
-                return self._clean_html(parent_html)
+                if not (self.PAGE_HREF_RE.search(href) or self._has_paginationish_ancestor(node)):
+                    continue
+                return self._clean_html(self._build_pagination_context_html(node)), node
             except Exception:
                 continue
-        return ''
+        return '', None
+
+    def _summarize_pagination_controls(self, node) -> str:
+        controls = []
+        try:
+            raw_controls = self._collect_control_nodes(node)
+        except Exception:
+            return ''
+
+        for index, control in enumerate(raw_controls[:20], start=1):
+            try:
+                text = control.inner_text().strip()
+            except Exception:
+                text = ''
+            href = ''
+            aria_label = ''
+            rel = ''
+            class_name = ''
+            aria_current = ''
+            disabled = ''
+            try:
+                href = control.get_attribute('href') or ''
+            except Exception:
+                pass
+            tag_name = ''
+            try:
+                tag_name = control.evaluate('el => (el.tagName || "").toLowerCase()')
+            except Exception:
+                pass
+            try:
+                aria_label = control.get_attribute('aria-label') or ''
+            except Exception:
+                pass
+            try:
+                rel = control.get_attribute('rel') or ''
+            except Exception:
+                pass
+            try:
+                class_name = control.get_attribute('class') or ''
+            except Exception:
+                pass
+            try:
+                aria_current = control.get_attribute('aria-current') or ''
+            except Exception:
+                pass
+            try:
+                disabled = control.get_attribute('disabled') or ''
+            except Exception:
+                pass
+            parent_tag = ''
+            parent_class = ''
+            try:
+                parent_tag = control.evaluate('el => (el.parentElement && el.parentElement.tagName || "").toLowerCase()')
+            except Exception:
+                pass
+            try:
+                parent_class = control.evaluate('el => (el.parentElement && el.parentElement.getAttribute("class")) || ""')
+            except Exception:
+                pass
+
+            role = "page_number" if self.PAGE_NUMBER_RE.match(text) else "nav_control"
+            if self.NEXT_CONTROL_RE.match(text):
+                role = "next_candidate"
+            elif self.PREVIOUS_CONTROL_RE.match(text):
+                role = "previous_candidate"
+            elif aria_current:
+                role = "current_page"
+
+            summary_parts = [
+                f"[{index}]",
+                f"tag={tag_name or '<unknown>'}",
+                f"text={text or '<empty>'}",
+                f"role_hint={role}",
+            ]
+            if href:
+                summary_parts.append(f"href={href}")
+            if rel:
+                summary_parts.append(f"rel={rel}")
+            if aria_label:
+                summary_parts.append(f"aria_label={aria_label}")
+            if aria_current:
+                summary_parts.append(f"aria_current={aria_current}")
+            if disabled:
+                summary_parts.append(f"disabled={disabled}")
+            if class_name:
+                summary_parts.append(f"class={class_name}")
+            if parent_tag:
+                summary_parts.append(f"parent_tag={parent_tag}")
+            if parent_class:
+                summary_parts.append(f"parent_class={parent_class}")
+            controls.append(" | ".join(summary_parts))
+
+        return "\n".join(controls).strip()
+
+    def _collect_control_nodes(self, node) -> list[object]:
+        controls: list[object] = []
+        try:
+            tag_name = node.evaluate('el => (el.tagName || "").toLowerCase()')
+        except Exception:
+            tag_name = ''
+        if tag_name in {"a", "button", "span"}:
+            controls.append(node)
+        try:
+            descendants = node.query_selector_all('a, button, [role="button"], span')
+        except Exception:
+            descendants = []
+        controls.extend(descendants)
+        return controls
+
+    def _is_next_like_control(self, control) -> bool:
+        try:
+            text = control.inner_text().strip()
+        except Exception:
+            text = ''
+        return bool(self.NEXT_CONTROL_RE.match(text))
+
+    def _has_paginationish_ancestor(self, node) -> bool:
+        try:
+            return bool(node.evaluate(
+                """el => {
+                    let current = el.parentElement;
+                    while (current) {
+                        const attrs = `${current.id || ''} ${current.className || ''}`.toLowerCase();
+                        if (/(page|pager|pagination|next|more)/.test(attrs)) {
+                            return true;
+                        }
+                        current = current.parentElement;
+                    }
+                    return false;
+                }"""
+            ))
+        except Exception:
+            return False
+
+    def _build_pagination_context_html(self, node) -> str:
+        try:
+            return node.evaluate(
+                """el => {
+                    let current = el;
+                    while (current) {
+                        const attrs = `${current.id || ''} ${current.className || ''}`.toLowerCase();
+                        if (/(page|pager|pagination)/.test(attrs)) {
+                            return current.outerHTML;
+                        }
+                        current = current.parentElement;
+                    }
+                    return (el.parentElement && el.parentElement.outerHTML) || el.outerHTML;
+                }"""
+            )
+        except Exception:
+            try:
+                return node.evaluate('el => (el.parentElement && el.parentElement.outerHTML) || el.outerHTML')
+            except Exception:
+                return ''
 
     def _clean_html(self, html: str) -> str:
         """Clean HTML for LLM context.

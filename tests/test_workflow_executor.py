@@ -123,6 +123,76 @@ async def test_subflow_runtime_returns_structured_logs_and_results(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_subflow_uses_node_limit_when_boundary_omitted(monkeypatch):
+    session = FakeSession()
+    session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item", "max_items": 2}),
+            ],
+            [{"id": "e1", "source": "open", "target": "list"}],
+        ),
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert len(response.node_results[1].result["samples"]) == 2
+
+
+@pytest.mark.anyio
+async def test_subflow_boundary_limit_overrides_node_limit(monkeypatch):
+    session = FakeSession()
+    session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item", "max_items": 4}),
+            ],
+            [{"id": "e1", "source": "open", "target": "list"}],
+        ),
+        "boundary": {"max_items": 2},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert len(response.node_results[1].result["samples"]) == 2
+
+
+@pytest.mark.anyio
+async def test_test_node_uses_target_node_limit_when_request_limit_omitted(monkeypatch):
+    from backend.workflow_schemas import TestNodeRequest
+
+    session = FakeSession()
+    session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestNodeRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item", "max_items": 2}),
+            ],
+            [{"id": "e1", "source": "open", "target": "list"}],
+        ),
+        "node_id": "list",
+    })
+
+    response = await WorkflowExecutor().test_node(request)
+
+    assert response.success is True
+    assert len(response.result.result["samples"]) == 2
+
+
+@pytest.mark.anyio
 async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch):
     session = FakeSession()
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)

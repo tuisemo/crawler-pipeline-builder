@@ -6,13 +6,70 @@ import time
 from typing import Optional
 
 from .browser_session import page_session_mgr
+from .core.settings import get_settings
 from .workflow_schemas import (
     LogLevel,
     NodeResult,
+    SubflowBoundary,
     TestNodeResponse,
     TestSubflowResponse,
+    WorkflowGraph,
     WorkflowNode,
 )
+
+
+def _positive_int(value) -> int | None:
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _node_limit_values(graph: WorkflowGraph, field_name: str) -> list[int]:
+    values: list[int] = []
+    for node in graph.nodes:
+        value = _positive_int(getattr(node.data, field_name, None))
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def resolve_test_node_limits(request, target_node: WorkflowNode) -> dict[str, int]:
+    """Resolve single-node execution limits.
+
+    Explicit request fields win; otherwise the target node data can narrow the
+    run before falling back to settings defaults.
+    """
+    settings = get_settings()
+    requested_fields = getattr(request, "model_fields_set", set())
+    return {
+        "max_steps": (
+            _positive_int(request.max_steps) if "max_steps" in requested_fields else None
+        )
+        or _positive_int(getattr(target_node.data, "max_steps", None))
+        or settings.default_max_steps,
+        "max_items": (
+            _positive_int(request.max_items) if "max_items" in requested_fields else None
+        )
+        or _positive_int(getattr(target_node.data, "max_items", None))
+        or settings.default_max_items,
+        "max_pages": _positive_int(getattr(target_node.data, "max_pages", None)) or settings.default_max_pages,
+    }
+
+
+def resolve_subflow_limits(graph: WorkflowGraph, boundary: SubflowBoundary) -> dict[str, int]:
+    """Resolve subflow execution limits.
+
+    Priority: request boundary > explicit node data > settings defaults. When
+    several nodes declare the same limit, the smallest positive value is used so
+    a downstream node cannot silently widen an upstream boundary.
+    """
+    settings = get_settings()
+    node_max_steps = _node_limit_values(graph, "max_steps")
+    node_max_items = _node_limit_values(graph, "max_items")
+    node_max_pages = _node_limit_values(graph, "max_pages")
+    return {
+        "max_steps": _positive_int(boundary.max_steps) or (min(node_max_steps) if node_max_steps else settings.default_max_steps),
+        "max_items": _positive_int(boundary.max_items) or (min(node_max_items) if node_max_items else settings.default_max_items),
+        "max_pages": _positive_int(boundary.max_pages) or (min(node_max_pages) if node_max_pages else settings.default_max_pages),
+    }
 
 
 def get_or_create_session(session_id: Optional[str]):
@@ -23,6 +80,7 @@ def get_or_create_session(session_id: Optional[str]):
             return session
         if session:
             page_session_mgr.close(session_id)
+        return None
     return page_session_mgr.create()
 
 
@@ -145,5 +203,3 @@ def build_subflow_exception_response(ctx, error: Exception) -> TestSubflowRespon
         session_expired=False,
         steps_executed=0,
     )
-
-

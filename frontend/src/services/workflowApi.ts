@@ -23,6 +23,43 @@ export type AssistActionPath =
 export type WorkflowActionResponse = {
   response: Response
   payload: unknown
+  envelope: ApiEnvelope
+}
+
+export type ApiEnvelope = {
+  success: boolean
+  error_code?: string | null
+  error?: string | null
+  data?: unknown
+  warnings?: unknown[]
+  meta?: Record<string, unknown>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function isApiEnvelope(value: unknown): value is ApiEnvelope {
+  if (!isRecord(value)) return false
+  return typeof value.success === 'boolean' && Object.prototype.hasOwnProperty.call(value, 'data')
+}
+
+function normalizeEnvelope(value: unknown): ApiEnvelope {
+  if (isApiEnvelope(value)) return value
+  return {
+    success: false,
+    error: getErrorMessage(value),
+    data: {},
+    warnings: [],
+    meta: {},
+  }
+}
+
+async function parseEnvelope(response: Response): Promise<WorkflowActionResponse> {
+  const raw: unknown = await response.json().catch(() => ({}))
+  const envelope = normalizeEnvelope(raw)
+  const payload = envelope.success && isRecord(envelope.data) ? envelope.data : envelope
+  return { response, payload, envelope }
 }
 
 export async function validateGraphWithBackend(graph: WorkflowGraph): Promise<void> {
@@ -31,9 +68,9 @@ export async function validateGraphWithBackend(graph: WorkflowGraph): Promise<vo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ graph }),
   })
-  const payload: unknown = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(getErrorMessage(payload))
+  const { envelope } = await parseEnvelope(response)
+  if (!response.ok || !envelope.success) {
+    throw new Error(getErrorMessage(envelope))
   }
 }
 
@@ -43,8 +80,7 @@ export async function postWorkflowAction(path: WorkflowActionPath, body: unknown
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const payload: unknown = await response.json().catch(() => ({}))
-  return { response, payload }
+  return parseEnvelope(response)
 }
 
 export async function postAssistAction(path: AssistActionPath, body: unknown): Promise<WorkflowActionResponse> {
@@ -53,6 +89,5 @@ export async function postAssistAction(path: AssistActionPath, body: unknown): P
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const payload: unknown = await response.json().catch(() => ({}))
-  return { response, payload }
+  return parseEnvelope(response)
 }

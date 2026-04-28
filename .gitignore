@@ -7,16 +7,18 @@ wheels/
 *.egg-info
 .pytest_cache/
 
+# Runtime / agent-generated files
+logs/
+.factory/
+
 # Validation files
 *.png
 .tmp_*.json
 tests/.tmp/
 
-# Factory logs
-.factory/logs/
-
 # Frontend
 frontend/dist/
+frontend/.vite/
 frontend/node_modules/
 
 # Virtual environments

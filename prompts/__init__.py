@@ -1,4 +1,4 @@
-"""Prompts module for sea-data crawler prompt builder."""
+"""Prompts module for crawler-workflow."""
 
 from .crawler_prompt import CrawlerPromptGenerator, FieldSpec, ExtractionSpec
 

@@ -36,6 +36,8 @@ from .workflow_executor_helpers import (
     build_subflow_success_response,
     build_test_node_exception_response,
     get_or_create_session,
+    resolve_subflow_limits,
+    resolve_test_node_limits,
 )
 from .workflow_executor_traversal import (
     collect_prerequisites,
@@ -197,10 +199,12 @@ class WorkflowExecutor:
                 return build_session_expired_node_response(request.node_id, target_node)
 
             # Create execution context
+            limits = resolve_test_node_limits(request, target_node)
             ctx = ExecutionContext(
                 session=session,
-                max_steps=request.max_steps,
-                max_items=request.max_items
+                max_steps=limits["max_steps"],
+                max_items=limits["max_items"],
+                max_pages=limits["max_pages"],
             )
 
             # For test-node, execute only prerequisites + target node
@@ -254,11 +258,12 @@ class WorkflowExecutor:
             # Set up boundaries and limits
             boundary = request.boundary or SubflowBoundary()
 
+            limits = resolve_subflow_limits(request.graph, boundary)
             ctx = ExecutionContext(
                 session=session,
-                max_steps=boundary.max_steps or 100,
-                max_items=boundary.max_items or 50,
-                max_pages=boundary.max_pages or 10,
+                max_steps=limits["max_steps"],
+                max_items=limits["max_items"],
+                max_pages=limits["max_pages"],
                 boundary_start_node=boundary.start_node_id,
                 boundary_end_node=boundary.end_node_id
             )

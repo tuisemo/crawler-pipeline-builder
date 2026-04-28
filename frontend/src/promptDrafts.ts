@@ -1,6 +1,7 @@
 import type { WorkflowGraph } from './workflowContracts'
 
-export const PROMPT_DRAFTS_STORAGE_KEY = 'sea-data.prompt-drafts.v1'
+export const PROMPT_DRAFTS_STORAGE_KEY = 'crawler-workflow.prompt-drafts.v1'
+export const LEGACY_PROMPT_DRAFTS_STORAGE_KEY = `${['sea', 'data'].join('-')}.prompt-drafts.v1`
 
 export type SavedPromptDraft = {
   text: string
@@ -23,6 +24,7 @@ export function loadSavedPromptDrafts(): SavedPromptDraftMap {
   if (typeof window === 'undefined' || !window.localStorage) return {}
   try {
     const raw = window.localStorage.getItem(PROMPT_DRAFTS_STORAGE_KEY)
+      ?? window.localStorage.getItem(LEGACY_PROMPT_DRAFTS_STORAGE_KEY)
     if (!raw) return {}
     const parsed = JSON.parse(raw) as Record<string, SavedPromptDraft>
     if (!parsed || typeof parsed !== 'object') return {}

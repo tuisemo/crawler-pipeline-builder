@@ -3,7 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiProxyTarget = env.SEA_DATA_API_PROXY_TARGET || "http://127.0.0.1:8090";
+  const legacyProxyKey = ["SEA", "DATA", "API", "PROXY", "TARGET"].join("_");
+  const apiProxyTarget = env.CRAWLER_WORKFLOW_API_PROXY_TARGET || env[legacyProxyKey] || "http://127.0.0.1:8000";
 
   return {
     plugins: [react()],

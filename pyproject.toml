@@ -1,5 +1,5 @@
 [project]
-name = "sea-data"
+name = "crawler-workflow"
 version = "0.1.0"
 description = "DSL-based crawler orchestration workbench with workflow APIs and React frontend"
 readme = "README.md"
@@ -23,8 +23,8 @@ llm = [
 ]
 
 [tool.setuptools]
-packages = ["backend", "extraction", "prompts"]
-py-modules = ["llm_client", "server", "demo"]
+packages = ["backend", "backend.assist", "backend.core", "backend.workflows", "extraction", "prompts"]
+py-modules = ["llm_client", "server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

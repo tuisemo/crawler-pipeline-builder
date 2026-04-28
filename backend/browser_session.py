@@ -1,7 +1,9 @@
 import time
-import threading
 import uuid
+import threading
 from playwright.sync_api import sync_playwright
+
+from .core.settings import get_settings
 
 _playwright = None
 _browser = None
@@ -24,8 +26,9 @@ def get_browser():
                     pass
             if _playwright is None:
                 _playwright = sync_playwright().start()
+            settings = get_settings()
             _browser = _playwright.chromium.launch(
-                headless=False,
+                headless=settings.browser_headless,
                 args=["--start-maximized", "--no-sandbox", "--disable-dev-shm-usage"],
             )
         return _browser
@@ -100,6 +103,14 @@ class PageSession:
     def navigate(self, url: str, timeout: int = 30000):
         """Navigate to URL on the session's page."""
         self.page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        try:
+            self.page.wait_for_load_state("networkidle", timeout=min(timeout, 10000))
+        except Exception:
+            pass
+        try:
+            self.page.wait_for_timeout(800)
+        except Exception:
+            pass
 
     def new_page(self):
         """Create a new page in the existing context (tab in same browser window)."""
@@ -120,34 +131,31 @@ class SessionManager:
         self._sessions: dict[str, PageSession] = {}
         self._lock = threading.Lock()
         self._ttl = ttl_seconds
-        self._cleanup_interval = 120
-        self._timer = None
 
-    def _schedule_cleanup(self):
-        if self._timer is not None:
-            return
-        def background():
-            while True:
-                time.sleep(self._cleanup_interval)
-                self.cleanup()
-        t = threading.Thread(target=background, daemon=True)
-        t.start()
-        self._timer = t
+    def _collect_expired_session_ids(self, now: float | None = None) -> list[str]:
+        current_time = now or time.time()
+        return [
+            sid
+            for sid, session in self._sessions.items()
+            if current_time - session.last_used > self._ttl or session._closed
+        ]
 
     def cleanup(self):
-        """Remove expired sessions and close their resources."""
-        now = time.time()
         with self._lock:
-            expired = [sid for sid, s in self._sessions.items()
-                       if now - s.last_used > self._ttl or not s.is_alive()]
-            for sid in expired:
-                self._sessions[sid].close()
-                del self._sessions[sid]
+            expired = self._collect_expired_session_ids()
+            sessions = [self._sessions.pop(sid) for sid in expired if sid in self._sessions]
+        for session in sessions:
+            session.close()
 
     def get(self, session_id: str | None) -> PageSession | None:
         if not session_id:
             return None
         with self._lock:
+            expired = self._collect_expired_session_ids()
+            for sid in expired:
+                session = self._sessions.pop(sid, None)
+                if session is not None:
+                    session.close()
             s = self._sessions.get(session_id)
             if s:
                 s.touch()
@@ -155,10 +163,14 @@ class SessionManager:
 
     def create(self) -> PageSession:
         """Create a new session with its own isolated browser context."""
-        self._schedule_cleanup()
         # Each session gets its own context from the shared browser process
         session = PageSession(get_browser())
         with self._lock:
+            expired = self._collect_expired_session_ids()
+            for sid in expired:
+                old_session = self._sessions.pop(sid, None)
+                if old_session is not None:
+                    old_session.close()
             self._sessions[session.id] = session
         return session
 
@@ -181,12 +193,17 @@ class SessionManager:
     def get_most_recent(self):
         """Return the most recently used session, or None."""
         with self._lock:
+            expired = self._collect_expired_session_ids()
+            for sid in expired:
+                session = self._sessions.pop(sid, None)
+                if session is not None:
+                    session.close()
             if not self._sessions:
                 return None
             return max(self._sessions.values(), key=lambda s: s.last_used)
 
 
-page_session_mgr = SessionManager(ttl_seconds=600)
+page_session_mgr = SessionManager(ttl_seconds=get_settings().browser_session_ttl_seconds)
 
 
 def get_active_session():

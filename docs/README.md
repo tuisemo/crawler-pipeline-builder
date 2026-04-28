@@ -1,44 +1,51 @@
-# Documentation Index
+# 文档索引
 
-This directory keeps the documents that still match the current repository state.
+`docs/` 目录现在只保留那些能够帮助贡献者理解 **当前版本** `crawler-workflow` 的文档。
 
-## Active Documents
+## 当前有效文档
 
-- `architecture-review-and-plan.md`
-  Architecture review of the current backend, frontend, and engineering boundaries.
-- `refactor-task-roadmap.md`
-  Executable refactor backlog derived from the architecture review.
-- `ui-ux-multilayer-redesign.md`
-  Current frontend multilayer workspace model and implemented redesign notes.
-- `sqlite-output-resume-upgrade-plan.md`
-  Design plan for optional SQLite output, durable sinks, and checkpoint-based resume.
-- `script-first-production-crawler-plan.md`
-  Revised plan for delivering SQLite/resume through multi-stage script generation, rewrite, and evaluation.
-- `workflows/eworldship_product_1772.json`
-  Example workflow DSL for the `eworldship` collection scenario.
+- `documentation-audit.md`
+  说明本次 `docs/` 清理的判定标准，交代哪些文件仍属有效文档，哪些文件已移入归档区。
+- `product-guide.md`
+  面向产品与业务理解的项目说明：工作台今天能做什么、各类节点如何工作、当前能力边界在哪里。
+- `technical-guide.md`
+  面向工程实现的技术说明：架构分层、模块职责、API 入口、执行语义、持久化模型、前端状态组织与迭代入口。
+- `engineering-diagnosis-and-optimization-plan.md`
+  面向工程治理的复盘诊断：从文件架构、功能模块、配置项、前后端通讯、测试与生产化成熟度等维度评分，并给出自上而下的优化路线。
+- `optimization-implementation-plan.md`
+  面向执行落地的优化细案：把诊断中的阶段性路线拆成可验收任务，并记录当前第一批改造状态。
+- `developer-checklist.md`
+  面向贡献者的上手清单与迭代 SOP，适合改节点、改运行时、改脚本生成、改辅助链路或改前端布局时查阅。
+- `examples/workflows/eworldship_product_1772.json`
+  当前仍可复用的示例 DSL，用于真实列表页采集场景。
 
-## Source-Of-Truth Documents Outside `docs/`
+## 历史归档文档
+
+- `archive/README.md`
+  说明归档区的使用原则。
+- `archive/*.md`
+  历史架构评审、重构路线图与前瞻性设计方案。这些文件仅保留背景参考价值，**不再作为当前代码的事实依据**。
+
+## `docs/` 之外的事实文档
 
 - `README.md`
-  Project overview, startup commands, and high-level structure.
+  项目概览、启动命令与目录结构说明。
 - `DESIGN.md`
-  Current design system and frontend implementation guidance.
+  当前前端工作台的视觉与交互规范。
 - `AGENTS.md`
-  Repository-level development rules and contributor guidance.
+  仓库级协作规则与开发约束。
 
-## Removed / Consolidated
+## 文档保留规则
 
-- `PLAN.md`
-  Historical feature planning for an earlier product shape. It no longer matches the current React workbench and API structure.
-- `frontend-redesign-roadmap.md`
-  Superseded by `DESIGN.md` plus `ui-ux-multilayer-redesign.md`.
+只有同时满足下列至少一项的文档，才应保留在当前有效区：
 
-## Cleanup Rule
+- 能准确描述当前代码结构与运行行为
+- 能帮助新同学今天就把项目跑起来、看懂并继续扩展
+- 是会被重复使用的示例资产
 
-Keep a document only if it does at least one of the following:
+出现以下情况的文档，应移入 `docs/archive/`：
 
-- describes the current codebase accurately
-- serves as the source of truth for an actively maintained subsystem
-- contains an example workflow still reused during development
-
-If a file is only a phase artifact, temporary investigation note, or already absorbed by a newer document, delete it instead of archiving duplicate guidance.
+- 主要是重构计划
+- 主要是设计探索
+- 主要是阶段性评审记录
+- 描述的是尚未完整落地的未来方案

@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-`sea-data` is a crawler orchestration workbench. It uses FastAPI for workflow and assist APIs, Playwright for browser-backed execution, and a React frontend for visual workflow authoring.
+`crawler-workflow` is a browser crawler workflow system. It uses FastAPI for workflow and assist APIs, Playwright for browser-backed execution, and a React frontend for visual workflow authoring.
 
 ## Project Structure
 
 ```text
-sea-data/
+crawler-workflow/
 ├── server.py         # FastAPI application entrypoint
 ├── llm_client.py     # OpenAI-compatible LLM client
 ├── backend/          # workflow routes, assist routes, executor, schemas

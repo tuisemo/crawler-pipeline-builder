@@ -66,6 +66,7 @@ export function getErrorMessage(payload: unknown) {
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>
     if (typeof record.error === 'string') return record.error
+    if (typeof record.error_code === 'string') return record.error_code
     if (typeof record.detail === 'string') return record.detail
     if (Array.isArray(record.detail)) return record.detail.map((item) => JSON.stringify(item)).join('; ')
   }

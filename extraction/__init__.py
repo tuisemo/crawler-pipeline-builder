@@ -1,4 +1,4 @@
-"""Extraction module for sea-data crawler prompt builder."""
+"""Extraction module for crawler-workflow."""
 
 from .auto_detector import AutoDetector, DetectionResult
 from .selector_tester import SelectorTester

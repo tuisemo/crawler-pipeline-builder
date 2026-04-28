@@ -477,7 +477,7 @@ def test_generate_crawler_returns_domain_response(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -502,7 +502,7 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
             from llm_client import LLMResponse
-            captured_calls.append({"system": system, "user": user})
+            captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
             if "principal reviewer" in system.lower():
                 return LLMResponse(
                     content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
@@ -511,7 +511,7 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -530,6 +530,7 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
 
     assert result.success is True
     assert len(captured_calls) == 1
+    assert captured_calls[0]["kwargs"]["request_name"] == "workflow_generate_crawler_draft"
     assert result.editable_prompt == "Use robust retries and export newline-delimited JSON."
     assert "Use robust retries and export newline-delimited JSON." in generation_prompt
     assert "Execution Plan (Deterministic)" in generation_prompt
@@ -554,7 +555,7 @@ def test_generate_crawler_uses_sqlite_capable_skeleton_as_base(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -599,7 +600,7 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
 
         def generate_with_system(self, system: str, user: str, **kwargs):
             from llm_client import LLMResponse
-            self.calls.append(system)
+            self.calls.append({"system": system, "kwargs": kwargs})
             if "principal reviewer" in system.lower():
                 return LLMResponse(
                     content=(
@@ -624,7 +625,7 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
             )
 
     fake_client = FakeClient()
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: fake_client)
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: fake_client)
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -652,6 +653,11 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
     assert result.generation_mode == "pro"
     assert result.usage == {"prompt_tokens": 6, "completion_tokens": 6}
     assert len(fake_client.calls) == 3
+    assert [call["kwargs"]["request_name"] for call in fake_client.calls] == [
+        "workflow_generate_crawler_draft",
+        "workflow_generate_crawler_review",
+        "workflow_generate_crawler_revision",
+    ]
 
 
 def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
@@ -665,7 +671,7 @@ def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
                 finish_reason="length",
             )
 
-    monkeypatch.setattr("backend.workflow_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -775,7 +781,7 @@ def test_format_script_normalizes_python_whitespace():
 
 def test_save_script_writes_inside_workspace(monkeypatch):
     workspace_root = make_test_workspace("service-save-script")
-    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     response = save_script(
         SaveScriptRequest(
@@ -792,7 +798,7 @@ def test_save_script_writes_inside_workspace(monkeypatch):
 
 def test_save_script_rejects_outside_workspace(monkeypatch):
     workspace_root = make_test_workspace("service-save-script-outside")
-    monkeypatch.setattr("backend.workflow_services.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     with pytest.raises(ScriptPersistenceError) as exc_info:
         save_script(
@@ -832,10 +838,12 @@ def test_service_module_does_not_use_json_response():
 
 
 def test_clean_data_builds_prompt_and_returns_llm_response(monkeypatch):
-    captured = {"prompt": ""}
+    captured = {"prompt": "", "task_name": "", "response_contract": ""}
 
-    def fake_run(prompt: str):
+    def fake_run(prompt: str, task_name: str, response_contract: str):
         captured["prompt"] = prompt
+        captured["task_name"] = task_name
+        captured["response_contract"] = response_contract
         return AssistLlmResponse(success=True, result={"cleaned_value": 1234.56, "confidence": 0.9})
 
     monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run)
@@ -847,3 +855,5 @@ def test_clean_data_builds_prompt_and_returns_llm_response(monkeypatch):
     assert response.result["cleaned_value"] == 1234.56
     assert "$1,234.56" in captured["prompt"]
     assert "price" in captured["prompt"]
+    assert captured["task_name"] == "clean_data"
+    assert "cleaned_value" in captured["response_contract"]

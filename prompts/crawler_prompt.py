@@ -1,4 +1,4 @@
-"""Crawler prompt generation for sea-data.
+"""Crawler prompt generation for crawler-workflow.
 
 Generates structured, execution-plan-aligned prompts for LLM crawler generation.
 """
