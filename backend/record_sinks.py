@@ -264,12 +264,11 @@ def ensure_sqlite_schema(
     dedupe_keys: list[str],
 ) -> None:
     metadata_columns = {
-        "_sea_identity_key": "TEXT",
-        "_sea_run_id": "TEXT",
-        "_sea_source_url": "TEXT",
-        "_sea_emitted_at": "TEXT",
-        "_sea_record_hash": "TEXT",
-        "_sea_payload_json": "TEXT",
+        "identity_key": "TEXT PRIMARY KEY",
+        "run_id": "TEXT",
+        "source_url": "TEXT",
+        "created_at": "TEXT",
+        "record_hash": "TEXT",
     }
     column_types = {column: infer_sqlite_affinity(column, sample_records) for column in user_columns}
     existing = get_existing_columns(conn, table_name)
@@ -285,14 +284,7 @@ def ensure_sqlite_schema(
             continue
         conn.execute(f'ALTER TABLE {quote_ident(table_name)} ADD COLUMN {quote_ident(column)} {affinity}')
 
-    if write_mode == "upsert":
-        unique_columns = ["_sea_identity_key"]
-        index_name = f'{table_name}__dedupe'
-        columns_sql = ", ".join(quote_ident(column) for column in unique_columns)
-        conn.execute(
-            f'CREATE UNIQUE INDEX IF NOT EXISTS {quote_ident(index_name)} '
-            f'ON {quote_ident(table_name)} ({columns_sql})'
-        )
+    # Primary key already acts as unique index for identity_key
     conn.commit()
 
 
@@ -330,7 +322,7 @@ def persist_sqlite_chunk(
     source_url: str,
     run_id: str,
 ) -> None:
-    metadata_columns = ["_sea_identity_key", "_sea_run_id", "_sea_source_url", "_sea_emitted_at", "_sea_record_hash", "_sea_payload_json"]
+    metadata_columns = ["identity_key", "run_id", "source_url", "created_at", "record_hash"]
     all_columns = [*user_columns, *metadata_columns]
     placeholders = ", ".join("?" for _ in all_columns)
     columns_sql = ", ".join(quote_ident(column) for column in all_columns)
@@ -345,18 +337,16 @@ def persist_sqlite_chunk(
         else:
             sql += f' ON CONFLICT ({", ".join(quote_ident(column) for column in conflict_columns)}) DO NOTHING'
 
-    emitted_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
     values: list[tuple[Any, ...]] = []
     for record in records:
-        payload_json = json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
         row = [encode_sqlite_value(record.get(column)) for column in user_columns]
         row.extend([
             record_identity_key(record, dedupe_keys),
             run_id or None,
             source_url or None,
-            emitted_at,
+            created_at,
             record_hash(record),
-            payload_json,
         ])
         values.append(tuple(row))
 

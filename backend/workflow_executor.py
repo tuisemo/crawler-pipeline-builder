@@ -63,7 +63,7 @@ class ExecutionContext:
     start_time: float = field(default_factory=time.time)
 
     # Execution limits
-    max_steps: int = 100
+    max_steps: int = 50000
     max_items: int = 50
     max_pages: int = 10
 

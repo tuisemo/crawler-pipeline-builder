@@ -74,7 +74,7 @@ class CrawlerWorkflowSettings:
     model_name: str = "gpt-4"
     script_generation_max_tokens: int = 32000
     script_review_max_tokens: int = 32000
-    default_max_steps: int = 100
+    default_max_steps: int = 50000
     default_max_items: int = 50
     default_max_pages: int = 10
     default_output_mode: str = "memory"
@@ -110,7 +110,7 @@ class CrawlerWorkflowSettings:
             model_name=model_name,
             script_generation_max_tokens=_read_int(config, "SCRIPT_GENERATION_MAX_TOKENS", 32000),
             script_review_max_tokens=_read_int(config, "SCRIPT_REVIEW_MAX_TOKENS", 32000),
-            default_max_steps=_read_int(config, "DEFAULT_MAX_STEPS", 100),
+            default_max_steps=_read_int(config, "DEFAULT_MAX_STEPS", 50000),
             default_max_items=_read_int(config, "DEFAULT_MAX_ITEMS", 50),
             default_max_pages=_read_int(config, "DEFAULT_MAX_PAGES", 10),
             default_output_mode=_read_value(config, "DEFAULT_OUTPUT_MODE", "memory"),

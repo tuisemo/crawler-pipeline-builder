@@ -293,11 +293,11 @@ def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: lis
     user_columns = sorted({{key for record in records for key in record.keys() if isinstance(key, str) and key}})
     user_columns = sorted(set(user_columns) | set(DEDUPE_KEYS))
     metadata_columns = {{
-        "_sea_identity_key": "TEXT",
-        "_sea_source_url": "TEXT",
-        "_sea_emitted_at": "TEXT",
-        "_sea_record_hash": "TEXT",
-        "_sea_payload_json": "TEXT",
+        "identity_key": "TEXT PRIMARY KEY",
+        "run_id": "TEXT",
+        "source_url": "TEXT",
+        "created_at": "TEXT",
+        "record_hash": "TEXT",
     }}
 
     existing = {{
@@ -326,13 +326,7 @@ def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: lis
         if column not in existing:
             conn.execute(f'ALTER TABLE {{quote_ident(table_name)}} ADD COLUMN {{quote_ident(column)}} {{affinity}}')
 
-    if WRITE_MODE == "upsert":
-        unique_columns = ["_sea_identity_key"]
-        index_name = f"{{table_name}}__dedupe"
-        conn.execute(
-            f'CREATE UNIQUE INDEX IF NOT EXISTS {{quote_ident(index_name)}} '
-            f'ON {{quote_ident(table_name)}} ({{", ".join(quote_ident(column) for column in unique_columns)}})'
-        )
+    # Primary key already acts as unique index for identity_key
     conn.commit()
     return user_columns
 
@@ -342,7 +336,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
     table_name = normalize_sqlite_table(OUTPUT_SQLITE_TABLE)
     with sqlite3.connect(output_path) as conn:
         user_columns = ensure_sqlite_schema(conn, table_name, records)
-        metadata_columns = ["_sea_identity_key", "_sea_source_url", "_sea_emitted_at", "_sea_record_hash", "_sea_payload_json"]
+        metadata_columns = ["identity_key", "run_id", "source_url", "created_at", "record_hash"]
         all_columns = [*user_columns, *metadata_columns]
         placeholders = ", ".join("?" for _ in all_columns)
         insert_sql = (
@@ -351,7 +345,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
             f'VALUES ({{placeholders}})'
         )
         if WRITE_MODE == "upsert":
-            conflict_columns = ["_sea_identity_key"]
+            conflict_columns = ["identity_key"]
             update_columns = [column for column in all_columns if column not in conflict_columns]
             if update_columns:
                 insert_sql += (
@@ -363,17 +357,17 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
                     f' ON CONFLICT ({{", ".join(quote_ident(column) for column in conflict_columns)}}) DO NOTHING'
                 )
 
-        emitted_at = datetime.now(timezone.utc).isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         for chunk in chunk_records(records, OUTPUT_BATCH_SIZE):
             rows = []
             for record in chunk:
                 row = [encode_sqlite_value(record.get(column)) for column in user_columns]
                 row.extend([
                     record_identity_key(record),
+                    "standalone-run" if "run_id" in metadata_columns else None, # Placeholder for standalone run
                     source_url or None,
-                    emitted_at,
+                    created_at,
                     record_hash(record),
-                    json.dumps(record, ensure_ascii=False, sort_keys=True, default=str),
                 ])
                 rows.append(tuple(row))
             with conn:
