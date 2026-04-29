@@ -7,15 +7,15 @@ from .async_bridge import run_blocking
 from .assist_services import (
     analyze_pagination,
     auto_detect,
-    clean_data,
     extract_html_fragment,
     infer_fields,
     optimize_selector,
+    run_selector_test,
 )
 from .workflow_schemas import (
-    AssistCleanDataRequest,
     AssistHtmlExtractRequest,
     AssistLlmRequest,
+    AssistSelectorTestRequest,
     AutoDetectRequest,
 )
 
@@ -30,6 +30,14 @@ async def auto_detect_endpoint(request: AutoDetectRequest):
 @router.post("/extract-html")
 async def extract_html_endpoint(request: AssistHtmlExtractRequest):
     return api_response(await run_blocking(lambda: extract_html_fragment(request)))
+
+
+@router.post("/test-selector")
+async def test_selector_endpoint(request: AssistSelectorTestRequest):
+    response = await run_blocking(lambda: run_selector_test(request))
+    if not response.success:
+        return api_response(response, status_code=400)
+    return api_response(response)
 
 
 @router.post("/infer-fields")
@@ -51,14 +59,6 @@ def optimize_selector_endpoint(request: AssistLlmRequest):
 @router.post("/analyze-pagination")
 def analyze_pagination_endpoint(request: AssistLlmRequest):
     response = analyze_pagination(request)
-    if not response.success:
-        return api_response(response, status_code=400)
-    return api_response(response)
-
-
-@router.post("/clean-data")
-def clean_data_endpoint(request: AssistCleanDataRequest):
-    response = clean_data(request)
     if not response.success:
         return api_response(response, status_code=400)
     return api_response(response)

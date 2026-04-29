@@ -56,8 +56,6 @@ class OpenPageData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     url: str = ""  # Required; empty string triggers validation error
-    max_steps: Optional[int] = None
-    max_items: Optional[int] = None
 
 
 class SelectListData(BaseModel):
@@ -66,7 +64,6 @@ class SelectListData(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     item_selector: str = ""  # Required; empty string triggers validation error
-    max_items: Optional[int] = None
 
 
 class ExtractFieldData(BaseModel):
@@ -76,7 +73,6 @@ class ExtractFieldData(BaseModel):
 
     fields: Optional[List[FieldSchema]] = None
     html_fragment: Optional[str] = None
-    max_items: Optional[int] = None
 
 
 class PaginateData(BaseModel):
@@ -93,13 +89,11 @@ class LoopData(BaseModel):
     """Data model for loop nodes.
 
     Consumes the item set produced by a upstream select_list and provides
-    current-item context for downstream nodes. max_items is optional and
-    defaults to the execution context limit.
+    current-item context for downstream nodes.
     """
 
     model_config = ConfigDict(extra="allow")
 
-    max_items: Optional[int] = None
     # on_error: "skip" (default) | "stop" - controls per-item failure behavior
     on_error: Optional[str] = None
 
@@ -153,8 +147,6 @@ class NodeData(BaseModel):
     pagination_strategy: Optional[str] = None
     max_pages: Optional[int] = None
     html_fragment: Optional[str] = None
-    max_items: Optional[int] = None
-    max_steps: Optional[int] = None
     condition: Optional[str] = None
     expression_mode: Optional[str] = None
     on_error: Optional[str] = None
@@ -249,9 +241,6 @@ class TestNodeRequest(BaseModel):
     graph: WorkflowGraph
     node_id: str
     session_id: Optional[str] = None
-    # Execution limits
-    max_items: int = 10
-    max_steps: int = 100
 
 class TestNodeResponse(BaseModel):
     success: bool
@@ -265,8 +254,6 @@ class SubflowBoundary(BaseModel):
     start_node_id: Optional[str] = None
     end_node_id: Optional[str] = None
     max_pages: Optional[int] = None
-    max_items: Optional[int] = None
-    max_steps: Optional[int] = None
 
 class TestSubflowRequest(BaseModel):
     graph: WorkflowGraph
@@ -289,6 +276,8 @@ class GenerateCrawlerRequest(BaseModel):
     graph: WorkflowGraph
     prompt_override: Optional[str] = None
     generation_mode: Optional[str] = "lite"
+    run_sandbox: Optional[bool] = None
+    sandbox_timeout_seconds: Optional[int] = None
 
 
 class GenerateCrawlerResponse(BaseModel):
@@ -302,8 +291,23 @@ class GenerateCrawlerResponse(BaseModel):
     usage: Optional[Dict[str, int]] = None
     generation_mode: Optional[str] = None
     generation_trace: Optional[List[Dict[str, Any]]] = None
+    sandbox_result: Optional[Dict[str, Any]] = None
     warnings: List[str] = []
     review_summary: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class RunScriptSandboxRequest(BaseModel):
+    """Manually execute a generated or edited crawler script in the sandbox."""
+
+    script: str
+    filename: Optional[str] = "crawler.py"
+    timeout_seconds: Optional[int] = None
+
+
+class RunScriptSandboxResponse(BaseModel):
+    success: bool
+    sandbox_result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -399,6 +403,23 @@ class AssistHtmlExtractResponse(BaseModel):
     error: Optional[str] = None
 
 
+class AssistSelectorTestRequest(BaseModel):
+    """Validate a selector against the current browser page and temporarily highlight matches."""
+
+    selector: str
+    session_id: Optional[str] = None
+    url: Optional[str] = None
+    clear_after_ms: int = 2200
+    max_samples: int = 5
+
+
+class AssistSelectorTestResponse(BaseModel):
+    success: bool
+    session_id: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
 class AssistLlmRequest(BaseModel):
     """Generic request used by infer-fields / optimize-selector / analyze-pagination."""
     html_fragment: str
@@ -416,14 +437,5 @@ class AssistLlmResponse(BaseModel):
     model: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     raw: Optional[str] = None
+    warnings: List[str] = []
     error: Optional[str] = None
-
-
-class AssistCleanDataRequest(BaseModel):
-    """Request payload for AI data cleaning."""
-
-    raw_data: str
-    data_type: str
-    session_id: Optional[str] = None
-    provider: Optional[str] = None
-    model: Optional[str] = None

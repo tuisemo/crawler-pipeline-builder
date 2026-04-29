@@ -5,8 +5,11 @@ from backend.assist_services import (
     analyze_pagination,
     _extract_json_payload,
     _run_llm_json_task,
+    extract_html_fragment,
+    run_selector_test,
 )
-from backend.workflow_schemas import AssistLlmRequest
+from backend.workflow_schemas import AssistHtmlExtractRequest, AssistLlmRequest
+from backend.workflow_schemas import AssistLlmResponse, AssistSelectorTestRequest
 from llm_client import LLMResponse
 
 
@@ -69,7 +72,17 @@ def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):
         captured["task_name"] = task_name
         captured["response_contract"] = response_contract
         captured["kwargs"] = kwargs
-        return "ok"
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": 'a[rel="next"]',
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.7,
+                "reason": "mock result",
+            },
+        )
 
     monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
 
@@ -84,7 +97,7 @@ def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):
 
     result = analyze_pagination(AssistLlmRequest(html_fragment=html_fragment))
 
-    assert result == "ok"
+    assert result.success is True
     assert captured["task_name"] == "analyze_pagination"
     assert captured["response_contract"] == PAGINATION_ANALYSIS_RESPONSE_CONTRACT
     assert captured["kwargs"]["system_suffix"]
@@ -95,6 +108,264 @@ def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):
     assert "### Pagination Control Summary" in str(captured["user_prompt"])
     assert "kq-pager" in str(captured["user_prompt"])
     assert "下一页" in str(captured["user_prompt"])
+
+
+def test_analyze_pagination_normalizes_raw_xpath_selector_when_live_page_matches(monkeypatch):
+    class FakePage:
+        def query_selector_all(self, selector: str):
+            if selector == 'xpath=//a[@rel="next"]':
+                return [object()]
+            return []
+
+    class FakeSession:
+        def __init__(self):
+            self.page = FakePage()
+
+        def is_alive(self):
+            return True
+
+    def fake_run_llm_json_task(user_prompt: str, task_name: str, response_contract: str, **kwargs):
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": '//a[@rel="next"]',
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.8,
+                "reason": "model result",
+            },
+        )
+
+    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+
+    response = analyze_pagination(AssistLlmRequest(html_fragment="<!-- PAGINATION --><a rel='next'>下一页</a>", session_id="s1"))
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == 'xpath=//a[@rel="next"]'
+    assert "Normalized raw XPath" in (response.result["reason"] or "")
+
+
+def test_analyze_pagination_replaces_unmatched_model_selector_with_summary_fallback(monkeypatch):
+    class FakePage:
+        def query_selector_all(self, selector: str):
+            if selector == 'a[rel="next"]':
+                return [object()]
+            return []
+
+    class FakeSession:
+        def __init__(self):
+            self.page = FakePage()
+
+        def is_alive(self):
+            return True
+
+    def fake_run_llm_json_task(user_prompt: str, task_name: str, response_contract: str, **kwargs):
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": ".does-not-match",
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.7,
+                "reason": "model result",
+            },
+        )
+
+    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+
+    html_fragment = """<!-- PAGINATION -->
+<div class="kq-pager"><span class="current">1</span><a rel="next" href="/list?p=2">下一页</a></div>
+<!-- PAGINATION_CONTROL_SUMMARY -->
+[1] | tag=span | text=1 | role_hint=current_page | aria_current=page | class=current
+[2] | tag=a | text=下一页 | role_hint=next_candidate | href=/list?p=2 | rel=next | class=next
+"""
+
+    response = analyze_pagination(AssistLlmRequest(html_fragment=html_fragment, session_id="s1"))
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == 'a[rel="next"]'
+    assert "not precise enough for the current page session" in (response.result["reason"] or "")
+
+
+def test_analyze_pagination_replaces_broad_multi_match_selector_with_summary_fallback(monkeypatch):
+    class FakeElement:
+        def __init__(self, *, rel: str = "", text: str = "", class_name: str = ""):
+            self._rel = rel
+            self._text = text
+            self._class_name = class_name
+
+        def get_attribute(self, name: str):
+            if name == "rel":
+                return self._rel
+            if name == "class":
+                return self._class_name
+            return ""
+
+        def inner_text(self):
+            return self._text
+
+    class FakePage:
+        def query_selector_all(self, selector: str):
+            if selector == 'div.kq-pager > a':
+                return [
+                    FakeElement(text="1", class_name="page-num"),
+                    FakeElement(text="2", class_name="page-num"),
+                    FakeElement(rel="next", text="下一页", class_name="next"),
+                ]
+            if selector == 'a[rel="next"]':
+                return [FakeElement(rel="next", text="下一页", class_name="next")]
+            return []
+
+    class FakeSession:
+        def __init__(self):
+            self.page = FakePage()
+
+        def is_alive(self):
+            return True
+
+    def fake_run_llm_json_task(user_prompt: str, task_name: str, response_contract: str, **kwargs):
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": "div.kq-pager > a",
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.76,
+                "reason": "model result",
+            },
+        )
+
+    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+
+    html_fragment = """<!-- PAGINATION -->
+<div class="kq-pager"><span class="current">1</span><a href="/list?p=2">2</a><a rel="next" href="/list?p=2">下一页</a></div>
+<!-- PAGINATION_CONTROL_SUMMARY -->
+[1] | tag=span | text=1 | role_hint=current_page | aria_current=page | class=current | parent_tag=div | parent_class=kq-pager
+[2] | tag=a | text=2 | role_hint=page_number | class=page-num | parent_tag=div | parent_class=kq-pager
+[3] | tag=a | text=下一页 | role_hint=next_candidate | rel=next | class=next | parent_tag=div | parent_class=kq-pager
+"""
+
+    response = analyze_pagination(AssistLlmRequest(html_fragment=html_fragment, session_id="s1"))
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == 'a[rel="next"]'
+    assert "not precise enough for the current page session" in (response.result["reason"] or "")
+
+
+def test_analyze_pagination_returns_warning_when_selector_cannot_be_validated(monkeypatch):
+    class FakePage:
+        def query_selector_all(self, selector: str):
+            return []
+
+    class FakeSession:
+        def __init__(self):
+            self.page = FakePage()
+
+        def is_alive(self):
+            return True
+
+    def fake_run_llm_json_task(user_prompt: str, task_name: str, response_contract: str, **kwargs):
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": ".candidate-next",
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.58,
+                "reason": "model result",
+            },
+        )
+
+    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+    monkeypatch.setattr("backend.assist_services.recover_pagination_from_summary", lambda user_prompt: None)
+
+    response = analyze_pagination(
+        AssistLlmRequest(
+            html_fragment="<!-- PAGINATION --><div class='pager'><a class='next'>下一页</a></div>",
+            session_id="s1",
+        )
+    )
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == ".candidate-next"
+    assert response.warnings
+    assert "could not be validated as a single actionable control" in response.warnings[0]
+
+
+def test_test_selector_highlights_matches_and_returns_session_id(monkeypatch):
+    class FakeSession:
+        id = "session-1"
+        page = object()
+
+    clear_calls: list[object] = []
+    highlight_calls: list[tuple[str, int]] = []
+
+    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr(
+        "backend.assist_services.SelectorTester.test_selector",
+        lambda page, selector, max_samples=5: type("Result", (), {
+            "match_count": 3,
+            "sample_items": [{"text": "A"}],
+            "error": None,
+        })(),
+    )
+    monkeypatch.setattr("backend.assist_services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
+    monkeypatch.setattr(
+        "backend.assist_services.SelectorTester.highlight_selector",
+        lambda page, selector, clear_after_ms=2200: highlight_calls.append((selector, clear_after_ms)) or 3,
+    )
+
+    response = run_selector_test(
+        AssistSelectorTestRequest(
+            selector=".item",
+            session_id="session-1",
+            clear_after_ms=1800,
+        )
+    )
+
+    assert response.success is True
+    assert response.session_id == "session-1"
+    assert response.result["match_count"] == 3
+    assert response.result["highlighted_count"] == 3
+    assert response.result["clear_after_ms"] == 1800
+    assert len(clear_calls) == 1
+    assert highlight_calls == [(".item", 1800)]
+
+
+def test_extract_html_fragment_clears_selector_highlight_before_sampling(monkeypatch):
+    class FakeSession:
+        id = "session-1"
+        page = object()
+
+    class FakeExtractor:
+        def extract_item_container(self, page, item_selector, max_items=3):
+            return type("Result", (), {
+                "html": "<div>ok</div>",
+                "truncated": False,
+                "original_size": 13,
+                "truncated_size": 13,
+                "item_count": 1,
+            })()
+
+    clear_calls: list[object] = []
+
+    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist_services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
+    monkeypatch.setattr("backend.assist_services.HtmlExtractor", lambda: FakeExtractor())
+
+    response = extract_html_fragment(AssistHtmlExtractRequest(item_selector=".item"))
+
+    assert response.success is True
+    assert response.html_fragment == "<div>ok</div>"
+    assert len(clear_calls) == 1
 
 
 def test_run_llm_json_task_reports_invalid_json_when_unrecoverable(monkeypatch):

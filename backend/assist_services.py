@@ -11,8 +11,8 @@ from typing import Any
 from backend.core.app_logging import audit_event
 from extraction.auto_detector import AutoDetector
 from extraction.html_extractor import HtmlExtractor
+from extraction.selector_tester import SelectorTester
 from llm_client import (
-    DATA_CLEANING_PROMPT,
     FIELD_INFERENCE_PROMPT,
     PAGINATION_ANALYSIS_PROMPT,
     SELECTOR_OPTIMIZATION_PROMPT,
@@ -28,6 +28,7 @@ from .assist.json_protocol import (
     _extract_json_payload,
 )
 from .assist.pagination_recovery import (
+    _NEXT_TEXT_RE,
     PAGINATION_ANALYSIS_SYSTEM_RULES,
     build_pagination_analysis_user_prompt,
     has_pagination_evidence,
@@ -37,11 +38,12 @@ from .assist.pagination_recovery import (
 )
 from .browser_session import get_active_session, page_session_mgr
 from .workflow_schemas import (
-    AssistCleanDataRequest,
     AssistLlmRequest,
     AssistLlmResponse,
     AssistHtmlExtractRequest,
     AssistHtmlExtractResponse,
+    AssistSelectorTestRequest,
+    AssistSelectorTestResponse,
     AutoDetectRequest,
     AutoDetectResponse,
 )
@@ -91,17 +93,62 @@ Rules:
 - "confidence" must be a number between 0 and 1.
 """
 
-DATA_CLEANING_RESPONSE_CONTRACT = """Return one JSON object with this shape:
-{
-  "cleaned_value": "string | number | boolean | null",
-  "confidence": 0.0,
-  "reason": "string"
-}
+PLAYWRIGHT_ONLY_SELECTOR_MARKERS = (
+    "locator(",
+    "get_by_role(",
+    "get_by_text(",
+    "text=",
+    "nth=",
+    ">>",
+    ":has-text(",
+)
 
-Rules:
-- Always include the "cleaned_value" key even when the value is null.
-- "confidence" must be a number between 0 and 1.
-"""
+
+def _confidence_bucket(value: object) -> str:
+    if not isinstance(value, (int, float)):
+        return "unknown"
+    if value >= 0.85:
+        return "high"
+    if value >= 0.6:
+        return "medium"
+    return "low"
+
+
+def _emit_assist_prompt_quality_metric(
+    *,
+    task_name: str,
+    success: bool,
+    user_prompt: str,
+    raw_output: str,
+    model: str | None,
+    usage: dict[str, Any] | None,
+    confidence: object,
+    error_code: str | None,
+    json_valid_first_pass: bool,
+    used_partial_recovery: bool,
+    used_repair_pass: bool,
+    used_semantic_retry: bool,
+    used_heuristic_fallback: bool,
+    semantic_empty_detected: bool,
+) -> None:
+    audit_event(
+        "assist_prompt_quality_metric",
+        task_name=task_name,
+        success=success,
+        error_code=error_code,
+        model=model or "",
+        prompt_chars=len(user_prompt or ""),
+        output_chars=len(raw_output or ""),
+        usage=usage or {},
+        confidence_bucket=_confidence_bucket(confidence),
+        json_valid_first_pass=json_valid_first_pass,
+        used_partial_recovery=used_partial_recovery,
+        used_repair_pass=used_repair_pass,
+        used_semantic_retry=used_semantic_retry,
+        used_heuristic_fallback=used_heuristic_fallback,
+        semantic_empty_detected=semantic_empty_detected,
+    )
+
 
 def _extract_html_section(section_name: str, html_fragment: str) -> str:
     pattern = re.compile(
@@ -110,6 +157,104 @@ def _extract_html_section(section_name: str, html_fragment: str) -> str:
     )
     match = pattern.search(html_fragment or "")
     return match.group(1).strip() if match else ""
+
+
+def _normalize_runtime_selector(selector: str) -> str:
+    normalized = (selector or "").strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    if lowered.startswith(("xpath=", "css=")):
+        return normalized
+    if normalized.startswith(("//", ".//", "(//", "(/")):
+        return f"xpath={normalized}"
+    return normalized
+
+
+def _is_query_compatible_selector(selector: str) -> bool:
+    lowered = selector.lower()
+    return not any(marker in lowered for marker in PLAYWRIGHT_ONLY_SELECTOR_MARKERS)
+
+
+def _get_live_session_for_selector_validation(session_id: str | None):
+    session = page_session_mgr.get(session_id) if session_id else get_active_session()
+    if session is not None and session.is_alive():
+        return session
+    return None
+
+
+def _selector_matches_session_page(session, selector: str) -> tuple[bool, str]:
+    normalized = _normalize_runtime_selector(selector)
+    if not normalized:
+        return False, normalized
+    if not _is_query_compatible_selector(normalized):
+        return False, normalized
+    try:
+        return len(session.page.query_selector_all(normalized)) > 0, normalized
+    except Exception:
+        return False, normalized
+
+
+def _element_looks_like_next_control(element: Any) -> bool | None:
+    inspected = False
+    try:
+        rel = str(element.get_attribute("rel") or "").strip().lower()
+        inspected = True
+        if rel == "next":
+            return True
+    except Exception:
+        pass
+
+    for attr_name in ("aria-label", "title", "class"):
+        try:
+            attr_value = str(element.get_attribute(attr_name) or "").strip()
+            inspected = True
+        except Exception:
+            attr_value = ""
+        if not attr_value:
+            continue
+        if _NEXT_TEXT_RE.search(attr_value):
+            return True
+        if attr_name == "class" and re.search(r"(?:^|\b)(next|more|load-more|load_more)(?:\b|$)", attr_value, re.IGNORECASE):
+            return True
+
+    try:
+        text = re.sub(r"\s+", " ", str(element.inner_text() or "")).strip()
+        inspected = True
+    except Exception:
+        text = ""
+    if text and _NEXT_TEXT_RE.search(text):
+        return True
+    if inspected:
+        return False
+    return None
+
+
+def _validate_actionable_pagination_selector(session: Any, strategy: str, selector: str) -> tuple[bool, str, str | None]:
+    normalized = _normalize_runtime_selector(selector)
+    if not normalized:
+        return False, normalized, "Selector is empty after normalization."
+    if not _is_query_compatible_selector(normalized):
+        return False, normalized, "Selector is not compatible with direct DOM or Playwright query execution."
+
+    try:
+        matches = session.page.query_selector_all(normalized)
+    except Exception:
+        return False, normalized, "Selector execution failed against the current page session."
+
+    match_count = len(matches)
+    if match_count == 0:
+        return False, normalized, "Selector did not match any pagination control on the current page session."
+
+    normalized_strategy = (strategy or "").strip().lower()
+    if normalized_strategy in {"click_next", "load_more"}:
+        if match_count > 1:
+            return False, normalized, f"Selector matched {match_count} elements; next/load-more control selectors must resolve to a single actionable element."
+        next_signal = _element_looks_like_next_control(matches[0])
+        if next_signal is False:
+            return False, normalized, "Selector matched one element, but it does not look like a concrete next/load-more control."
+
+    return True, normalized, None
 
 
 def _extract_item_samples(html_fragment: str) -> list[str]:
@@ -306,10 +451,6 @@ def _normalize_assist_json_result(task_name: str, parsed: dict[str, Any]) -> dic
         page_selectors = normalized.get("page_number_selectors")
         normalized["page_number_selectors"] = page_selectors if isinstance(page_selectors, list) else []
         normalized["item_selector"] = normalized.get("item_selector") if isinstance(normalized.get("item_selector"), str) else ""
-    elif task_name == "clean_data":
-        if "cleaned_value" not in normalized:
-            normalized["cleaned_value"] = None
-
     confidence = normalized.get("confidence")
     if not isinstance(confidence, (int, float)):
         normalized["confidence"] = None
@@ -433,6 +574,7 @@ def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
         )
         return AutoDetectResponse(success=False, error=error)
 
+    SelectorTester.clear_selector_highlight(session.page)
     detector = AutoDetector()
     result = detector.detect(session.page)
     audit_event(
@@ -476,6 +618,62 @@ def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
     )
 
 
+def run_selector_test(request: AssistSelectorTestRequest) -> AssistSelectorTestResponse:
+    session, error = _ensure_session(request.session_id, request.url)
+    if error:
+        audit_event(
+            "assist_test_selector_failed",
+            session_id=request.session_id,
+            url=request.url,
+            selector=request.selector,
+            error=error,
+        )
+        return AssistSelectorTestResponse(success=False, error=error)
+
+    SelectorTester.clear_selector_highlight(session.page)
+    result = SelectorTester.test_selector(
+        session.page,
+        request.selector,
+        max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
+    )
+    if result.error:
+        audit_event(
+            "assist_test_selector_failed",
+            session_id=session.id,
+            url=request.url,
+            selector=request.selector,
+            error=result.error,
+        )
+        return AssistSelectorTestResponse(success=False, session_id=session.id, error=result.error)
+
+    highlighted_count = 0
+    if result.match_count > 0:
+        highlighted_count = SelectorTester.highlight_selector(
+            session.page,
+            request.selector,
+            clear_after_ms=request.clear_after_ms,
+        )
+
+    payload = {
+        "match_count": result.match_count,
+        "highlighted_count": highlighted_count,
+        "clear_after_ms": request.clear_after_ms,
+        "sample_items": result.sample_items,
+    }
+    audit_event(
+        "assist_test_selector_completed",
+        session_id=session.id,
+        url=request.url,
+        selector=request.selector,
+        result=payload,
+    )
+    return AssistSelectorTestResponse(
+        success=True,
+        session_id=session.id,
+        result=payload,
+    )
+
+
 def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtractResponse:
     session, error = _ensure_session(request.session_id, request.url)
     if error:
@@ -490,6 +688,7 @@ def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtrac
         )
         return AssistHtmlExtractResponse(success=False, error=error)
 
+    SelectorTester.clear_selector_highlight(session.page)
     extractor = HtmlExtractor()
     if request.include_pagination:
         result = extractor.extract_pagination_context(
@@ -539,8 +738,42 @@ def _run_llm_json_task(
     task_name: str,
     response_contract: str,
     system_suffix: str = "",
-    max_tokens: int = 8000,
+    max_tokens: int = 1500,
 ) -> AssistLlmResponse:
+    quality = {
+        "json_valid_first_pass": False,
+        "used_partial_recovery": False,
+        "used_repair_pass": False,
+        "used_semantic_retry": False,
+        "used_heuristic_fallback": False,
+        "semantic_empty_detected": False,
+    }
+
+    def _return_with_quality(result: AssistLlmResponse, error_code: str | None = None) -> AssistLlmResponse:
+        confidence = None
+        if isinstance(result.result, dict):
+            confidence = result.result.get("confidence")
+        elif isinstance(result.confidence, (int, float)):
+            confidence = result.confidence
+
+        _emit_assist_prompt_quality_metric(
+            task_name=task_name,
+            success=result.success,
+            user_prompt=user_prompt,
+            raw_output=result.raw or "",
+            model=result.model,
+            usage=result.usage if isinstance(result.usage, dict) else None,
+            confidence=confidence,
+            error_code=error_code,
+            json_valid_first_pass=quality["json_valid_first_pass"],
+            used_partial_recovery=quality["used_partial_recovery"],
+            used_repair_pass=quality["used_repair_pass"],
+            used_semantic_retry=quality["used_semantic_retry"],
+            used_heuristic_fallback=quality["used_heuristic_fallback"],
+            semantic_empty_detected=quality["semantic_empty_detected"],
+        )
+        return result
+
     audit_event(
         "assist_task_started",
         task_name=task_name,
@@ -560,18 +793,27 @@ def _run_llm_json_task(
     except Exception as error:
         logger.exception("Assist task failed before LLM response", extra={"task_name": task_name})
         audit_event("assist_task_exception", task_name=task_name, error=str(error))
-        return AssistLlmResponse(success=False, error=str(error))
+        return _return_with_quality(
+            AssistLlmResponse(success=False, error=str(error), raw=""),
+            error_code="assist_task_exception",
+        )
 
     if response.error:
         audit_event("assist_task_llm_error", task_name=task_name, error=response.error)
-        return AssistLlmResponse(success=False, error=response.error)
+        return _return_with_quality(
+            AssistLlmResponse(success=False, error=response.error, raw=response.content, model=response.model, usage=response.usage),
+            error_code="assist_task_llm_error",
+        )
 
     parsed = _extract_json_payload(response.content or "")
+    quality["json_valid_first_pass"] = parsed is not None
     if parsed is None:
         partial_recovery = recover_partial_pagination_json(response.content or "") if task_name == "analyze_pagination" else None
         if partial_recovery is not None:
+            quality["used_partial_recovery"] = True
             parsed = partial_recovery
         else:
+            quality["used_repair_pass"] = True
             repaired_payload, repair_response = _attempt_repair_json_payload(
                 client,
                 response.content or "",
@@ -590,12 +832,15 @@ def _run_llm_json_task(
                         key: int(response.usage.get(key, 0)) + int(repair_response.usage.get(key, 0))
                         for key in set(response.usage) | set(repair_response.usage)
                     }
-                return AssistLlmResponse(
-                    success=False,
-                    error="Model output was not valid JSON; expected a single JSON object only",
-                    raw=response.content,
-                    model=repair_response.model or response.model,
-                    usage=combined_usage,
+                return _return_with_quality(
+                    AssistLlmResponse(
+                        success=False,
+                        error="Model output was not valid JSON; expected a single JSON object only",
+                        raw=response.content,
+                        model=repair_response.model or response.model,
+                        usage=combined_usage,
+                    ),
+                    error_code="assist_task_invalid_json",
                 )
             parsed = repaired_payload
             if isinstance(response.usage, dict) and isinstance(getattr(repair_response, "usage", None), dict):
@@ -617,11 +862,14 @@ def _run_llm_json_task(
     )
 
     if is_semantically_empty_pagination_result(task_name, normalized) and has_pagination_evidence(user_prompt):
+        quality["semantic_empty_detected"] = True
         heuristic_result = recover_pagination_from_summary(user_prompt)
         if heuristic_result is not None:
             normalized = heuristic_result
+            quality["used_heuristic_fallback"] = True
             audit_event("assist_task_heuristic_fallback", task_name=task_name, recovered_result=normalized)
         else:
+            quality["used_semantic_retry"] = True
             retried_result, retry_response = _attempt_semantic_retry(
                 client,
                 user_prompt,
@@ -654,12 +902,15 @@ def _run_llm_json_task(
                     raw_output=response.content or "",
                     normalized_result=normalized,
                 )
-                return AssistLlmResponse(
-                    success=False,
-                    error="Pagination analysis returned a semantically empty result despite visible pagination evidence",
-                    raw=response.content,
-                    model=getattr(retry_response, "model", None) or response.model,
-                    usage=response.usage,
+                return _return_with_quality(
+                    AssistLlmResponse(
+                        success=False,
+                        error="Pagination analysis returned a semantically empty result despite visible pagination evidence",
+                        raw=response.content,
+                        model=getattr(retry_response, "model", None) or response.model,
+                        usage=response.usage,
+                    ),
+                    error_code="assist_task_semantic_empty",
                 )
 
     audit_event(
@@ -669,14 +920,16 @@ def _run_llm_json_task(
         model=response.model,
         usage=response.usage,
     )
-    return AssistLlmResponse(
-        success=True,
-        result=normalized,
-        confidence=float(normalized.get("confidence")) if isinstance(normalized.get("confidence"), (int, float)) else None,
-        reason=normalized.get("reason") if isinstance(normalized.get("reason"), str) else None,
-        raw=response.content,
-        model=response.model,
-        usage=response.usage,
+    return _return_with_quality(
+        AssistLlmResponse(
+            success=True,
+            result=normalized,
+            confidence=float(normalized.get("confidence")) if isinstance(normalized.get("confidence"), (int, float)) else None,
+            reason=normalized.get("reason") if isinstance(normalized.get("reason"), str) else None,
+            raw=response.content,
+            model=response.model,
+            usage=response.usage,
+        ),
     )
 
 
@@ -701,18 +954,60 @@ def optimize_selector(request: AssistLlmRequest) -> AssistLlmResponse:
 def analyze_pagination(request: AssistLlmRequest) -> AssistLlmResponse:
     # Pass only HTML evidence in user prompt; move analysis rules to system suffix.
     evidence_prompt = build_pagination_analysis_user_prompt(request.html_fragment)
-    return _run_llm_json_task(
+    response = _run_llm_json_task(
         evidence_prompt,
         task_name="analyze_pagination",
         response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
         system_suffix=PAGINATION_ANALYSIS_SYSTEM_RULES,
         max_tokens=4000,
     )
+    if not response.success or not isinstance(response.result, dict):
+        return response
 
+    next_selector = response.result.get("next_button_selector")
+    if not isinstance(next_selector, str) or not next_selector.strip():
+        return response
 
-def clean_data(request: AssistCleanDataRequest) -> AssistLlmResponse:
-    prompt = DATA_CLEANING_PROMPT.format(
-        raw_data=request.raw_data,
-        data_type=request.data_type,
+    session = _get_live_session_for_selector_validation(request.session_id)
+    if session is None:
+        return response
+
+    strategy = str(response.result.get("pagination_strategy") or "")
+    matched, normalized_selector, validation_reason = _validate_actionable_pagination_selector(session, strategy, next_selector)
+    if matched:
+        response.result["next_button_selector"] = normalized_selector
+        if normalized_selector != next_selector:
+            reason = str(response.result.get("reason") or "").strip()
+            suffix = "Normalized raw XPath to Playwright query syntax before validating it against the current page."
+            response.result["reason"] = f"{reason} {suffix}".strip()
+            response.reason = response.result["reason"]
+        return response
+
+    fallback = recover_pagination_from_summary(evidence_prompt)
+    if fallback:
+        fallback_selector = str(fallback.get("next_button_selector") or "").strip()
+        fallback_strategy = str(fallback.get("pagination_strategy") or strategy)
+        fallback_matched, normalized_fallback, fallback_reason = _validate_actionable_pagination_selector(session, fallback_strategy, fallback_selector)
+        if fallback_matched:
+            fallback["next_button_selector"] = normalized_fallback
+            fallback_reason = str(fallback.get("reason") or "").strip()
+            fallback["reason"] = (
+                f"{fallback_reason} Replaced the model selector because it was not precise enough for the current page session."
+            ).strip()
+            response.result = fallback
+            response.reason = fallback.get("reason")
+            response.confidence = float(fallback.get("confidence")) if isinstance(fallback.get("confidence"), (int, float)) else None
+            return response
+
+    return AssistLlmResponse(
+        success=True,
+        result=response.result,
+        confidence=response.confidence,
+        reason=response.reason,
+        raw=response.raw,
+        model=response.model,
+        usage=response.usage,
+        warnings=[
+            f"Pagination analysis produced a candidate selector, but it could not be validated as a single actionable control on the current page session. {validation_reason or 'Review the selector before applying it.'}"
+        ],
     )
-    return _run_llm_json_task(prompt, task_name="clean_data", response_contract=DATA_CLEANING_RESPONSE_CONTRACT)

@@ -57,6 +57,18 @@ class HtmlExtractor:
         """
         self.max_size = max_size or self.MAX_FRAGMENT_SIZE
 
+    @staticmethod
+    def _normalize_query_selector(selector: str) -> str:
+        normalized = (selector or "").strip()
+        if not normalized:
+            return ""
+        lowered = normalized.lower()
+        if lowered.startswith(("xpath=", "css=")):
+            return normalized
+        if normalized.startswith(("//", ".//", "(//", "(/")):
+            return f"xpath={normalized}"
+        return normalized
+
     def extract_item_container(self, page, item_selector: str, max_items: int = 3) -> HtmlExtractionResult:
         """Extract HTML from item containers.
 
@@ -69,7 +81,7 @@ class HtmlExtractor:
             HtmlExtractionResult with extracted HTML
         """
         try:
-            items = page.query_selector_all(item_selector)
+            items = page.query_selector_all(self._normalize_query_selector(item_selector))
             if not items:
                 return HtmlExtractionResult(html='', item_count=0)
 
@@ -114,7 +126,7 @@ class HtmlExtractor:
     def extract_pagination_context(self, page, item_selector: str, max_items: int = 3) -> HtmlExtractionResult:
         """Extract item samples plus the most likely pagination container."""
         try:
-            items = page.query_selector_all(item_selector)
+            items = page.query_selector_all(self._normalize_query_selector(item_selector))
             if not items:
                 return HtmlExtractionResult(html='', item_count=0)
 

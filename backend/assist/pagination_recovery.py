@@ -21,17 +21,18 @@ Identify the single actionable control that advances to the next page or loads m
    - The `next_button_selector` MUST be globally unambiguous and STABLE across different pages.
    - **STABILITY RULE**: Avoid using selectors that contain current page numbers, specific IDs, or href/src values that change when navigating (e.g., avoid `a[href*="p=2"]`, `li:nth-child(5)`, or `#page-link-24`).
    - Start from the closest stable ancestor of the next-page control (e.g. `nav.pagination`, `div.pager`, `ul.page-list`), then walk DOWN to the exact control element.
-   - **TEXT-BASED PREFERENCE**: If no unique class exists, use text-based selectors if the engine supports them, or specific attributes.
+   - **ATTR-BASED PREFERENCE**: If no unique class exists, prefer stable semantic attributes (`rel`, `aria-label`, `data-*`) over positional selectors.
    - Good examples:
        `nav.pagination > a.next`
        `div.kq-pager > a[rel="next"]`
        `ul.page-list > li.next > a`
-       `.news-pager a:has-text("下一页")`
+       `.news-pager a[aria-label*="next" i]`
        `.pagination a[aria-label*="next" i]`
    - Bad examples (STABILITY ISSUES):
        `a[href*="p=2"]` (Will only work for the second page)
        `.pager > a:nth-child(3)` (Index might change)
        `a.next` (Too broad, might match elsewhere)
+       `div.kq-pager > a` (Matches page-number buttons and next button together)
    - If the element has a `rel="next"` attribute, `aria-label` containing "next", or its text is exactly "下一页"/"next", use those attributes for a specific selector.
    - For `page_number_selectors`, also use ancestor-scoped paths: `nav.pagination > a.page-num`.
 
@@ -39,6 +40,7 @@ Identify the single actionable control that advances to the next page or loads m
 4. If evidence is weak, return 'none' with an empty selector and explain in 'reason'.
 5. If a PAGINATION_CONTROL_SUMMARY is provided, read the `class`, `parent_tag`, and `parent_class` fields to build the ancestor-scoped path.
 6. Account for Chinese text: 下一页 (next), 加载更多 (load more), 上一页 (previous).
+7. All selectors in output must be standard CSS selectors (no Playwright text locators, no XPath).
 """
 
 
@@ -62,8 +64,16 @@ _PARTIAL_JSON_STRING_FIELD_RE = {
     "reason": re.compile(r'"reason"\s*:\s*"((?:\\.|[^"\\])*)'),
 }
 _PARTIAL_JSON_CONFIDENCE_RE = re.compile(r'"confidence"\s*:\s*(-?\d+(?:\.\d+)?)')
-_PARTIAL_PAGE_SELECTOR_RE = re.compile(r'"page_number_selectors"\s*:\s*\[([^\]]*?)(?:\]|$)', re.DOTALL)
 _PARTIAL_QUOTED_STRING_RE = re.compile(r'"((?:\\.|[^"\\])*)"')
+_PARTIAL_PAGE_SELECTOR_START_RE = re.compile(r'"page_number_selectors"\s*:\s*\[', re.DOTALL)
+
+
+def _decode_partial_json_string(value: str) -> str:
+    try:
+        decoded = bytes(value, "utf-8").decode("unicode_escape")
+    except Exception:
+        decoded = value
+    return decoded.replace("\\'", "'")
 
 
 def _extract_html_section(section_name: str, html_fragment: str) -> str:
@@ -266,12 +276,7 @@ def recover_partial_pagination_json(raw_output: str) -> dict[str, Any] | None:
         if not match:
             continue
         raw_val = match.group(1)
-        try:
-            # Unescape JSON string content (e.g. \" -> ")
-            value = bytes(raw_val, "utf-8").decode("unicode_escape")
-        except Exception:
-            value = raw_val
-        
+        value = _decode_partial_json_string(raw_val)
         recovered[field_name] = value
         if field_name != "reason" and value:
             found_signal = True
@@ -284,10 +289,10 @@ def recover_partial_pagination_json(raw_output: str) -> dict[str, Any] | None:
         except ValueError:
             pass
 
-    page_match = _PARTIAL_PAGE_SELECTOR_RE.search(raw_output)
+    page_match = _PARTIAL_PAGE_SELECTOR_START_RE.search(raw_output)
     if page_match:
-        raw_array_tail = page_match.group(1)
-        page_values = [bytes(match.group(1), "utf-8").decode("unicode_escape") for match in _PARTIAL_QUOTED_STRING_RE.finditer(raw_array_tail)]
+        raw_array_tail = raw_output[page_match.end():]
+        page_values = [_decode_partial_json_string(match.group(1)) for match in _PARTIAL_QUOTED_STRING_RE.finditer(raw_array_tail)]
         if page_values:
             recovered["page_number_selectors"] = page_values
             found_signal = True

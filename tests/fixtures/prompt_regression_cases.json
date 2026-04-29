@@ -1,0 +1,41 @@
+[
+  {
+    "name": "infer_fields_missing_fields_array_is_normalized",
+    "task_name": "infer_fields",
+    "response_contract": "Return infer_fields JSON.",
+    "user_prompt": "Infer fields from HTML fragment.",
+    "model_output": "{\"item_selector\": \".item\", \"confidence\": 0.88, \"reason\": \"clear cards\"}",
+    "expected_success": true,
+    "expected_result": {
+      "item_selector": ".item",
+      "fields": [],
+      "confidence": 0.88,
+      "reason": "clear cards"
+    }
+  },
+  {
+    "name": "optimize_selector_wrapped_json_is_extracted",
+    "task_name": "optimize_selector",
+    "response_contract": "Return optimized_selector JSON.",
+    "user_prompt": "Optimize selector for this sample.",
+    "model_output": "分析结果如下：\\n{\"optimized_selector\": \"section.list > article.card\", \"confidence\": 0.91, \"reason\": \"stable scoped path\"}\\n以上。",
+    "expected_success": true,
+    "expected_result": {
+      "optimized_selector": "section.list > article.card",
+      "confidence": 0.91,
+      "reason": "stable scoped path"
+    }
+  },
+  {
+    "name": "analyze_pagination_semantic_empty_uses_summary_fallback",
+    "task_name": "analyze_pagination",
+    "response_contract": "Return pagination analysis JSON.",
+    "user_prompt": "HTML:\\n<!-- PAGINATION -->\\n<div class=\"pager\"><a rel=\"next\" href=\"/list?p=2\">下一页</a></div>\\n<!-- PAGINATION_CONTROL_SUMMARY -->\\n[1] | tag=a | text=下一页 | role_hint=next_candidate | href=/list?p=2 | rel=next | class=next",
+    "model_output": "{\"pagination_strategy\":\"none\",\"next_button_selector\":\"\",\"page_number_selectors\":[],\"item_selector\":\"\",\"confidence\":0.0,\"reason\":\"No raw model output provided; using defaults.\"}",
+    "expected_success": true,
+    "expected_result_subset": {
+      "pagination_strategy": "click_next",
+      "next_button_selector": "a[rel=\"next\"]"
+    }
+  }
+]
