@@ -24,6 +24,13 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 SUPPORTED_OUTPUT_MODES = {"memory", "json_file", "sqlite"}
 SUPPORTED_WRITE_MODES = {"append", "upsert"}
 SQLITE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SQLITE_METADATA_COLUMNS = {
+    "_identity_key": "TEXT PRIMARY KEY",
+    "_run_id": "TEXT",
+    "_source_url": "TEXT",
+    "_emitted_at": "TEXT",
+    "_record_hash": "TEXT",
+}
 
 
 class RecordSinkError(RuntimeError):
@@ -67,6 +74,7 @@ def emit_records(node_data: Any, records: list[dict[str, Any]], context: dict[st
         batch_size=batch_size,
         source_url=str(context.get("page_url") or ""),
         run_id=str(context.get("run_id") or ""),
+        planned_fields=normalize_planned_fields(context.get("planned_fields")),
     )
 
 
@@ -114,6 +122,23 @@ def normalize_sqlite_table(value: Any) -> str:
     if not SQLITE_IDENTIFIER_RE.fullmatch(name):
         raise RecordSinkError("sqlite_table must be a valid SQLite identifier using letters, numbers, and underscores only.")
     return name
+
+
+def normalize_planned_fields(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    planned_fields: list[str] = []
+    seen = set()
+    for raw in value:
+        if not isinstance(raw, str):
+            continue
+        field_name = raw.strip()
+        if not field_name or field_name in seen:
+            continue
+        seen.add(field_name)
+        planned_fields.append(field_name)
+    return planned_fields
 
 
 def resolve_output_path(raw_path: Any, default_relative_path: str) -> Path:
@@ -206,8 +231,13 @@ def write_sqlite_records(
     batch_size: int,
     source_url: str,
     run_id: str,
+    planned_fields: list[str] | None = None,
 ) -> dict[str, Any]:
-    if not records:
+    planned_fields = planned_fields or []
+    user_columns = sorted({key for record in records for key in record.keys() if isinstance(key, str) and key})
+    all_user_columns = sorted(set(user_columns) | set(dedupe_keys) | set(planned_fields))
+
+    if not records and not all_user_columns:
         return {
             "output_mode": "sqlite",
             "output_path": str(output_path),
@@ -217,9 +247,6 @@ def write_sqlite_records(
             "stored_count": 0,
         }
 
-    user_columns = sorted({key for record in records for key in record.keys() if isinstance(key, str) and key})
-    all_user_columns = sorted(set(user_columns) | set(dedupe_keys))
-
     with sqlite3.connect(output_path) as conn:
         conn.row_factory = sqlite3.Row
         ensure_sqlite_schema(
@@ -227,21 +254,20 @@ def write_sqlite_records(
             table_name=table_name,
             user_columns=all_user_columns,
             sample_records=records,
-            write_mode=write_mode,
-            dedupe_keys=dedupe_keys,
         )
 
-        for chunk in chunk_records(records, batch_size):
-            persist_sqlite_chunk(
-                conn,
-                table_name=table_name,
-                user_columns=all_user_columns,
-                records=chunk,
-                write_mode=write_mode,
-                dedupe_keys=dedupe_keys,
-                source_url=source_url,
-                run_id=run_id,
-            )
+        if records:
+            for chunk in chunk_records(records, batch_size):
+                persist_sqlite_chunk(
+                    conn,
+                    table_name=table_name,
+                    user_columns=all_user_columns,
+                    records=chunk,
+                    write_mode=write_mode,
+                    dedupe_keys=dedupe_keys,
+                    source_url=source_url,
+                    run_id=run_id,
+                )
         stored_count = count_sqlite_rows(conn, table_name)
 
     return {
@@ -260,31 +286,22 @@ def ensure_sqlite_schema(
     table_name: str,
     user_columns: list[str],
     sample_records: list[dict[str, Any]],
-    write_mode: str,
-    dedupe_keys: list[str],
 ) -> None:
-    metadata_columns = {
-        "identity_key": "TEXT PRIMARY KEY",
-        "run_id": "TEXT",
-        "source_url": "TEXT",
-        "created_at": "TEXT",
-        "record_hash": "TEXT",
-    }
     column_types = {column: infer_sqlite_affinity(column, sample_records) for column in user_columns}
     existing = get_existing_columns(conn, table_name)
 
     if not existing:
         column_defs = [f'{quote_ident(column)} {affinity}' for column, affinity in column_types.items()]
-        column_defs.extend(f'{quote_ident(column)} {affinity}' for column, affinity in metadata_columns.items())
+        column_defs.extend(f'{quote_ident(column)} {affinity}' for column, affinity in SQLITE_METADATA_COLUMNS.items())
         conn.execute(f'CREATE TABLE IF NOT EXISTS {quote_ident(table_name)} ({", ".join(column_defs)})')
         existing = get_existing_columns(conn, table_name)
 
-    for column, affinity in {**column_types, **metadata_columns}.items():
+    for column, affinity in {**column_types, **SQLITE_METADATA_COLUMNS}.items():
         if column in existing:
             continue
         conn.execute(f'ALTER TABLE {quote_ident(table_name)} ADD COLUMN {quote_ident(column)} {affinity}')
 
-    # Primary key already acts as unique index for identity_key
+    # Primary key already acts as unique index for _identity_key.
     conn.commit()
 
 
@@ -322,14 +339,14 @@ def persist_sqlite_chunk(
     source_url: str,
     run_id: str,
 ) -> None:
-    metadata_columns = ["identity_key", "run_id", "source_url", "created_at", "record_hash"]
+    metadata_columns = list(SQLITE_METADATA_COLUMNS.keys())
     all_columns = [*user_columns, *metadata_columns]
     placeholders = ", ".join("?" for _ in all_columns)
     columns_sql = ", ".join(quote_ident(column) for column in all_columns)
 
     sql = f'INSERT INTO {quote_ident(table_name)} ({columns_sql}) VALUES ({placeholders})'
     if write_mode == "upsert":
-        conflict_columns = ["_sea_identity_key"]
+        conflict_columns = ["_identity_key"]
         update_columns = [column for column in all_columns if column not in conflict_columns]
         if update_columns:
             updates_sql = ", ".join(f'{quote_ident(column)} = excluded.{quote_ident(column)}' for column in update_columns)

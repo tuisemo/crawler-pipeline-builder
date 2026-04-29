@@ -2,14 +2,12 @@ import { useState, type Dispatch, type SetStateAction } from 'react'
 import { postAssistAction } from '../services/workflowApi'
 import { getErrorMessage, type WorkflowNode } from '../workflowState'
 import type { ExtractionField, WorkflowNodeData } from '../workflowContracts'
-import { inferCleanDataType } from '../workbenchDefaults'
 
 export type AssistActionKey =
   | 'auto-detect'
   | 'optimize-selector'
   | 'infer-fields'
   | 'analyze-pagination'
-  | 'clean-data'
   | 'test-selector'
   | null
 
@@ -26,7 +24,6 @@ type UseAssistWorkbenchActionsArgs = {
   selectedNode: WorkflowNode | null
   setNodes: Dispatch<SetStateAction<WorkflowNode[]>>
   updateSelectedNodeData: (patch: Partial<WorkflowNodeData>) => void
-  updateExtractField: (index: number, patch: Partial<ExtractionField>) => void
   notify: AssistNotifier
 }
 
@@ -56,7 +53,6 @@ export function useAssistWorkbenchActions({
   selectedNode,
   setNodes,
   updateSelectedNodeData,
-  updateExtractField,
   notify,
 }: UseAssistWorkbenchActionsArgs) {
   const [assistBusyAction, setAssistBusyAction] = useState<AssistActionKey>(null)
@@ -266,6 +262,9 @@ export function useAssistWorkbenchActions({
       }))
       const analyzeError = normalizeAssistError(analyzeResult.payload, analyzeResult.response.ok)
       if (analyzeError) throw new Error(analyzeError)
+      const analyzeWarnings = Array.isArray(analyzeResult.envelope.warnings)
+        ? analyzeResult.envelope.warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        : []
       const analyzePayload = analyzeResult.payload as Record<string, unknown>
       const result = (analyzePayload.result && typeof analyzePayload.result === 'object') ? analyzePayload.result as Record<string, unknown> : {}
       const paginationStrategy = typeof result.pagination_strategy === 'string' ? result.pagination_strategy : ''
@@ -288,7 +287,11 @@ export function useAssistWorkbenchActions({
           })
         })
       }
-      notify.success('分页策略分析结果已应用')
+      if (analyzeWarnings.length > 0) {
+        notify.warning(analyzeWarnings[0])
+      } else {
+        notify.success('分页策略分析结果已应用')
+      }
     })
   }
 
@@ -297,64 +300,27 @@ export function useAssistWorkbenchActions({
       const normalizedSelector = selector.trim()
       if (!normalizedSelector) throw new Error(`请先填写${selectorLabel}`)
       const entryUrl = getEntryUrl()
-      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
-        item_selector: normalizedSelector,
+      const testResult = await postAssistAction('/api/assist/test-selector', withAssistSession({
+        selector: normalizedSelector,
         url: entryUrl || undefined,
+        clear_after_ms: 2200,
       }))
-      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
-      if (extractError) throw new Error(extractError)
-      syncAssistSession(extractResult.payload)
+      const testError = normalizeAssistError(testResult.payload, testResult.response.ok)
+      if (testError) throw new Error(testError)
+      syncAssistSession(testResult.payload)
 
-      const payload = extractResult.payload as Record<string, unknown>
-      const metadata = payload.metadata && typeof payload.metadata === 'object'
-        ? payload.metadata as Record<string, unknown>
+      const payload = testResult.payload as Record<string, unknown>
+      const result = payload.result && typeof payload.result === 'object'
+        ? payload.result as Record<string, unknown>
         : {}
-      const itemCount = typeof metadata.item_count === 'number' ? metadata.item_count : 0
-      const truncated = metadata.truncated === true
-      if (itemCount <= 0) {
+      const matchCount = typeof result.match_count === 'number' ? result.match_count : 0
+      const highlightedCount = typeof result.highlighted_count === 'number' ? result.highlighted_count : matchCount
+      const clearAfterMs = typeof result.clear_after_ms === 'number' ? result.clear_after_ms : 2200
+      if (matchCount <= 0) {
         notify.warning(`${selectorLabel}测试完成：未匹配到元素，请检查选择器。`)
         return
       }
-      const suffix = truncated ? '（片段已裁剪）' : ''
-      notify.success(`${selectorLabel}测试通过：匹配 ${itemCount} 个元素${suffix}`)
-    })
-  }
-
-  function handleCleanExtractField(index: number) {
-    runWithAssistLock('clean-data', async () => {
-      if (!selectedNode || selectedNode.type !== 'extract_field') return
-      const field = selectedNode.data.fields?.[index]
-      if (!field) throw new Error('字段不存在')
-      const rawData = typeof field.sample_value === 'string' ? field.sample_value.trim() : ''
-      if (!rawData) throw new Error('请先填写样例原始值')
-      const cleanType = typeof field.clean_data_type === 'string' && field.clean_data_type.trim()
-        ? field.clean_data_type.trim()
-        : inferCleanDataType(field)
-
-      const cleanResult = await postAssistAction('/api/assist/clean-data', withAssistSession({
-        raw_data: rawData,
-        data_type: cleanType,
-      }))
-      const cleanError = normalizeAssistError(cleanResult.payload, cleanResult.response.ok)
-      if (cleanError) throw new Error(cleanError)
-
-      const payload = cleanResult.payload as Record<string, unknown>
-      const result = (payload.result && typeof payload.result === 'object') ? payload.result as Record<string, unknown> : {}
-      if (!Object.prototype.hasOwnProperty.call(result, 'cleaned_value')) {
-        throw new Error('模型未返回 cleaned_value')
-      }
-      const cleanedValue = result.cleaned_value
-      const normalized = typeof cleanedValue === 'string'
-        ? cleanedValue
-        : cleanedValue === null || cleanedValue === undefined
-          ? ''
-          : JSON.stringify(cleanedValue)
-
-      updateExtractField(index, {
-        clean_data_type: cleanType,
-        normalized_sample: normalized,
-      })
-      notify.success('样例值已清洗并回填')
+      notify.success(`${selectorLabel}测试通过：匹配 ${matchCount} 个元素，已临时高亮 ${highlightedCount} 个元素，约 ${Math.round(clearAfterMs / 100) / 10} 秒后自动恢复。`)
     })
   }
 
@@ -367,6 +333,5 @@ export function useAssistWorkbenchActions({
     handleInferExtractFields,
     handleAnalyzePagination,
     handleTestSelector,
-    handleCleanExtractField,
   }
 }

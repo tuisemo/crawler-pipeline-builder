@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from server import app
-from backend.workflow_schemas import AssistLlmResponse, AutoDetectResponse
+from backend.workflow_schemas import AssistLlmResponse, AssistSelectorTestResponse, AutoDetectResponse
 
 client = TestClient(app)
 
@@ -271,6 +271,64 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
     assert "Deterministic Skeleton (Reference Base)" in data["prompt"]
     assert data["generation_mode"] == "lite"
     assert data["generation_trace"][0]["stage"] == "draft_generation"
+    assert data.get("sandbox_result") is None
+
+
+def test_run_script_sandbox_endpoint(monkeypatch, tmp_path):
+    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+
+    response = client.post("/api/workflows/run-script-sandbox", json={
+        "script": "print('sandbox ok')",
+        "filename": "manual.py",
+        "timeout_seconds": 5,
+    })
+
+    data = response_data(response)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert data["sandbox_result"]["success"] is True
+    assert data["sandbox_result"]["backend"] == "subprocess"
+    assert "sandbox ok" in data["sandbox_result"]["stdout_tail"]
+    assert Path(data["sandbox_result"]["log_path"]).exists()
+
+
+def test_run_script_sandbox_endpoint_exposes_sandbox_runtime_env(monkeypatch, tmp_path):
+    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+
+    response = client.post("/api/workflows/run-script-sandbox", json={
+        "script": (
+            "import os\n"
+            "print(os.environ.get('CRAWLER_SANDBOX_MODE'))\n"
+            "print(os.environ.get('CRAWLER_SANDBOX_TIMEOUT_SECONDS'))\n"
+        ),
+        "filename": "env.py",
+        "timeout_seconds": 5,
+    })
+
+    data = response_data(response)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert data["sandbox_result"]["success"] is True
+    assert "1" in data["sandbox_result"]["stdout_tail"]
+    assert "5" in data["sandbox_result"]["stdout_tail"]
+
+
+def test_run_script_sandbox_endpoint_reports_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+
+    response = client.post("/api/workflows/run-script-sandbox", json={
+        "script": "import time\ntime.sleep(2)\n",
+        "filename": "sleep.py",
+        "timeout_seconds": 1,
+    })
+
+    data = response_data(response)
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert data["sandbox_result"]["success"] is False
+    assert data["sandbox_result"]["timed_out"] is True
+    assert data["sandbox_result"]["exit_code"] is None
+    assert data["sandbox_result"]["error"] == "Script sandbox timed out after 1 seconds"
 
 
 def test_generate_skeleton_missing_graph():
@@ -300,7 +358,7 @@ def test_generate_skeleton_valid():
                 {
                     "id": "n3",
                     "type": "extract_field",
-                    "data": {"fields": [{"name": "title", "selector": "h1", "type": "text", "clean_data_type": "text"}]},
+                    "data": {"fields": [{"name": "title", "selector": "h1", "type": "text"}]},
                 },
             ],
             "edges": [
@@ -315,7 +373,7 @@ def test_generate_skeleton_valid():
     assert data["filename"] == "crawler_skeleton.py"
     assert "sync_playwright" in data["script"]
     assert "ENTRY_URL = 'http://example.com'" in data["script"]
-    assert "NORMALIZATION_RULES" in data["script"]
+    assert "FIELD_SPECS" in data["script"]
 
 
 def test_format_script_endpoint_returns_formatted_content():
@@ -370,7 +428,7 @@ def test_compile_plan_valid():
         "graph": {
             "nodes": [
                 {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
-                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item", "max_items": 3}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
                 {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1", "type": "text"}]}},
                 {"id": "n4", "type": "condition", "data": {"condition": "not_exists title", "expression_mode": "simple"}},
             ],
@@ -387,7 +445,7 @@ def test_compile_plan_valid():
     assert response.json()["success"] is True
     assert data["plan"]["entry_url"] == "http://example.com"
     assert data["plan"]["item_selector"] == ".item"
-    assert data["plan"]["limits"]["max_items"] == 3
+    assert "max_items" not in data["plan"]["limits"]
     assert data["plan"]["field_specs"][0]["name"] == "title"
     assert any(edge["branch"] == "true" for edge in data["plan"]["edges"])
 
@@ -507,29 +565,61 @@ def test_assist_extract_html_can_include_pagination_context(monkeypatch):
     assert "kq-pager" in payload["html_fragment"]
 
 
-def test_assist_clean_data_requires_raw_data_and_type():
-    response = client.post("/api/assist/clean-data", json={})
-    assert response.status_code == 422
-
-
-def test_assist_clean_data_success(monkeypatch):
-    def fake_clean_data(_request):
-        return AssistLlmResponse(
+def test_assist_test_selector_returns_highlight_metadata(monkeypatch):
+    def fake_test_selector(_request):
+        return AssistSelectorTestResponse(
             success=True,
-            result={"cleaned_value": 12000, "confidence": 0.91},
-            reason="normalized count suffix",
+            session_id="session-1",
+            result={
+                "match_count": 3,
+                "highlighted_count": 3,
+                "clear_after_ms": 2200,
+                "sample_items": [{"text": "item-1"}],
+            },
         )
 
-    monkeypatch.setattr("backend.assist_routes.clean_data", fake_clean_data)
+    monkeypatch.setattr("backend.assist_routes.run_selector_test", fake_test_selector)
 
-    response = client.post("/api/assist/clean-data", json={
-        "raw_data": "1.2万条评论",
-        "data_type": "count",
+    response = client.post("/api/assist/test-selector", json={
+        "selector": ".item",
+        "session_id": "session-1",
     })
     assert response.status_code == 200
     payload = response_data(response)
     assert response.json()["success"] is True
-    assert payload["result"]["cleaned_value"] == 12000
+    assert payload["session_id"] == "session-1"
+    assert payload["result"]["match_count"] == 3
+    assert payload["result"]["highlighted_count"] == 3
+
+
+def test_assist_analyze_pagination_surfaces_warnings_without_400(monkeypatch):
+    def fake_analyze_pagination(_request):
+        return AssistLlmResponse(
+            success=True,
+            result={
+                "pagination_strategy": "click_next",
+                "next_button_selector": ".candidate-next",
+                "page_number_selectors": [],
+                "item_selector": "",
+                "confidence": 0.58,
+                "reason": "candidate only",
+            },
+            warnings=["Pagination analysis produced a candidate selector, but it could not be validated against the current page session. Review the selector before applying it."],
+        )
+
+    monkeypatch.setattr("backend.assist_routes.analyze_pagination", fake_analyze_pagination)
+
+    response = client.post("/api/assist/analyze-pagination", json={
+        "html_fragment": "<div class='pager'><a class='next'>下一页</a></div>",
+        "session_id": "s1",
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    payload = response_data(response)
+    assert body["success"] is True
+    assert body["warnings"]
+    assert payload["result"]["next_button_selector"] == ".candidate-next"
 
 
 def test_full_flow_from_legacy_to_compile_and_skeleton():
@@ -541,6 +631,7 @@ def test_full_flow_from_legacy_to_compile_and_skeleton():
                 "name": "price",
                 "selector": ".price",
                 "type": "text",
+                "sample_value": "$1,234.56",
                 "clean_data_type": "price",
                 "normalized_sample": "1234.56",
             }
@@ -553,6 +644,11 @@ def test_full_flow_from_legacy_to_compile_and_skeleton():
     legacy_payload = response_data(legacy)
     assert legacy.json()["success"] is True
     graph = legacy_payload["graph"]
+    assert graph["nodes"][2]["data"]["fields"][0] == {
+        "name": "price",
+        "selector": ".price",
+        "type": "text",
+    }
 
     validate = client.post("/api/workflows/validate", json={"graph": graph})
     assert validate.status_code == 200
@@ -562,13 +658,17 @@ def test_full_flow_from_legacy_to_compile_and_skeleton():
     assert compile_resp.status_code == 200
     compile_payload = response_data(compile_resp)
     assert compile_resp.json()["success"] is True
-    assert compile_payload["plan"]["field_specs"][0]["clean_data_type"] == "price"
+    assert compile_payload["plan"]["field_specs"][0] == {
+        "name": "price",
+        "selector": ".price",
+        "type": "text",
+    }
 
     skeleton_resp = client.post("/api/workflows/generate-skeleton", json={"graph": graph})
     assert skeleton_resp.status_code == 200
     skeleton_payload = response_data(skeleton_resp)
     assert skeleton_resp.json()["success"] is True
-    assert "normalize_value" in skeleton_payload["script"]
+    assert "normalize_value" not in skeleton_payload["script"]
 
 
 # ----------------------------------------------------------------------
@@ -674,8 +774,6 @@ def test_validate_accepts_structural_graph_with_extra_supported_node_data():
                     "pagination_strategy": "click_next",
                     "max_pages": 2,
                     "html_fragment": "<div></div>",
-                    "max_items": 3,
-                    "max_steps": 4,
                     "future_option": "accepted",
                 },
             },

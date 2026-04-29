@@ -24,7 +24,7 @@
 - 生成确定性的 Python Playwright 骨架脚本（generate skeleton）
 - 通过 LLM 生成完整脚本（generate crawler）
 - 在后端浏览器会话中执行 `test-node` / `test-subflow`
-- 提供 `auto-detect`、`extract-html`、`infer-fields`、`optimize-selector`、`analyze-pagination`、`clean-data` 六类辅助能力
+- 提供 `auto-detect`、`extract-html`、`infer-fields`、`optimize-selector`、`analyze-pagination` 五类辅助能力
 - 支持将 `emit_record` 输出到内存、JSON 文件或 SQLite
 - 支持在前端结果区编辑、格式化、保存脚本
 - 支持保存提示词草稿到浏览器本地存储
@@ -132,15 +132,11 @@ flowchart LR
   - `name` / `field_name`
   - `selector` / `css`
   - `type` / `extraction_type`
-  - `sample_value`
-  - `clean_data_type`
-  - `normalized_sample`
 - `html_fragment`
 
 配套辅助动作：
 
 - AI 推断字段
-- 对每个字段执行样例值清洗
 
 当前常见 `type` 值：
 
@@ -243,7 +239,6 @@ gt price 0
 | AI 推断字段 | `/api/assist/infer-fields` | 让模型返回字段列表 |
 | 优化选择器 | `/api/assist/optimize-selector` | 让模型返回优化后的 CSS 选择器 |
 | 分析分页 | `/api/assist/analyze-pagination` | 让模型判断分页策略和 next selector |
-| 清洗样例值 | `/api/assist/clean-data` | 把样例值标准化成结构化值 |
 
 ## 8. 脚本生成链路
 

@@ -9,16 +9,17 @@ export type WorkflowActionPath =
   | '/api/workflows/compile-plan'
   | '/api/workflows/generate-skeleton'
   | '/api/workflows/generate-crawler'
+  | '/api/workflows/run-script-sandbox'
   | '/api/workflows/format-script'
   | '/api/workflows/save-script'
 
 export type AssistActionPath =
   | '/api/assist/auto-detect'
   | '/api/assist/extract-html'
+  | '/api/assist/test-selector'
   | '/api/assist/infer-fields'
   | '/api/assist/optimize-selector'
   | '/api/assist/analyze-pagination'
-  | '/api/assist/clean-data'
 
 export type WorkflowActionResponse = {
   response: Response

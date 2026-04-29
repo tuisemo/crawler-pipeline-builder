@@ -28,7 +28,6 @@ type ExtractFieldEditorProps = {
   addExtractField: () => void
   removeExtractField: (index: number) => void
   onInferExtractFields: () => void
-  onCleanExtractField: (index: number) => void
   onTestSelector: (selector: string, selectorLabel: string) => void
 }
 
@@ -41,7 +40,6 @@ export function ExtractFieldEditor({
   addExtractField,
   removeExtractField,
   onInferExtractFields,
-  onCleanExtractField,
   onTestSelector,
 }: ExtractFieldEditorProps) {
   return (
@@ -61,6 +59,9 @@ export function ExtractFieldEditor({
         const hasMissingName = fieldValidation.missingNameIndexes.has(index)
         const hasMissingSelector = fieldValidation.missingSelectorIndexes.has(index)
         const hasDuplicateName = fieldValidation.duplicateNameIndexes.has(index)
+        const fieldName = typeof field.name === 'string' ? field.name : typeof field.field_name === 'string' ? field.field_name : ''
+        const fieldType = typeof field.type === 'string' ? field.type : typeof field.extraction_type === 'string' ? field.extraction_type : 'text'
+        const fieldSelector = typeof field.selector === 'string' ? field.selector : typeof field.css === 'string' ? field.css : ''
         return (
           <Card key={`${selectedNode.id}-field-${index}`} size="small" style={{ marginBottom: 8, background: '#f8fafc', border: '1px solid #e5edf6' }}>
             <Space orientation="vertical" size={6} style={{ width: '100%' }}>
@@ -68,12 +69,12 @@ export function ExtractFieldEditor({
                 <Input
                   placeholder="字段名"
                   status={hasMissingName || hasDuplicateName ? 'error' : undefined}
-                  value={field.name}
+                  value={fieldName}
                   style={{ flex: 1 }}
                   onChange={(e) => updateExtractField(index, { name: e.target.value })}
                 />
                 <Select
-                  value={field.type}
+                  value={fieldType}
                   style={{ width: 140 }}
                   options={EXTRACTION_TYPES}
                   onChange={(val) => updateExtractField(index, { type: val })}
@@ -90,7 +91,7 @@ export function ExtractFieldEditor({
               <Input.TextArea
                 placeholder="多层级选择器路径 (例如: div > a.title)"
                 status={hasMissingSelector ? 'error' : undefined}
-                value={field.selector}
+                value={fieldSelector}
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 style={{ width: '100%' }}
                 onChange={(e) => updateExtractField(index, { selector: e.target.value })}
@@ -99,34 +100,14 @@ export function ExtractFieldEditor({
               {hasDuplicateName ? <Typography.Text type="danger" style={{ fontSize: 11 }}>字段名重复，结果会被覆盖。</Typography.Text> : null}
               {hasMissingSelector ? <Typography.Text type="danger" style={{ fontSize: 11 }}>选择器不能为空。</Typography.Text> : null}
               <Space size={6} style={{ width: '100%' }}>
-                <Input
-                  placeholder="样例原始值（用于 AI 清洗）"
-                  value={typeof field.sample_value === 'string' ? field.sample_value : ''}
-                  style={{ flex: 1.6 }}
-                  onChange={(e) => updateExtractField(index, { sample_value: e.target.value })}
-                />
-                <Input
-                  placeholder="清洗类型（可选）"
-                  value={typeof field.clean_data_type === 'string' ? field.clean_data_type : ''}
-                  style={{ flex: 1 }}
-                  onChange={(e) => updateExtractField(index, { clean_data_type: e.target.value })}
-                />
-                <Button size="small" loading={assistBusyAction === 'clean-data'} onClick={() => onCleanExtractField(index)}>
-                  AI 清洗
-                </Button>
                 <Button
                   size="small"
                   loading={assistBusyAction === 'test-selector'}
-                  onClick={() => onTestSelector(String(field.selector ?? ''), `字段 ${field.name || index + 1} 选择器`)}
+                  onClick={() => onTestSelector(fieldSelector, `字段 ${fieldName || index + 1} 选择器`)}
                 >
                   测试
                 </Button>
               </Space>
-              <Input
-                placeholder="清洗结果"
-                value={typeof field.normalized_sample === 'string' ? field.normalized_sample : ''}
-                readOnly
-              />
             </Space>
           </Card>
         )

@@ -17,9 +17,6 @@ export type ExtractionField = {
   css?: string
   type?: string
   extraction_type?: string
-  sample_value?: string
-  normalized_sample?: string
-  clean_data_type?: string
   [key: string]: unknown
 }
 
@@ -27,11 +24,8 @@ export type WorkflowNodeData = {
   label?: string
   // open_page
   url?: string
-  max_pages?: number
-  max_steps?: number
   // select_list
   item_selector?: string
-  max_items?: number
   // loop
   on_error?: 'skip' | 'stop'
   // extract_field

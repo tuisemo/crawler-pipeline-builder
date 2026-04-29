@@ -37,8 +37,6 @@ from backend.workflow_services import (
     PromptGenerationError,
     ScriptPersistenceError,
 )
-from backend.assist_services import clean_data
-from backend.workflow_schemas import AssistCleanDataRequest, AssistLlmResponse
 
 
 def make_test_workspace(name: str) -> Path:
@@ -285,9 +283,6 @@ def test_graph_to_prompt_includes_html_and_field_samples():
                                 "name": "price",
                                 "selector": ".price",
                                 "type": "text",
-                                "clean_data_type": "price",
-                                "normalized_sample": "12.34",
-                                "sample_value": "$12.34",
                             }
                         ],
                     ),
@@ -302,8 +297,26 @@ def test_graph_to_prompt_includes_html_and_field_samples():
     assert result["success"] is True
     assert "Page Evidence (HTML Sample)" in result["prompt"]
     assert "<article class='item'>" in result["prompt"]
-    assert "normalize as `price`" in result["prompt"]
-    assert "expected normalized sample: `12.34`" in result["prompt"]
+    assert "`price` from `.price` as `text`" in result["prompt"]
+
+
+def test_graph_to_prompt_strips_deprecated_max_steps_from_plan_and_prompt():
+    request = ToPromptRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData.model_validate({"url": "http://example.com", "max_steps": 12})),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = graph_to_prompt(request)
+
+    assert "max_steps" not in result["effective_prompt"]
+    assert "max_steps" not in result["prompt"]
+    assert "max_steps" not in result["plan"]["limits"]
 
 
 def test_graph_to_prompt_raises_on_missing_url():
@@ -340,12 +353,12 @@ def test_compile_plan_returns_deterministic_plan():
     request = CompilePlanRequest(
         graph=WorkflowGraph(
             nodes=[
-                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com", max_steps=12)),
-                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item", max_items=4)),
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
                 WorkflowNode(
                     id="n3",
                     type="extract_field",
-                    data=NodeData(fields=[{"name": "title", "selector": "h1", "clean_data_type": "text"}]),
+                    data=NodeData(fields=[{"name": "title", "selector": "h1", "type": "text"}]),
                 ),
             ],
             edges=[
@@ -358,18 +371,17 @@ def test_compile_plan_returns_deterministic_plan():
     assert result.success is True
     assert result.plan["entry_url"] == "http://example.com"
     assert result.plan["item_selector"] == ".item"
-    assert result.plan["limits"]["max_items"] == 4
-    assert result.plan["limits"]["max_steps"] == 12
+    assert "max_items" not in result.plan["limits"]
     assert result.plan["field_specs"][0]["name"] == "title"
-    assert result.plan["field_specs"][0]["clean_data_type"] == "text"
+    assert result.plan["field_specs"][0]["type"] == "text"
 
 
-def test_compile_plan_uses_explicit_max_items_instead_of_default():
+def test_compile_plan_removes_deprecated_max_items_limit():
     request = CompilePlanRequest(
         graph=WorkflowGraph(
             nodes=[
                 WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
-                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item", max_items=13020)),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
                 WorkflowNode(
                     id="n3",
                     type="extract_field",
@@ -384,7 +396,7 @@ def test_compile_plan_uses_explicit_max_items_instead_of_default():
     )
     result = compile_plan(request)
     assert result.success is True
-    assert result.plan["limits"]["max_items"] == 13020
+    assert "max_items" not in result.plan["limits"]
 
 
 def test_compile_plan_includes_emit_record_output_config():
@@ -533,6 +545,36 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
     assert captured_calls[0]["kwargs"]["request_name"] == "workflow_generate_crawler_draft"
     assert result.editable_prompt == "Use robust retries and export newline-delimited JSON."
     assert "Use robust retries and export newline-delimited JSON." in generation_prompt
+    assert "max_tokens" not in captured_calls[0]["kwargs"]
+
+
+def test_generate_crawler_strips_deprecated_max_steps_from_generation_prompt(monkeypatch):
+    captured_calls = []
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
+            return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData.model_validate({"url": "http://example.com", "max_steps": 99})),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+    generation_prompt = captured_calls[0]["user"]
+
+    assert result.success is True
+    assert "max_steps" not in captured_calls[0]["user"]
     assert "Execution Plan (Deterministic)" in generation_prompt
     assert "Output Strategy (In-Memory)" in generation_prompt
     assert "Non-Negotiable Implementation Guardrails" in generation_prompt
@@ -691,6 +733,131 @@ def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
     assert result.warnings == ["Draft generation reached the model token limit; the returned content may be truncated."]
 
 
+def test_generate_crawler_fails_when_length_stop_returns_empty_script(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(
+                content="",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+                finish_reason="length",
+            )
+
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is False
+    assert result.error == "Draft generation returned empty content after hitting the model token limit."
+    assert result.warnings == ["Draft generation reached the model token limit; the returned content may be truncated."]
+
+
+def test_generate_crawler_rejects_elementhandle_locator_usage(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(
+                content="for item in items:\n    title = item.locator('.title').inner_text()\n",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": ".title"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is False
+    assert result.error == "Draft generation produced Playwright-incompatible ElementHandle locator usage."
+    assert any("item.locator(...)" in warning for warning in result.warnings)
+
+
+def test_generate_crawler_records_sandbox_failure(monkeypatch, tmp_path):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(
+                content="raise RuntimeError('sandbox boom')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        ),
+        run_sandbox=True,
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert result.sandbox_result is not None
+    assert result.sandbox_result["success"] is False
+    assert result.sandbox_result["exit_code"] != 0
+    assert "sandbox boom" in result.sandbox_result["stderr_tail"]
+    assert any("Script sandbox failed" in warning for warning in result.warnings)
+    assert Path(result.sandbox_result["log_path"]).exists()
+    assert "sandbox_completed" in Path(result.sandbox_result["log_path"]).read_text(encoding="utf-8")
+
+
+def test_generate_crawler_can_skip_sandbox(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm_client import LLMResponse
+            return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
+
+    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        ),
+        run_sandbox=False,
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert result.sandbox_result is None
+    assert not any(item.get("stage") == "script_sandbox" for item in result.generation_trace or [])
+
+
 def test_generate_skeleton_returns_script_with_required_input():
     request = GenerateSkeletonRequest(
         graph=WorkflowGraph(
@@ -745,8 +912,27 @@ def test_generate_skeleton_embeds_sqlite_output_config():
     assert "OUTPUT_SQLITE_PATH = 'output/products.db'" in result.script
     assert "OUTPUT_SQLITE_TABLE = 'products'" in result.script
     assert "DEDUPE_KEYS = [" in result.script
-    assert "_sea_identity_key" in result.script
+    assert "_identity_key" in result.script
     assert 'ON CONFLICT ({", ".join(quote_ident(column) for column in conflict_columns)})' in result.script
+
+
+def test_generate_skeleton_strips_deprecated_max_steps_from_output():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData.model_validate({"url": "http://example.com", "max_steps": 99})),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert "max_steps" not in result.script
+    assert "max_steps" not in result.plan["limits"]
 
 
 def test_generate_skeleton_uses_aligned_default_json_output_path():
@@ -770,6 +956,57 @@ def test_generate_skeleton_uses_aligned_default_json_output_path():
 
     assert result.success is True
     assert "OUTPUT_JSON_FILE = 'output/crawler_output.json'" in result.script
+
+
+def test_generate_skeleton_adapts_timeouts_for_sandbox_runs():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert 'SANDBOX_HEADLESS = os.environ.get("CRAWLER_SANDBOX_MODE") == "1"' in result.script
+    assert 'SANDBOX_TIMEOUT_SECONDS = int(os.environ.get("CRAWLER_SANDBOX_TIMEOUT_SECONDS", "0") or 0)' in result.script
+    assert 'SANDBOX_DEADLINE = time.monotonic() + SANDBOX_TIMEOUT_SECONDS if SANDBOX_TIMEOUT_SECONDS > 0 else None' in result.script
+    assert 'page.goto(ENTRY_URL, wait_until="domcontentloaded", timeout=remaining_timeout_ms(30000, reserve_seconds=5))' in result.script
+    assert 'page.goto(ENTRY_URL, wait_until="load", timeout=remaining_timeout_ms(45000, reserve_seconds=2))' in result.script
+    assert 'next_button.scroll_into_view_if_needed(timeout=remaining_timeout_ms(3000, reserve_seconds=3))' in result.script
+    assert 'next_button.click(timeout=remaining_timeout_ms(5000, reserve_seconds=3))' in result.script
+    assert 'page.wait_for_load_state("domcontentloaded", timeout=remaining_timeout_ms(10000, reserve_seconds=3))' in result.script
+
+
+def test_generate_skeleton_clamps_timeouts_with_small_sandbox_budget(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+    monkeypatch.setenv("CRAWLER_SANDBOX_MODE", "1")
+    monkeypatch.setenv("CRAWLER_SANDBOX_TIMEOUT_SECONDS", "5")
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "sandbox_probe"}
+    exec(result.script, namespace)
+
+    assert result.success is True
+    remaining_timeout_ms = namespace["remaining_timeout_ms"]
+    assert callable(remaining_timeout_ms)
+    assert remaining_timeout_ms(30000, reserve_seconds=5) == 1
+    assert 1 <= remaining_timeout_ms(45000, reserve_seconds=2) <= 3000
+    assert 1 <= remaining_timeout_ms(10000, reserve_seconds=3) <= 2000
 
 
 def test_format_script_normalizes_python_whitespace():
@@ -835,25 +1072,3 @@ def test_service_module_does_not_use_json_response():
     ]
     assert not lines_with_json_response, \
         f"Service layer should not construct JSONResponse. Found: {lines_with_json_response}"
-
-
-def test_clean_data_builds_prompt_and_returns_llm_response(monkeypatch):
-    captured = {"prompt": "", "task_name": "", "response_contract": ""}
-
-    def fake_run(prompt: str, task_name: str, response_contract: str):
-        captured["prompt"] = prompt
-        captured["task_name"] = task_name
-        captured["response_contract"] = response_contract
-        return AssistLlmResponse(success=True, result={"cleaned_value": 1234.56, "confidence": 0.9})
-
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run)
-
-    request = AssistCleanDataRequest(raw_data="$1,234.56", data_type="price")
-    response = clean_data(request)
-
-    assert response.success is True
-    assert response.result["cleaned_value"] == 1234.56
-    assert "$1,234.56" in captured["prompt"]
-    assert "price" in captured["prompt"]
-    assert captured["task_name"] == "clean_data"
-    assert "cleaned_value" in captured["response_contract"]

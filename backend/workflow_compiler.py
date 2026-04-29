@@ -30,21 +30,11 @@ def _resolve_field(field: dict[str, Any], index: int) -> dict[str, Any]:
     name = field.get("name") or field.get("field_name") or f"field_{index + 1}"
     selector = field.get("selector") or field.get("css") or ""
     extraction_type = field.get("type") or field.get("extraction_type") or "text"
-    resolved = {
+    return {
         "name": name,
         "selector": selector,
         "type": extraction_type,
     }
-    clean_data_type = field.get("clean_data_type")
-    if isinstance(clean_data_type, str) and clean_data_type.strip():
-        resolved["clean_data_type"] = clean_data_type.strip()
-    normalized_sample = field.get("normalized_sample")
-    if isinstance(normalized_sample, str) and normalized_sample.strip():
-        resolved["normalized_sample"] = normalized_sample.strip()
-    sample_value = field.get("sample_value")
-    if isinstance(sample_value, str) and sample_value.strip():
-        resolved["sample_value"] = sample_value.strip()
-    return resolved
 
 
 def _coerce_limit(value: Any) -> int | None:
@@ -69,11 +59,8 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
     }
     output = default_output_config()
     limits = {
-        "max_items": 50,
-        "max_steps": 100,
         "max_pages": 10,
     }
-    explicit_max_items: list[int] = []
     conditions: list[dict[str, Any]] = []
 
     node_types = [node.type for node in graph.nodes]
@@ -81,25 +68,14 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
         data = node.data
         if node.type == "open_page":
             entry_url = data.url or entry_url
-            open_page_max_items = _coerce_limit(data.max_items)
-            if open_page_max_items is not None:
-                explicit_max_items.append(open_page_max_items)
-            if data.max_steps is not None:
-                limits["max_steps"] = data.max_steps
         elif node.type == "select_list":
             item_selector = data.item_selector or item_selector
-            select_max_items = _coerce_limit(data.max_items)
-            if select_max_items is not None:
-                explicit_max_items.append(select_max_items)
         elif node.type == "extract_field":
             raw_fields = data.fields or []
             field_specs = [
                 _resolve_field(raw_field, index)
                 for index, raw_field in enumerate(raw_fields)
             ]
-            extract_max_items = _coerce_limit(data.max_items)
-            if extract_max_items is not None:
-                explicit_max_items.append(extract_max_items)
         elif node.type == "paginate":
             pagination["selector"] = data.pagination_selector or pagination["selector"]
             pagination["strategy"] = data.pagination_strategy or pagination["strategy"]
@@ -130,14 +106,6 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
             batch_size = _coerce_limit(data.batch_size)
             if batch_size is not None:
                 output["batch_size"] = batch_size
-        elif node.type == "loop":
-            loop_max_items = _coerce_limit(data.max_items)
-            if loop_max_items is not None:
-                explicit_max_items.append(loop_max_items)
-
-    if explicit_max_items:
-        limits["max_items"] = min(explicit_max_items)
-
     edges = [
         {
             "id": edge.id,

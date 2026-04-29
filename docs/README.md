@@ -14,6 +14,10 @@
   面向工程治理的复盘诊断：从文件架构、功能模块、配置项、前后端通讯、测试与生产化成熟度等维度评分，并给出自上而下的优化路线。
 - `optimization-implementation-plan.md`
   面向执行落地的优化细案：把诊断中的阶段性路线拆成可验收任务，并记录当前第一批改造状态。
+- `prompt-autoresearch-upgrade-2026-04-29.md`
+  面向模型交互质量的专项审计：按功能目标反向评估提示词，并记录如何借助 AutoResearch 方法论优化提示词质量，而不是把业务提示词改写成 AutoResearch 风格。
+- `script-sandbox-technical-evaluation.md`
+  面向生成脚本执行验证的技术选型说明：比较 Docker、gVisor、本地 subprocess 与 RestrictedPython，并记录当前手动沙箱执行方案。
 - `developer-checklist.md`
   面向贡献者的上手清单与迭代 SOP，适合改节点、改运行时、改脚本生成、改辅助链路或改前端布局时查阅。
 - `examples/workflows/eworldship_product_1772.json`

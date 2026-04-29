@@ -1,4 +1,4 @@
-import { Alert, Button, Form, Input, InputNumber, Select, Space, Typography } from 'antd'
+import { Alert, Button, Form, Input, Select, Space, Typography } from 'antd'
 import type { WorkflowNode } from '../../workflowState'
 import type { WorkflowNodeData } from '../../workflowContracts'
 
@@ -29,7 +29,7 @@ type AssistNodeEditorProps = NodeEditorProps & {
   onTestSelector: (selector: string, selectorLabel: string) => void
 }
 
-export function OpenPageEditor({ selectedNode, clampNumberInput, updateSelectedNodeData }: NodeEditorProps) {
+export function OpenPageEditor({ selectedNode, updateSelectedNodeData }: NodeEditorProps) {
   return (
     <>
       <Form.Item
@@ -43,33 +43,12 @@ export function OpenPageEditor({ selectedNode, clampNumberInput, updateSelectedN
           onChange={(e) => updateSelectedNodeData({ url: e.target.value })}
         />
       </Form.Item>
-      <Space size={8} style={{ width: '100%' }}>
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大页数</Typography.Text>} style={{ flex: 1 }}>
-          <InputNumber
-            min={1}
-            max={1000}
-            style={{ width: '100%' }}
-            value={Number(selectedNode.data.max_pages ?? 2)}
-            onChange={(val) => updateSelectedNodeData({ max_pages: clampNumberInput(String(val ?? 2), 1, 1000, 2) })}
-          />
-        </Form.Item>
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大步骤</Typography.Text>} style={{ flex: 1 }}>
-          <InputNumber
-            min={1}
-            max={50}
-            style={{ width: '100%' }}
-            value={Number(selectedNode.data.max_steps ?? 20)}
-            onChange={(val) => updateSelectedNodeData({ max_steps: clampNumberInput(String(val ?? 20), 1, 50, 20) })}
-          />
-        </Form.Item>
-      </Space>
     </>
   )
 }
 
 export function SelectListEditor({
   selectedNode,
-  clampNumberInput,
   updateSelectedNodeData,
   assistBusyAction,
   onTestSelector,
@@ -108,22 +87,12 @@ export function SelectListEditor({
           onChange={(e) => updateSelectedNodeData({ item_selector: e.target.value })}
         />
       </Form.Item>
-      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大条目</Typography.Text>}>
-        <InputNumber
-          min={1}
-          max={50000}
-          style={{ width: '100%' }}
-          value={Number(selectedNode.data.max_items ?? 5)}
-          onChange={(val) => updateSelectedNodeData({ max_items: clampNumberInput(String(val ?? 5), 1, 50000, 5) })}
-        />
-      </Form.Item>
     </>
   )
 }
 
 export function PaginateEditor({
   selectedNode,
-  clampNumberInput,
   updateSelectedNodeData,
   assistBusyAction,
   onAnalyzePagination,
@@ -164,20 +133,11 @@ export function PaginateEditor({
           onChange={(val) => updateSelectedNodeData({ pagination_strategy: val })}
         />
       </Form.Item>
-      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大页数</Typography.Text>}>
-        <InputNumber
-          min={1}
-          max={1000}
-          style={{ width: '100%' }}
-          value={Number(selectedNode.data.max_pages ?? 2)}
-          onChange={(val) => updateSelectedNodeData({ max_pages: clampNumberInput(String(val ?? 2), 1, 1000, 2) })}
-        />
-      </Form.Item>
     </>
   )
 }
 
-export function LoopEditor({ selectedNode, clampNumberInput, updateSelectedNodeData }: NodeEditorProps) {
+export function LoopEditor({ selectedNode, updateSelectedNodeData }: NodeEditorProps) {
   return (
     <>
       <Alert
@@ -188,16 +148,7 @@ export function LoopEditor({ selectedNode, clampNumberInput, updateSelectedNodeD
         style={{ marginBottom: 12, borderRadius: 10 }}
       />
       <Space size={8} style={{ width: '100%' }}>
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>最大条目</Typography.Text>} style={{ flex: 1 }}>
-          <InputNumber
-            min={1}
-            max={50}
-            style={{ width: '100%' }}
-            value={Number(selectedNode.data.max_items ?? 5)}
-            onChange={(val) => updateSelectedNodeData({ max_items: clampNumberInput(String(val ?? 5), 1, 50, 5) })}
-          />
-        </Form.Item>
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>单条失败策略</Typography.Text>} style={{ flex: 1.4 }}>
+        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>单条失败策略</Typography.Text>} style={{ flex: 1 }}>
           <Select
             value={String(selectedNode.data.on_error ?? 'skip')}
             options={ON_ERROR_OPTIONS}

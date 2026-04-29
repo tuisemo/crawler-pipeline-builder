@@ -7,11 +7,12 @@ from backend.workflow_schemas import TestSubflowRequest
 
 
 class FakeElement:
-    def __init__(self, text="", html="", attrs=None, children=None):
+    def __init__(self, text="", html="", attrs=None, children=None, on_click=None):
         self._text = text
         self._html = html
         self._attrs = attrs or {}
         self._children = children or {}
+        self._on_click = on_click
 
     def inner_text(self):
         return self._text
@@ -34,16 +35,30 @@ class FakeElement:
             return self._children.get("a[href]", []) or self._children.get("a", [])
         return self._children.get(selector, [])
 
+    def scroll_into_view_if_needed(self, timeout=3000):
+        return None
+
+    def click(self, timeout=5000):
+        if self._on_click:
+            self._on_click()
+
 
 class FakePage:
     def __init__(self):
         self.url = "http://example.com/base/"
         self._selectors = {}
+        self.wait_calls = []
 
     def query_selector_all(self, selector):
         if selector == "bad[":
             raise ValueError("invalid selector")
         return self._selectors.get(selector, [])
+
+    def wait_for_load_state(self, state, timeout=5000):
+        self.wait_calls.append(("load_state", state, timeout))
+
+    def wait_for_timeout(self, timeout):
+        self.wait_calls.append(("timeout", timeout))
 
 
 class FakeSession:
@@ -96,7 +111,7 @@ async def test_subflow_runtime_returns_structured_logs_and_results(monkeypatch):
                 {"id": "e2", "source": "list", "target": "extract"},
             ],
         ),
-        "boundary": {"max_items": 1, "max_steps": 5},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -123,7 +138,7 @@ async def test_subflow_runtime_returns_structured_logs_and_results(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_subflow_uses_node_limit_when_boundary_omitted(monkeypatch):
+async def test_subflow_returns_all_items_when_boundary_omitted(monkeypatch):
     session = FakeSession()
     session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
@@ -132,7 +147,7 @@ async def test_subflow_uses_node_limit_when_boundary_omitted(monkeypatch):
         "graph": graph(
             [
                 node("open", "open_page", {"url": "http://example.com/list"}),
-                node("list", "select_list", {"item_selector": ".item", "max_items": 2}),
+                node("list", "select_list", {"item_selector": ".item"}),
             ],
             [{"id": "e1", "source": "open", "target": "list"}],
         ),
@@ -141,11 +156,11 @@ async def test_subflow_uses_node_limit_when_boundary_omitted(monkeypatch):
     response = await WorkflowExecutor().test_subflow(request)
 
     assert response.success is True
-    assert len(response.node_results[1].result["samples"]) == 2
+    assert len(response.node_results[1].result["samples"]) == 5
 
 
 @pytest.mark.anyio
-async def test_subflow_boundary_limit_overrides_node_limit(monkeypatch):
+async def test_subflow_boundary_max_pages_does_not_limit_item_count(monkeypatch):
     session = FakeSession()
     session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
@@ -154,21 +169,21 @@ async def test_subflow_boundary_limit_overrides_node_limit(monkeypatch):
         "graph": graph(
             [
                 node("open", "open_page", {"url": "http://example.com/list"}),
-                node("list", "select_list", {"item_selector": ".item", "max_items": 4}),
+                node("list", "select_list", {"item_selector": ".item"}),
             ],
             [{"id": "e1", "source": "open", "target": "list"}],
         ),
-        "boundary": {"max_items": 2},
+        "boundary": {"max_pages": 2},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
 
     assert response.success is True
-    assert len(response.node_results[1].result["samples"]) == 2
+    assert len(response.node_results[1].result["samples"]) == 5
 
 
 @pytest.mark.anyio
-async def test_test_node_uses_target_node_limit_when_request_limit_omitted(monkeypatch):
+async def test_test_node_returns_all_target_matches(monkeypatch):
     from backend.workflow_schemas import TestNodeRequest
 
     session = FakeSession()
@@ -179,7 +194,7 @@ async def test_test_node_uses_target_node_limit_when_request_limit_omitted(monke
         "graph": graph(
             [
                 node("open", "open_page", {"url": "http://example.com/list"}),
-                node("list", "select_list", {"item_selector": ".item", "max_items": 2}),
+                node("list", "select_list", {"item_selector": ".item"}),
             ],
             [{"id": "e1", "source": "open", "target": "list"}],
         ),
@@ -189,13 +204,14 @@ async def test_test_node_uses_target_node_limit_when_request_limit_omitted(monke
     response = await WorkflowExecutor().test_node(request)
 
     assert response.success is True
-    assert len(response.result.result["samples"]) == 2
+    assert len(response.result.result["samples"]) == 5
 
 
 @pytest.mark.anyio
 async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch):
     session = FakeSession()
     monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+    monkeypatch.setattr("backend.workflow_executor.INTERNAL_EXECUTION_STEP_BUDGET", 1)
 
     request = TestSubflowRequest.model_validate({
         "graph": graph(
@@ -210,7 +226,7 @@ async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch
                 {"id": "e3", "source": "loop2", "target": "open"},
             ],
         ),
-        "boundary": {"max_steps": 1, "max_items": 1},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -218,7 +234,7 @@ async def test_subflow_step_limit_returns_partial_structured_failure(monkeypatch
     assert response.success is False
     assert response.partial is True
     assert response.steps_executed == 1
-    assert "Max steps" in response.error
+    assert "step budget" in response.error.lower()
     assert response.node_results[0].node_id == "open"
     assert response.logs[-1].level.value == "warning"
 
@@ -241,7 +257,7 @@ async def test_subflow_revisit_cycle_stops_when_state_does_not_advance(monkeypat
                 {"id": "e3", "source": "extract", "target": "list"},
             ],
         ),
-        "boundary": {"max_items": 1, "max_steps": 10},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -278,17 +294,66 @@ async def test_subflow_executes_emit_record_and_paginate_smoke(monkeypatch):
                 {"id": "e4", "source": "emit", "target": "page"},
             ],
         ),
-        "boundary": {"max_items": 1, "max_steps": 10},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
 
     assert response.success is True
     assert [result.node_id for result in response.node_results] == ["open", "list", "extract", "emit", "page"]
-    assert response.records == [{"_index": 0, "name": "One"}]
-    assert response.node_results[3].result == {"emitted_count": 1, "records": [{"_index": 0, "name": "One"}]}
+    assert response.records == [{"_index": 0, "name": "One"}, {"_index": 1, "name": "Two"}]
+    assert response.node_results[3].result == {
+        "emitted_count": 2,
+        "records": [{"_index": 0, "name": "One"}, {"_index": 1, "name": "Two"}],
+    }
     assert response.node_results[4].result["found"] is True
-    assert "single-page testing" in response.node_results[4].result["message"]
+    assert response.node_results[4].result["advanced"] is False
+    assert "did not advance" in response.node_results[4].result["message"]
+
+
+@pytest.mark.anyio
+async def test_subflow_paginate_click_next_advances_and_replays_downstream(monkeypatch):
+    session = FakeSession()
+    first_item = FakeElement(text="One", children={".name": [FakeElement(text="One")]})
+    second_item = FakeElement(text="Two", children={".name": [FakeElement(text="Two")]})
+
+    def move_to_page_two():
+        session.page.url = "http://example.com/list?page=2"
+        session.page._selectors[".item"] = [second_item]
+        session.page._selectors["a.next"] = []
+
+    next_button = FakeElement(text="Next", on_click=move_to_page_two)
+    session.page._selectors[".item"] = [first_item]
+    session.page._selectors["a.next"] = [next_button]
+    monkeypatch.setattr("backend.workflow_executor.page_session_mgr.create", lambda: session)
+
+    request = TestSubflowRequest.model_validate({
+        "graph": graph(
+            [
+                node("open", "open_page", {"url": "http://example.com/list"}),
+                node("list", "select_list", {"item_selector": ".item"}),
+                node("extract", "extract_field", {"fields": [{"name": "name", "selector": ".name", "type": "text"}]}),
+                node("page", "paginate", {"pagination_selector": "a.next", "pagination_strategy": "click_next"}),
+            ],
+            [
+                {"id": "e1", "source": "open", "target": "list"},
+                {"id": "e2", "source": "list", "target": "extract"},
+                {"id": "e3", "source": "extract", "target": "page"},
+                {"id": "e4", "source": "page", "target": "list"},
+            ],
+        ),
+        "boundary": {"max_pages": 2},
+    })
+
+    response = await WorkflowExecutor().test_subflow(request)
+
+    assert response.success is True
+    assert [result.node_id for result in response.node_results] == ["open", "list", "extract", "page", "list", "extract", "page"]
+    assert response.records == [{"_index": 0, "name": "One"}, {"_index": 0, "name": "Two"}]
+    assert response.node_results[3].result["advanced"] is True
+    assert response.node_results[3].result["page_number"] == 2
+    assert response.node_results[-1].result["advanced"] is False
+    assert response.node_results[-1].result["message"] == "Pagination limit reached at page 2"
 
 
 @pytest.mark.anyio
@@ -332,7 +397,7 @@ async def test_subflow_emit_record_can_persist_sqlite(monkeypatch):
                 {"id": "e3", "source": "extract", "target": "emit"},
             ],
         ),
-        "boundary": {"max_items": 5, "max_steps": 10},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -362,7 +427,7 @@ async def test_runtime_reports_required_data_and_unsupported_nodes(monkeypatch):
     for test_node, expected_error in cases:
         request = TestSubflowRequest.model_validate({
             "graph": graph([node("open", "open_page", {"url": "http://example.com"}), test_node], [{"id": "e", "source": "open", "target": test_node["id"]}]),
-            "boundary": {"start_node_id": test_node["id"], "max_steps": 2},
+            "boundary": {"start_node_id": test_node["id"]},
         })
 
         response = await WorkflowExecutor().test_subflow(request)
@@ -387,14 +452,14 @@ async def test_loop_and_end_nodes_are_supported(monkeypatch):
         "graph": graph([
             node("open", "open_page", {"url": "http://example.com"}),
             node("list", "select_list", {"item_selector": ".item"}),
-            node("lp", "loop", {"max_items": 5}),
+            node("lp", "loop", {}),
             node("en", "end", {}),
         ], [
             {"id": "e1", "source": "open", "target": "list"},
             {"id": "e2", "source": "list", "target": "lp"},
             {"id": "e3", "source": "lp", "target": "en"},
         ]),
-        "boundary": {"max_items": 10, "max_steps": 10},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -414,7 +479,7 @@ async def test_extract_field_requires_select_list_context(monkeypatch):
 
     request = TestSubflowRequest.model_validate({
         "graph": graph([node("open", "open_page", {"url": "http://example.com"}), node("extract", "extract_field", {"fields": [{"name": "title", "selector": "h2", "type": "text"}]})], [{"id": "e", "source": "open", "target": "extract"}]),
-        "boundary": {"start_node_id": "extract", "max_steps": 1},
+        "boundary": {"start_node_id": "extract"},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -430,7 +495,7 @@ async def test_paginate_reports_absent_selector_without_crawling(monkeypatch):
 
     request = TestSubflowRequest.model_validate({
         "graph": graph([node("open", "open_page", {"url": "http://example.com"}), node("page", "paginate", {"pagination_selector": "a.next"})], [{"id": "e", "source": "open", "target": "page"}]),
-        "boundary": {"start_node_id": "page", "max_steps": 1},
+        "boundary": {"start_node_id": "page"},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -460,7 +525,6 @@ async def test_test_node_runs_prerequisites_in_entry_order(monkeypatch):
             ],
         ),
         "node_id": "extract",
-        "max_items": 1,
     }
 
     from backend.workflow_schemas import TestNodeRequest
@@ -481,7 +545,7 @@ async def test_subflow_stops_before_boundary_end_node(monkeypatch):
             [node("open", "open_page", {"url": "http://example.com"}), node("loop", "loop")],
             [{"id": "e", "source": "open", "target": "loop"}],
         ),
-        "boundary": {"end_node_id": "loop", "max_steps": 2},
+        "boundary": {"end_node_id": "loop"},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -531,7 +595,7 @@ async def test_subflow_unexpected_failure_preserves_partial_outputs(monkeypatch)
             ],
             [{"id": "e1", "source": "open", "target": "boom"}, {"id": "e2", "source": "boom", "target": "after"}],
         ),
-        "boundary": {"max_steps": 5},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)
@@ -564,7 +628,7 @@ async def test_condition_branch_prefers_edge_metadata_over_position(monkeypatch)
                 {"id": "e3", "source": "cond", "target": "end_true", "branch": "true"},
             ],
         ),
-        "boundary": {"max_steps": 10},
+        "boundary": {},
     })
 
     response = await WorkflowExecutor().test_subflow(request)

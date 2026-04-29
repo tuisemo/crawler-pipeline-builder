@@ -6,6 +6,7 @@ from .workflow_schemas import (
     FromLegacyConfigRequest,
     FormatScriptRequest,
     GenerateCrawlerRequest,
+    RunScriptSandboxRequest,
     SaveScriptRequest,
     TestNodeRequest,
     TestSubflowRequest,
@@ -21,6 +22,7 @@ from .workflow_services import (
     generate_skeleton,
     generate_crawler,
     graph_to_prompt,
+    run_script_sandbox,
     save_script,
     validate_graph,
     WorkflowValidationError,
@@ -83,6 +85,12 @@ def generate_crawler_endpoint(request: GenerateCrawlerRequest):
     return api_response(generate_crawler(request))
 
 
+@router.post("/run-script-sandbox")
+def run_script_sandbox_endpoint(request: RunScriptSandboxRequest):
+    """Manually execute a generated or edited script in the script sandbox."""
+    return api_response(run_script_sandbox(request))
+
+
 @router.post("/format-script")
 def format_script_endpoint(request: FormatScriptRequest):
     """Format generated script content for the editor workspace."""
@@ -117,7 +125,7 @@ async def test_subflow(request: TestSubflowRequest):
     """Test a workflow subflow within graph boundaries.
     
     This endpoint executes nodes within the specified subflow boundaries,
-    respecting execution limits (max_items, max_pages, max_steps).
+    respecting execution limits (max_pages).
     Returns structured logs, node results, and sample records.
     Partial-run failures preserve inspectable outputs.
     """

@@ -17,6 +17,7 @@ import {
   CopyOutlined,
   DownloadOutlined,
   EditOutlined,
+  PlayCircleOutlined,
   RedoOutlined,
   SaveOutlined,
 } from '@ant-design/icons'
@@ -183,6 +184,8 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
   const [overwriteTarget, setOverwriteTarget] = useState(false)
   const [formatBusy, setFormatBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
+  const [sandboxBusy, setSandboxBusy] = useState(false)
+  const [manualSandboxResult, setManualSandboxResult] = useState<Record<string, unknown> | null>(null)
   const [scriptNotice, setScriptNotice] = useState('')
   const [scriptNoticeTone, setScriptNoticeTone] = useState<'success' | 'warning' | 'error' | 'info'>('info')
 
@@ -224,6 +227,10 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
   const reviewSummary = record.review_summary && typeof record.review_summary === 'object'
     ? record.review_summary as Record<string, unknown>
     : null
+  const sandboxResult = record.sandbox_result && typeof record.sandbox_result === 'object'
+    ? record.sandbox_result as Record<string, unknown>
+    : null
+  const activeSandboxResult = manualSandboxResult ?? sandboxResult
 
   const promptValue = promptWorkspace?.value ?? ''
   const scriptResultKey = `${promptWorkspace?.graphKey ?? 'standalone'}:${filename}:${script}`
@@ -237,6 +244,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     setSavePath(resolveDefaultScriptPath(filename))
     setOverwriteTarget(false)
     setScriptEditable(false)
+    setManualSandboxResult(null)
     setScriptNotice('')
     setScriptNoticeTone('info')
   }, [filename, normalizedScript, scriptResultKey])
@@ -312,6 +320,37 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
       setScriptNotice(error instanceof Error ? error.message : '脚本保存失败。')
     } finally {
       setSaveBusy(false)
+    }
+  }
+
+  async function handleRunSandbox() {
+    if (!scriptDraft.trim()) {
+      setScriptNoticeTone('warning')
+      setScriptNotice('当前没有可执行的脚本内容。')
+      return
+    }
+    setSandboxBusy(true)
+    try {
+      const { response, payload: sandboxPayload } = await postWorkflowAction('/api/workflows/run-script-sandbox', {
+        script: scriptDraft,
+        filename,
+      })
+      const result = sandboxPayload as Record<string, unknown>
+      const nextSandboxResult = result.sandbox_result && typeof result.sandbox_result === 'object'
+        ? result.sandbox_result as Record<string, unknown>
+        : result
+      setManualSandboxResult(nextSandboxResult)
+      if (!response.ok) {
+        throw new Error(getErrorMessage(sandboxPayload))
+      }
+      const passed = nextSandboxResult.success === true
+      setScriptNoticeTone(passed ? 'success' : 'error')
+      setScriptNotice(passed ? '沙箱执行通过。' : `沙箱执行失败：${typeof nextSandboxResult.error === 'string' ? nextSandboxResult.error : '请查看执行日志。'}`)
+    } catch (error) {
+      setScriptNoticeTone('error')
+      setScriptNotice(error instanceof Error ? error.message : '沙箱执行失败。')
+    } finally {
+      setSandboxBusy(false)
     }
   }
 
@@ -451,6 +490,9 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
             <Button size="small" loading={formatBusy} onClick={() => void handleFormatScript()}>
               格式化
             </Button>
+            <Button size="small" icon={<PlayCircleOutlined />} loading={sandboxBusy} onClick={() => void handleRunSandbox()}>
+              运行沙箱
+            </Button>
             <Button size="small" icon={<RedoOutlined />} onClick={() => {
               setScriptDraft(normalizedScript)
               setScriptNoticeTone('info')
@@ -581,6 +623,52 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     })
   }
 
+  if (activeSandboxResult) {
+    const sandboxSuccess = activeSandboxResult.success === true
+    const sandboxFailed = activeSandboxResult.success === false
+    const sandboxStdout = typeof activeSandboxResult.stdout_tail === 'string' ? activeSandboxResult.stdout_tail : ''
+    const sandboxStderr = typeof activeSandboxResult.stderr_tail === 'string' ? activeSandboxResult.stderr_tail : ''
+    const sandboxLogPath = typeof activeSandboxResult.log_path === 'string' ? activeSandboxResult.log_path : ''
+    const sandboxExitCode = typeof activeSandboxResult.exit_code === 'number' ? String(activeSandboxResult.exit_code) : '—'
+    collapseItems.push({
+      key: 'sandbox',
+      label: (
+        <Space size={8}>
+          <Typography.Text strong>脚本沙箱</Typography.Text>
+          {sandboxSuccess ? <StatTags value="通过" accent="green" /> : null}
+          {sandboxFailed ? <StatTags value="失败" accent="red" /> : null}
+        </Space>
+      ),
+      children: (
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Descriptions size="small" column={1} bordered style={{ borderRadius: 8, overflow: 'hidden' }}>
+            <Descriptions.Item label="Run ID">{typeof activeSandboxResult.run_id === 'string' ? activeSandboxResult.run_id : '—'}</Descriptions.Item>
+            <Descriptions.Item label="后端">{typeof activeSandboxResult.backend === 'string' ? activeSandboxResult.backend : '—'}</Descriptions.Item>
+            <Descriptions.Item label="退出码">{sandboxExitCode}</Descriptions.Item>
+            <Descriptions.Item label="超时">{activeSandboxResult.timed_out === true ? 'true' : 'false'}</Descriptions.Item>
+            <Descriptions.Item label="耗时">{typeof activeSandboxResult.duration_seconds === 'number' ? `${activeSandboxResult.duration_seconds}s` : '—'}</Descriptions.Item>
+            <Descriptions.Item label="日志文件">{sandboxLogPath || '—'}</Descriptions.Item>
+            {typeof activeSandboxResult.error === 'string' && activeSandboxResult.error ? (
+              <Descriptions.Item label="错误">{activeSandboxResult.error}</Descriptions.Item>
+            ) : null}
+          </Descriptions>
+          {sandboxStderr ? (
+            <div>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>stderr</Typography.Text>
+              <pre className="raw-json-pre">{sandboxStderr}</pre>
+            </div>
+          ) : null}
+          {sandboxStdout ? (
+            <div>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>stdout</Typography.Text>
+              <pre className="raw-json-pre">{sandboxStdout}</pre>
+            </div>
+          ) : null}
+        </Space>
+      ),
+    })
+  }
+
   if (logs.length > 0) {
     collapseItems.push({
       key: 'logs',
@@ -683,9 +771,11 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     prompt: 1,
     'effective-prompt': 2,
     records: 3,
+    sandbox: 4,
     logs: 4,
     'node-results': 5,
     meta: 6,
+    'generation-trace': 7,
   }
   const prioritizedCollapseItems = [...collapseItems].sort((left, right) => (
     (itemOrder[String(left.key)] ?? 50) - (itemOrder[String(right.key)] ?? 50)
@@ -695,10 +785,10 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     : prioritizedCollapseItems.map((item) => String(item.key))
 
   const viewFilterKeys: Record<Exclude<ResultDetailsView, 'all'>, string[]> = {
-    script: ['script', 'meta'],
+    script: ['script', 'sandbox', 'meta'],
     prompt: ['prompt-workspace', 'prompt', 'effective-prompt'],
     records: ['records', 'node-results'],
-    logs: ['logs', 'node-results'],
+    logs: ['sandbox', 'logs', 'node-results', 'generation-trace'],
     diagnostics: [],
   }
   const filteredCollapseItems = view === 'all'
@@ -739,6 +829,9 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
             </Button>
             <Button size="small" loading={formatBusy} onClick={() => void handleFormatScript()}>
               格式化
+            </Button>
+            <Button size="small" icon={<PlayCircleOutlined />} loading={sandboxBusy} onClick={() => void handleRunSandbox()}>
+              运行沙箱
             </Button>
             <Button size="small" icon={<RedoOutlined />} onClick={() => {
               setScriptDraft(normalizedScript)

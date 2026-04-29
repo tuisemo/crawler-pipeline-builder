@@ -58,16 +58,4 @@ describe('workflowApi', () => {
     expect(result.response.ok).toBe(true)
     expect(result.payload).toEqual({ result: { item_selector: '.item' } })
   })
-
-  it('postAssistAction supports clean-data endpoint', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: { result: { cleaned_value: 12000 } }, warnings: [], meta: {} }),
-    } as Response)
-
-    const result = await postAssistAction('/api/assist/clean-data', { raw_data: '1.2万', data_type: 'count' })
-
-    expect(result.response.ok).toBe(true)
-    expect(result.payload).toEqual({ result: { cleaned_value: 12000 } })
-  })
 })

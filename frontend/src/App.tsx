@@ -46,7 +46,6 @@ import {
   initialEdges,
   initialNodes,
   paletteItems,
-  toPositiveLimit,
   type DockTabKey,
 } from './workbenchDefaults'
 import { resolveNextNodeId, resolveNextNodePosition, autoLayoutNodes } from './workflowNodePlacement'
@@ -101,13 +100,11 @@ export default function App() {
     handleInferExtractFields,
     handleAnalyzePagination,
     handleTestSelector,
-    handleCleanExtractField,
   } = useAssistWorkbenchActions({
     nodes,
     selectedNode,
     setNodes,
     updateSelectedNodeData,
-    updateExtractField,
     notify: message,
   })
   const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
@@ -117,40 +114,10 @@ export default function App() {
   ])
   const graphKey = useMemo(() => buildWorkflowGraphKey(canonicalGraph), [canonicalGraph])
   const workflowStats = useMemo(() => {
-    const explicitMaxItems = nodes.flatMap((node) => {
-      if (
-        node.type === 'open_page' ||
-        node.type === 'select_list' ||
-        node.type === 'loop' ||
-        node.type === 'extract_field'
-      ) {
-        const limit = toPositiveLimit(node.data.max_items)
-        return limit === null ? [] : [limit]
-      }
-      return []
-    })
-    const explicitMaxPages = nodes.flatMap((node) => {
-      if (node.type === 'paginate' || node.type === 'open_page') {
-        const limit = toPositiveLimit(node.data.max_pages)
-        return limit === null ? [] : [limit]
-      }
-      return []
-    })
-    const explicitMaxSteps = nodes.flatMap((node) => {
-      if (node.type === 'open_page') {
-        const limit = toPositiveLimit(node.data.max_steps)
-        return limit === null ? [] : [limit]
-      }
-      return []
-    })
-
     return {
       nodeCount: nodes.length,
       edgeCount: edges.length,
       fieldCount: nodes.reduce((count, node) => count + (node.type === 'extract_field' ? node.data.fields?.length ?? 0 : 0), 0),
-      maxItems: explicitMaxItems.length > 0 ? Math.min(...explicitMaxItems) : null,
-      maxPages: explicitMaxPages.length > 0 ? Math.min(...explicitMaxPages) : null,
-      maxSteps: explicitMaxSteps.length > 0 ? Math.min(...explicitMaxSteps) : null,
       hasPagination: nodes.some((node) => node.type === 'paginate'),
     }
   }, [edges.length, nodes.map(n => n.type).join('|'), JSON.stringify(nodes.map(n => n.data))])
@@ -448,7 +415,6 @@ export default function App() {
               onOptimizeListSelector={handleOptimizeListSelector}
               onInferExtractFields={handleInferExtractFields}
               onAnalyzePagination={handleAnalyzePagination}
-              onCleanExtractField={handleCleanExtractField}
               onTestSelector={handleTestSelector}
               assistBusyAction={assistBusyAction}
               addExtractField={addExtractField}

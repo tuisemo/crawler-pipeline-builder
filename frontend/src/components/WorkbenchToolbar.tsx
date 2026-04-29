@@ -33,9 +33,6 @@ type WorkbenchToolbarProps = {
     nodeCount: number
     edgeCount: number
     fieldCount: number
-    maxItems: number | null
-    maxPages: number | null
-    maxSteps: number | null
     hasPagination: boolean
   }
   onRunAction: (action: WorkbenchAction) => void
@@ -69,10 +66,6 @@ const groupedActions: Array<{ title: string; actions: WorkbenchAction[]; primary
   { title: '运行验证', actions: ['test-node', 'test-subflow'] },
 ]
 
-function formatLimit(value: number | null, suffix: string) {
-  return value === null ? `未设${suffix}` : `${value.toLocaleString('zh-CN')}${suffix}`
-}
-
 export function WorkbenchToolbar({
   runningAction,
   selectedNodeId,
@@ -82,12 +75,6 @@ export function WorkbenchToolbar({
   onGenerationModeChange,
   layout,
 }: WorkbenchToolbarProps) {
-  const executionSummary = [
-    formatLimit(workflowStats.maxItems, '条'),
-    formatLimit(workflowStats.maxPages, '页'),
-    formatLimit(workflowStats.maxSteps, '步'),
-  ].join(' / ')
-
   return (
     <Card className="ant-toolbar-card" styles={{ body: { padding: '10px 14px' } }} variant="outlined">
       <div className="toolbar-shell">
@@ -117,10 +104,10 @@ export function WorkbenchToolbar({
                 {workflowStats.hasPagination ? <Tag color="gold" className="toolbar-chip">分页</Tag> : null}
               </div>
               <Typography.Text type="secondary" className="toolbar-summary-label">
-                执行边界
+                分页行为
               </Typography.Text>
               <Typography.Text className="toolbar-summary-value">
-                {executionSummary}
+                {workflowStats.hasPagination ? '按站点翻页条件自动结束' : '未启用分页'}
               </Typography.Text>
             </div>
           </div>

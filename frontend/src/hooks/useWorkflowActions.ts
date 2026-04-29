@@ -96,9 +96,9 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
     try {
       const promptOverride = action === 'generate-script' ? getPromptOverride(graphKey) : ''
       const requestBody = action === 'test-node'
-        ? { graph: canonicalGraph, node_id: selectedOrEntryNodeId, max_items: 5, max_steps: 20 }
+        ? { graph: canonicalGraph, node_id: selectedOrEntryNodeId }
         : action === 'test-subflow'
-          ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined, max_items: 5, max_pages: 2, max_steps: 20 } }
+          ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined } }
           : action === 'generate-script' && promptOverride
             ? { graph: canonicalGraph, prompt_override: promptOverride, generation_mode: generationMode }
             : action === 'generate-script'

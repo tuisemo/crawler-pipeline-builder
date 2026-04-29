@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   applyDslTextChange,
   graphToFlowState,
+  toCanonicalGraph,
   validateGraphShape,
   type WorkflowNode,
 } from './workflowState'
@@ -10,12 +11,13 @@ import type { WorkflowGraph } from './workflowContracts'
 describe('validateGraphShape', () => {
   it('accepts a valid workflow graph', () => {
     const graph = validateGraphShape({
-      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }],
+      nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com', max_steps: 12 } }],
       edges: [],
     })
 
     expect(graph.nodes[0].id).toBe('n1')
     expect(graph.nodes[0].type).toBe('open_page')
+    expect(graph.nodes[0].data).not.toHaveProperty('max_steps')
   })
 
   it('rejects unsupported node types', () => {
@@ -56,6 +58,47 @@ describe('graphToFlowState', () => {
     const state = graphToFlowState(graph, previousNodes)
 
     expect(state.nodes[0].position).toEqual({ x: 420, y: 180 })
+  })
+
+  it('strips deprecated node data fields when converting to canonical graph', () => {
+    const graph = toCanonicalGraph([
+      {
+        id: 'n1',
+        type: 'open_page',
+        position: { x: 0, y: 0 },
+        data: { url: 'https://example.com', max_pages: 2, max_steps: 99 },
+      } as WorkflowNode,
+    ], [])
+
+    expect(graph.nodes[0].data).toEqual({ url: 'https://example.com', max_pages: 2 })
+  })
+
+  it('strips removed AI-clean keys but preserves legacy field aliases', () => {
+    const graph = toCanonicalGraph([
+      {
+        id: 'n1',
+        type: 'extract_field',
+        position: { x: 0, y: 0 },
+        data: {
+          fields: [{
+            field_name: 'title',
+            css: '.title',
+            extraction_type: 'text',
+            sample_value: 'raw',
+            clean_data_type: 'text',
+            normalized_sample: 'normalized',
+          }],
+        },
+      } as WorkflowNode,
+    ], [])
+
+    expect(graph.nodes[0].data).toEqual({
+      fields: [{
+        field_name: 'title',
+        css: '.title',
+        extraction_type: 'text',
+      }],
+    })
   })
 })
 

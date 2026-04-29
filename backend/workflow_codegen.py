@@ -29,7 +29,6 @@ def generate_playwright_skeleton(plan: dict[str, Any]) -> str:
     output = plan.get("output", {}) or {}
     limits = plan.get("limits", {}) or {}
 
-    max_items = int(limits.get("max_items", 50))
     max_pages = int(limits.get("max_pages", 10))
     pagination_selector = str(pagination.get("selector", "") or "")
     pagination_strategy = str(pagination.get("strategy", "click_next") or "click_next")
@@ -42,26 +41,24 @@ def generate_playwright_skeleton(plan: dict[str, Any]) -> str:
     if not isinstance(dedupe_keys, list):
         dedupe_keys = []
     batch_size = int(output.get("batch_size", DEFAULT_BATCH_SIZE) or DEFAULT_BATCH_SIZE)
+    planned_field_names = [
+        str(field.get("name")).strip()
+        for field in field_specs
+        if isinstance(field, dict) and isinstance(field.get("name"), str) and str(field.get("name")).strip()
+    ]
 
     field_specs_literal = _json_literal(field_specs)
-    normalization_rules = {
-        str(field.get("name")): str(field.get("clean_data_type"))
-        for field in field_specs
-        if isinstance(field, dict)
-        and isinstance(field.get("name"), str)
-        and isinstance(field.get("clean_data_type"), str)
-        and field.get("name")
-        and field.get("clean_data_type")
-    }
-    normalization_rules_literal = _json_literal(normalization_rules)
+    planned_field_names_literal = _json_literal(planned_field_names)
 
     script = f"""
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -73,8 +70,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 ENTRY_URL = {entry_url!r}
 ITEM_SELECTOR = {item_selector!r}
 FIELD_SPECS = {field_specs_literal}
-NORMALIZATION_RULES = {normalization_rules_literal}
-MAX_ITEMS = {max_items}
+PLANNED_FIELD_NAMES = {planned_field_names_literal}
 MAX_PAGES = {max_pages}
 PAGINATION_SELECTOR = {pagination_selector!r}
 PAGINATION_STRATEGY = {pagination_strategy!r}
@@ -85,64 +81,17 @@ OUTPUT_SQLITE_TABLE = {sqlite_table!r}
 WRITE_MODE = {write_mode!r}
 DEDUPE_KEYS = {_json_literal(dedupe_keys)}
 OUTPUT_BATCH_SIZE = {batch_size}
+SANDBOX_HEADLESS = os.environ.get("CRAWLER_SANDBOX_MODE") == "1"
+SANDBOX_TIMEOUT_SECONDS = int(os.environ.get("CRAWLER_SANDBOX_TIMEOUT_SECONDS", "0") or 0)
+SANDBOX_DEADLINE = time.monotonic() + SANDBOX_TIMEOUT_SECONDS if SANDBOX_TIMEOUT_SECONDS > 0 else None
 LAST_PERSIST_INFO: dict[str, Any] = {{}}
 
 
-def normalize_value(value: Any, data_type: str | None, page_url: str) -> Any:
-    if value is None or not data_type:
-        return value
-    normalized_type = str(data_type).strip().lower()
-    text = str(value).strip()
-    if not text:
-        return value
-
-    if normalized_type == "price":
-        numbers = re.sub(r"[^0-9.,-]", "", text).replace(",", "")
-        try:
-            return float(numbers) if "." in numbers else int(numbers)
-        except Exception:
-            return text
-    if normalized_type == "count":
-        compact = text.lower().replace(",", "")
-        multiplier = 1
-        if "万" in compact:
-            multiplier = 10000
-            compact = compact.replace("万", "")
-        elif compact.endswith("k"):
-            multiplier = 1000
-            compact = compact[:-1]
-        elif compact.endswith("m"):
-            multiplier = 1000000
-            compact = compact[:-1]
-        digits = re.sub(r"[^0-9.]", "", compact)
-        try:
-            return int(float(digits) * multiplier)
-        except Exception:
-            return text
-    if normalized_type == "phone":
-        digits = re.sub(r"\\D", "", text)
-        return digits or text
-    if normalized_type == "email":
-        return text.lower()
-    if normalized_type == "url":
-        return urljoin(page_url, text)
-    if normalized_type == "bool":
-        lowered = text.lower()
-        if lowered in ("true", "1", "yes", "y", "是"):
-            return True
-        if lowered in ("false", "0", "no", "n", "否"):
-            return False
-        return text
-    if normalized_type == "rating":
-        digits = re.findall(r"[0-9]+(?:\\.[0-9]+)?", text)
-        if not digits:
-            return text
-        try:
-            rating = float(digits[0])
-            return max(0.0, min(5.0, rating))
-        except Exception:
-            return text
-    return text
+def remaining_timeout_ms(default_ms: int, *, reserve_seconds: int = 0) -> int:
+    if SANDBOX_DEADLINE is None:
+        return default_ms
+    remaining_ms = int((SANDBOX_DEADLINE - time.monotonic()) * 1000) - (reserve_seconds * 1000)
+    return min(default_ms, max(1, remaining_ms))
 
 
 def extract_record(item, page_url: str) -> dict[str, Any]:
@@ -183,7 +132,7 @@ def extract_record(item, page_url: str) -> dict[str, Any]:
         else:
             # Extend here for additional extraction types.
             value = None
-        record[name] = normalize_value(value, NORMALIZATION_RULES.get(name), page_url)
+        record[name] = value
     return record
 
 
@@ -291,13 +240,13 @@ def chunk_records(records: list[dict[str, Any]], size: int) -> list[list[dict[st
 
 def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: list[dict[str, Any]]) -> list[str]:
     user_columns = sorted({{key for record in records for key in record.keys() if isinstance(key, str) and key}})
-    user_columns = sorted(set(user_columns) | set(DEDUPE_KEYS))
+    user_columns = sorted(set(user_columns) | set(DEDUPE_KEYS) | set(PLANNED_FIELD_NAMES))
     metadata_columns = {{
-        "identity_key": "TEXT PRIMARY KEY",
-        "run_id": "TEXT",
-        "source_url": "TEXT",
-        "created_at": "TEXT",
-        "record_hash": "TEXT",
+        "_identity_key": "TEXT PRIMARY KEY",
+        "_run_id": "TEXT",
+        "_source_url": "TEXT",
+        "_emitted_at": "TEXT",
+        "_record_hash": "TEXT",
     }}
 
     existing = {{
@@ -326,7 +275,7 @@ def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: lis
         if column not in existing:
             conn.execute(f'ALTER TABLE {{quote_ident(table_name)}} ADD COLUMN {{quote_ident(column)}} {{affinity}}')
 
-    # Primary key already acts as unique index for identity_key
+    # Primary key already acts as unique index for _identity_key.
     conn.commit()
     return user_columns
 
@@ -336,7 +285,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
     table_name = normalize_sqlite_table(OUTPUT_SQLITE_TABLE)
     with sqlite3.connect(output_path) as conn:
         user_columns = ensure_sqlite_schema(conn, table_name, records)
-        metadata_columns = ["identity_key", "run_id", "source_url", "created_at", "record_hash"]
+        metadata_columns = ["_identity_key", "_run_id", "_source_url", "_emitted_at", "_record_hash"]
         all_columns = [*user_columns, *metadata_columns]
         placeholders = ", ".join("?" for _ in all_columns)
         insert_sql = (
@@ -345,7 +294,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
             f'VALUES ({{placeholders}})'
         )
         if WRITE_MODE == "upsert":
-            conflict_columns = ["identity_key"]
+            conflict_columns = ["_identity_key"]
             update_columns = [column for column in all_columns if column not in conflict_columns]
             if update_columns:
                 insert_sql += (
@@ -396,9 +345,9 @@ def click_next_page(page) -> bool:
         return False
     next_button = next_buttons[0]
     try:
-        next_button.scroll_into_view_if_needed(timeout=3000)
-        next_button.click(timeout=5000)
-        page.wait_for_timeout(1200)
+        next_button.scroll_into_view_if_needed(timeout=remaining_timeout_ms(3000, reserve_seconds=3))
+        next_button.click(timeout=remaining_timeout_ms(5000, reserve_seconds=3))
+        page.wait_for_load_state("domcontentloaded", timeout=remaining_timeout_ms(10000, reserve_seconds=3))
         return True
     except Exception:
         return False
@@ -413,23 +362,19 @@ def run() -> list[dict[str, Any]]:
 
     records: list[dict[str, Any]] = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, args=["--start-maximized"])
+        browser = p.chromium.launch(headless=SANDBOX_HEADLESS, args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
 
         try:
-            page.goto(ENTRY_URL, wait_until="domcontentloaded", timeout=30000)
+            page.goto(ENTRY_URL, wait_until="domcontentloaded", timeout=remaining_timeout_ms(30000, reserve_seconds=5))
         except PlaywrightTimeoutError:
-            page.goto(ENTRY_URL, wait_until="load", timeout=45000)
+            page.goto(ENTRY_URL, wait_until="load", timeout=remaining_timeout_ms(45000, reserve_seconds=2))
 
         for page_idx in range(MAX_PAGES):
             items = page.query_selector_all(ITEM_SELECTOR)
             for item in items:
                 records.append(extract_record(item, page.url))
-                if len(records) >= MAX_ITEMS:
-                    break
-            if len(records) >= MAX_ITEMS:
-                break
 
             if PAGINATION_STRATEGY == "click_next":
                 if not click_next_page(page):

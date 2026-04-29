@@ -53,6 +53,32 @@ def _read_int(config: dict[str, str], key: str, default: int, *aliases: str) -> 
     return parsed if parsed > 0 else default
 
 
+def _read_optional_int(config: dict[str, str], key: str, *aliases: str) -> int | None:
+    for candidate in (key, *aliases):
+        value = os.environ.get(candidate)
+        if value is not None:
+            raw = value.strip()
+            if not raw:
+                return None
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                return None
+            return parsed if parsed > 0 else None
+    for candidate in (key, *aliases):
+        value = config.get(candidate)
+        if value is not None:
+            raw = str(value).strip()
+            if not raw:
+                return None
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                return None
+            return parsed if parsed > 0 else None
+    return None
+
+
 def _read_bool(config: dict[str, str], key: str, default: bool, *aliases: str) -> bool:
     raw = _read_value(config, key, str(default), *aliases).strip().lower()
     if raw in {"1", "true", "yes", "y", "on"}:
@@ -72,10 +98,10 @@ class CrawlerWorkflowSettings:
     api_base_url: str = ""
     api_token: str = ""
     model_name: str = "gpt-4"
-    script_generation_max_tokens: int = 32000
-    script_review_max_tokens: int = 32000
-    default_max_steps: int = 50000
-    default_max_items: int = 50
+    script_generation_max_tokens: int | None = None
+    script_review_max_tokens: int | None = None
+    script_sandbox_enabled: bool = True
+    script_sandbox_timeout_seconds: int = 60
     default_max_pages: int = 10
     default_output_mode: str = "memory"
     default_output_dir: str = "output"
@@ -108,10 +134,10 @@ class CrawlerWorkflowSettings:
             api_base_url=api_base_url,
             api_token=_read_value(config, "API_TOKEN", ""),
             model_name=model_name,
-            script_generation_max_tokens=_read_int(config, "SCRIPT_GENERATION_MAX_TOKENS", 32000),
-            script_review_max_tokens=_read_int(config, "SCRIPT_REVIEW_MAX_TOKENS", 32000),
-            default_max_steps=_read_int(config, "DEFAULT_MAX_STEPS", 50000),
-            default_max_items=_read_int(config, "DEFAULT_MAX_ITEMS", 50),
+            script_generation_max_tokens=_read_optional_int(config, "SCRIPT_GENERATION_MAX_TOKENS"),
+            script_review_max_tokens=_read_optional_int(config, "SCRIPT_REVIEW_MAX_TOKENS"),
+            script_sandbox_enabled=_read_bool(config, "SCRIPT_SANDBOX_ENABLED", True),
+            script_sandbox_timeout_seconds=_read_int(config, "SCRIPT_SANDBOX_TIMEOUT_SECONDS", 60),
             default_max_pages=_read_int(config, "DEFAULT_MAX_PAGES", 10),
             default_output_mode=_read_value(config, "DEFAULT_OUTPUT_MODE", "memory"),
             default_output_dir=_read_value(config, "DEFAULT_OUTPUT_DIR", "output"),

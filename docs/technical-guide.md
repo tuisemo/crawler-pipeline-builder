@@ -116,7 +116,6 @@ flowchart TD
 | `/infer-fields` | `POST` | 基于 HTML 证据推断字段 |
 | `/optimize-selector` | `POST` | 优化 CSS 选择器 |
 | `/analyze-pagination` | `POST` | 识别分页策略与 next selector |
-| `/clean-data` | `POST` | 标准化单个样例值 |
 
 ### 5.3 统一响应 envelope
 
@@ -518,7 +517,6 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 - `infer-fields`
 - `optimize-selector`
 - `analyze-pagination`
-- `clean-data`
 
 ## 16. 前端架构
 
@@ -527,18 +525,18 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 | 路径 | 当前职责 |
 | --- | --- |
 | `frontend/src/App.tsx` | 顶层编排、节点/边管理、画布与结果区装配 |
-| `workbenchDefaults.ts` | 节点 palette、初始 graph、默认节点数据、layout 读取、数字边界与清洗类型推断 |
+| `workbenchDefaults.ts` | 节点 palette、初始 graph、默认节点数据、layout 读取、数字边界处理 |
 | `workflowState.ts` | DSL 校验、画布图与 canonical graph 转换 |
 | `workflowContracts.ts` | 前端工作流类型定义 |
 | `hooks/useWorkbenchLayout.ts` | 工作台布局状态、dock tab、可见性刷新和 localStorage 持久化 |
 | `hooks/useWorkflowActions.ts` | workflow 动作请求和结果状态 |
 | `hooks/usePromptWorkspace.ts` | prompt 草稿、系统 prompt 基线、保存/恢复和脚本生成 override |
-| `hooks/useAssistWorkbenchActions.ts` | assist 操作状态、session 复用、自动检测/选择器优化/字段推断/分页分析/样例清洗 |
+| `hooks/useAssistWorkbenchActions.ts` | assist 操作状态、session 复用、自动检测/选择器优化/字段推断/分页分析 |
 | `services/workflowApi.ts` | 前端 fetch 封装 |
 | `components/WorkflowCanvas.tsx` | 画布、节点卡片、图健康提示 |
 | `components/PropertyPanel.tsx` | 节点配置和辅助操作 |
 | `components/node-editors/BasicNodeEditors.tsx` | open_page、select_list、paginate、loop、end 的轻量节点编辑器 |
-| `components/node-editors/ExtractFieldEditor.tsx` | extract_field 字段列表、字段校验提示、AI 清洗与选择器测试入口 |
+| `components/node-editors/ExtractFieldEditor.tsx` | extract_field 字段列表、字段校验提示与选择器测试入口 |
 | `components/ResultsPanel.tsx` | 结果视图切换 |
 | `components/ResultDetails.tsx` | 脚本/日志/记录/诊断/prompt 明细 |
 | `components/DslEditorPanel.tsx` | DSL Monaco 编辑器 |

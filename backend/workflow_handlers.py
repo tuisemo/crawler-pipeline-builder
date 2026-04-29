@@ -14,6 +14,23 @@ from extraction.selector_tester import SelectorTester
 logger = logging.getLogger(__name__)
 
 
+def _collect_planned_field_names(fields: list[dict[str, Any]] | None) -> list[str]:
+    if not fields:
+        return []
+
+    planned_fields: list[str] = []
+    seen = set()
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        field_name = str(field.get("name") or field.get("field_name") or "").strip()
+        if not field_name or field_name in seen:
+            continue
+        seen.add(field_name)
+        planned_fields.append(field_name)
+    return planned_fields
+
+
 class NodeHandlers:
     """Encapsulates all MVP node type handlers.
 
@@ -37,6 +54,8 @@ class NodeHandlers:
 
         try:
             ctx.session.navigate(url, timeout=30000)
+            ctx.state["pages_processed"] = 1
+            ctx.state["last_pagination_advanced"] = False
             ctx.add_log(LogLevel.INFO, f"Navigated to: {url}", node_id=node.id)
             result.result = {"url": url, "status": "navigated"}
         except Exception as e:
@@ -54,7 +73,7 @@ class NodeHandlers:
             test_result = self.selector_tester.test_selector(
                 ctx.session.page,
                 selector,
-                max_samples=ctx.max_items
+                max_samples=ctx.selector_sample_limit
             )
 
             result.result = {
@@ -63,6 +82,7 @@ class NodeHandlers:
             }
             ctx.state["item_selector"] = selector
             ctx.state["item_count"] = test_result.match_count
+            setattr(ctx.session.page, "_last_item_selector", selector)
             ctx.add_log(LogLevel.INFO, f"Found {test_result.match_count} items", node_id=node.id)
 
         except Exception as e:
@@ -83,11 +103,18 @@ class NodeHandlers:
             return
 
         try:
+            planned_fields = _collect_planned_field_names(fields)
+            if planned_fields:
+                existing_planned = ctx.state.setdefault("planned_record_fields", [])
+                for field_name in planned_fields:
+                    if field_name not in existing_planned:
+                        existing_planned.append(field_name)
+
             records = self.selector_tester.extract_fields_from_items(
                 ctx.session.page,
                 item_selector,
                 fields
-            )[:ctx.max_items]
+            )
 
             result.result = {
                 "extracted_count": len(records),
@@ -102,9 +129,9 @@ class NodeHandlers:
             raise
 
     def handle_paginate(self, node, ctx, result):
-        """Execute paginate node (bounded for testing)."""
+        """Execute paginate node with bounded real page advancement."""
         selector = node.data.pagination_selector
-        strategy = node.data.pagination_strategy or "click_next"
+        strategy = (node.data.pagination_strategy or "click_next").strip().lower()
 
         if not selector:
             result.error = "pagination_selector is required for paginate node"
@@ -113,28 +140,114 @@ class NodeHandlers:
         try:
             elements = ctx.session.page.query_selector_all(selector)
             exists = len(elements) > 0
-
+            current_page = int(ctx.state.get("pages_processed") or 1)
+            limit_reached = current_page >= ctx.max_pages
+            advanced = False
             message = "Pagination selector found" if exists else "Pagination selector not found"
+
+            if exists and not limit_reached:
+                if strategy in {"click_next", "load_more"}:
+                    advanced = self._advance_by_click(ctx.session.page, elements[0])
+                elif strategy == "infinite_scroll":
+                    advanced = self._advance_by_scroll(ctx.session.page)
+
+                if advanced:
+                    current_page += 1
+                    ctx.state["pages_processed"] = current_page
+                    ctx.state["last_pagination_advanced"] = True
+                    message = f"Advanced to page {current_page}"
+                else:
+                    ctx.state["last_pagination_advanced"] = False
+                    message = f"Pagination control was found but did not advance via {strategy}"
+            else:
+                ctx.state["last_pagination_advanced"] = False
+                if limit_reached:
+                    message = f"Pagination limit reached at page {current_page}"
+
             result.result = {
                 "selector": selector,
                 "strategy": strategy,
                 "found": exists,
-                "message": f"{message} (limited to single-page testing)"
+                "advanced": advanced,
+                "page_number": current_page,
+                "max_pages": ctx.max_pages,
+                "message": message,
             }
-            ctx.add_log(LogLevel.INFO, f"Pagination check: {'found' if exists else 'not found'}", node_id=node.id)
+            ctx.add_log(
+                LogLevel.INFO,
+                f"Pagination {('advanced' if advanced else 'checked')}: {'found' if exists else 'not found'}",
+                node_id=node.id,
+                details={"strategy": strategy, "page_number": current_page, "advanced": advanced},
+            )
 
         except Exception as e:
             result.error = f"Failed to check pagination: {e}"
             raise
 
+    def _advance_by_click(self, page, element) -> bool:
+        previous_url = getattr(page, "url", None)
+        previous_count = self._count_visible_items(page)
+        try:
+            if hasattr(element, "scroll_into_view_if_needed"):
+                element.scroll_into_view_if_needed(timeout=3000)
+            element.click(timeout=5000)
+        except TypeError:
+            element.click()
+
+        self._wait_for_page_settle(page)
+        return self._pagination_state_changed(page, previous_url, previous_count)
+
+    def _advance_by_scroll(self, page) -> bool:
+        previous_url = getattr(page, "url", None)
+        previous_count = self._count_visible_items(page)
+        try:
+            if hasattr(page, "mouse") and hasattr(page.mouse, "wheel"):
+                page.mouse.wheel(0, 2000)
+            elif hasattr(page, "evaluate"):
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        except Exception:
+            return False
+
+        self._wait_for_page_settle(page)
+        return self._pagination_state_changed(page, previous_url, previous_count)
+
+    def _wait_for_page_settle(self, page) -> None:
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        try:
+            page.wait_for_timeout(1200)
+        except Exception:
+            pass
+
+    def _count_visible_items(self, page) -> int | None:
+        selector = getattr(page, "_last_item_selector", None)
+        if not selector:
+            return None
+        try:
+            return len(page.query_selector_all(selector))
+        except Exception:
+            return None
+
+    def _pagination_state_changed(self, page, previous_url: str | None, previous_count: int | None) -> bool:
+        current_url = getattr(page, "url", None)
+        if previous_url and current_url and current_url != previous_url:
+            return True
+
+        current_count = self._count_visible_items(page)
+        if previous_count is not None and current_count is not None and current_count != previous_count:
+            return True
+
+        return False
+
     def handle_emit_record(self, node, ctx, result):
         """Execute emit_record node."""
         records = ctx.state.get("extracted_records", [])
-        bounded_records = records[:ctx.max_items]
         emit_offsets = ctx.state.setdefault("_emit_offsets", {})
         emit_offset = emit_offsets.get(node.id, 0)
-        pending_records = bounded_records[emit_offset:]
-        emit_offsets[node.id] = len(bounded_records)
+        pending_records = records[emit_offset:]
+        emit_offsets[node.id] = len(records)
 
         result.result = {
             "emitted_count": len(pending_records),
@@ -147,6 +260,7 @@ class NodeHandlers:
                 context={
                     "page_url": getattr(ctx.session.page, "url", ""),
                     "run_id": f"ctx-{int(ctx.start_time)}",
+                    "planned_fields": ctx.state.get("planned_record_fields", []),
                 },
             )
         except RecordSinkError as error:
@@ -172,16 +286,14 @@ class NodeHandlers:
 
         Execution flow:
         1. Read item_count from ctx.state (set by upstream select_list).
-        2. Set loop_bound = min(node.max_items, ctx.max_items, item_count).
+        2. Set loop_bound = item_count.
         3. Write ctx.state["loop_bound"] and ctx.state["loop_on_error"] for
            downstream nodes to read.
         4. Do NOT expand sub-flows here; the orchestration loop handles
            re-queuing downstream nodes per iteration.
         """
         item_count = ctx.state.get("item_count", 0)
-        node_max = node.data.max_items if node.data.max_items else ctx.max_items
-        ctx_max = ctx.max_items
-        loop_bound = min(node_max, ctx_max, item_count) if item_count > 0 else 0
+        loop_bound = item_count if item_count > 0 else 0
 
         on_error = node.data.on_error or "skip"
 
@@ -195,7 +307,7 @@ class NodeHandlers:
             "on_error": on_error,
             "note": (
                 f"Loop context set: {loop_bound} items "
-                f"(max={node_max}, context_limit={ctx_max}, found={item_count})"
+                f"(found={item_count})"
             )
         }
         ctx.add_log(

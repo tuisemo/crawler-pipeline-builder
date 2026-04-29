@@ -17,8 +17,6 @@ def test_settings_reads_environment_over_project_env(monkeypatch):
     monkeypatch.setenv("MODEL_NAME", "test-model")
     monkeypatch.setenv("SCRIPT_GENERATION_MAX_TOKENS", "321")
     monkeypatch.setenv("SCRIPT_REVIEW_MAX_TOKENS", "111")
-    monkeypatch.setenv("DEFAULT_MAX_STEPS", "77")
-    monkeypatch.setenv("DEFAULT_MAX_ITEMS", "22")
     monkeypatch.setenv("DEFAULT_MAX_PAGES", "9")
 
     settings = CrawlerWorkflowSettings.from_env()
@@ -32,9 +30,25 @@ def test_settings_reads_environment_over_project_env(monkeypatch):
     assert settings.model_name == "test-model"
     assert settings.script_generation_max_tokens == 321
     assert settings.script_review_max_tokens == 111
-    assert settings.default_max_steps == 77
-    assert settings.default_max_items == 22
     assert settings.default_max_pages == 9
+
+
+def test_settings_default_script_token_limits_are_unset_when_not_configured(monkeypatch):
+    monkeypatch.delenv("SCRIPT_GENERATION_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("SCRIPT_REVIEW_MAX_TOKENS", raising=False)
+
+    settings = CrawlerWorkflowSettings.from_env()
+
+    assert settings.script_generation_max_tokens is None
+    assert settings.script_review_max_tokens is None
+
+
+def test_settings_default_script_sandbox_timeout_is_longer_than_navigation_timeout(monkeypatch):
+    monkeypatch.delenv("SCRIPT_SANDBOX_TIMEOUT_SECONDS", raising=False)
+
+    settings = CrawlerWorkflowSettings.from_env()
+
+    assert settings.script_sandbox_timeout_seconds == 60
 
 
 def test_frontend_proxy_default_matches_backend_default_port():

@@ -49,7 +49,6 @@ type PropertyPanelProps = {
   onOptimizeListSelector: () => void
   onInferExtractFields: () => void
   onAnalyzePagination: () => void
-  onCleanExtractField: (index: number) => void
   onTestSelector: (selector: string, selectorLabel: string) => void
   assistBusyAction: string | null
   addExtractField: () => void
@@ -198,7 +197,6 @@ export function PropertyPanel({
   onOptimizeListSelector,
   onInferExtractFields,
   onAnalyzePagination,
-  onCleanExtractField,
   onTestSelector,
   assistBusyAction,
   addExtractField,
@@ -355,7 +353,6 @@ export function PropertyPanel({
                       addExtractField={addExtractField}
                       removeExtractField={removeExtractField}
                       onInferExtractFields={onInferExtractFields}
-                      onCleanExtractField={onCleanExtractField}
                       onTestSelector={onTestSelector}
                     />
                   )}

@@ -6,6 +6,12 @@ from typing import Any
 from urllib.parse import urljoin
 
 
+SELECTOR_HIGHLIGHT_STYLE_ID = "crawler-workflow-selector-highlight-style"
+SELECTOR_HIGHLIGHT_ATTR = "data-crawler-workflow-selector-highlight"
+SELECTOR_HIGHLIGHT_CLEAR_FN = "__crawlerWorkflowClearSelectorHighlights"
+SELECTOR_HIGHLIGHT_TIMER_KEY = "__crawlerWorkflowSelectorHighlightTimer"
+
+
 @dataclass
 class SelectorTestResult:
     """Result of testing a selector against a page."""
@@ -46,16 +52,134 @@ def _normalize_extraction_type(extraction_type: str) -> str:
     return normalized
 
 
+def _normalize_query_selector(selector: str) -> str:
+    normalized = (selector or "").strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    if lowered.startswith(("xpath=", "css=")):
+        return normalized
+    if normalized.startswith(("//", ".//", "(//", "(/")):
+        return f"xpath={normalized}"
+    return normalized
+
+
 def _safe_query(page, selector: str) -> list:
     """Safely query page with selector, return empty list on error."""
     try:
-        return page.query_selector_all(selector)
+        return page.query_selector_all(_normalize_query_selector(selector))
     except Exception:
         return []
 
 
 class SelectorTester:
     """Tests CSS selectors against Playwright pages."""
+
+    @staticmethod
+    def clear_selector_highlight(page) -> None:
+        try:
+            page.evaluate(
+                f"""() => {{
+                    const attrName = {SELECTOR_HIGHLIGHT_ATTR!r};
+                    const styleId = {SELECTOR_HIGHLIGHT_STYLE_ID!r};
+                    const clearFnName = {SELECTOR_HIGHLIGHT_CLEAR_FN!r};
+                    const timerKey = {SELECTOR_HIGHLIGHT_TIMER_KEY!r};
+                    const existingTimer = window[timerKey];
+                    if (existingTimer) {{
+                        clearTimeout(existingTimer);
+                        window[timerKey] = null;
+                    }}
+                    document.querySelectorAll(`[${{attrName}}]`).forEach((node) => {{
+                        node.removeAttribute(attrName);
+                    }});
+                    const styleNode = document.getElementById(styleId);
+                    if (styleNode) {{
+                        styleNode.remove();
+                    }}
+                    if (typeof window[clearFnName] === "function") {{
+                        delete window[clearFnName];
+                    }}
+                }}"""
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def highlight_selector(page, selector: str, clear_after_ms: int = 2200) -> int:
+        elements = _safe_query(page, selector)
+        if not elements:
+            return 0
+
+        SelectorTester.clear_selector_highlight(page)
+
+        try:
+            page.evaluate(
+                f"""() => {{
+                    const attrName = {SELECTOR_HIGHLIGHT_ATTR!r};
+                    const styleId = {SELECTOR_HIGHLIGHT_STYLE_ID!r};
+                    const clearFnName = {SELECTOR_HIGHLIGHT_CLEAR_FN!r};
+                    const timerKey = {SELECTOR_HIGHLIGHT_TIMER_KEY!r};
+                    const styleNode = document.createElement("style");
+                    styleNode.id = styleId;
+                    styleNode.textContent = `
+                        [{SELECTOR_HIGHLIGHT_ATTR}] {{
+                            outline: 3px solid #ef4444 !important;
+                            outline-offset: 2px !important;
+                            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18) !important;
+                            background-color: rgba(251, 191, 36, 0.18) !important;
+                            transition: outline-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease !important;
+                        }}
+                    `;
+                    document.head.appendChild(styleNode);
+                    window[clearFnName] = () => {{
+                        const existingTimer = window[timerKey];
+                        if (existingTimer) {{
+                            clearTimeout(existingTimer);
+                            window[timerKey] = null;
+                        }}
+                        document.querySelectorAll(`[${{attrName}}]`).forEach((node) => {{
+                            node.removeAttribute(attrName);
+                        }});
+                        const currentStyleNode = document.getElementById(styleId);
+                        if (currentStyleNode) {{
+                            currentStyleNode.remove();
+                        }}
+                    }};
+                }}"""
+            )
+
+            for index, element in enumerate(elements):
+                try:
+                    element.evaluate(
+                        f"""(node) => {{
+                            node.setAttribute({SELECTOR_HIGHLIGHT_ATTR!r}, "true");
+                            if ({index} === 0 && typeof node.scrollIntoView === "function") {{
+                                node.scrollIntoView({{ block: "center", inline: "nearest", behavior: "instant" }});
+                            }}
+                        }}"""
+                    )
+                except Exception:
+                    continue
+
+            timeout_ms = clear_after_ms if isinstance(clear_after_ms, int) and clear_after_ms > 0 else 2200
+            page.evaluate(
+                f"""(timeoutMs) => {{
+                    const clearFnName = {SELECTOR_HIGHLIGHT_CLEAR_FN!r};
+                    const timerKey = {SELECTOR_HIGHLIGHT_TIMER_KEY!r};
+                    const existingTimer = window[timerKey];
+                    if (existingTimer) {{
+                        clearTimeout(existingTimer);
+                    }}
+                    if (typeof window[clearFnName] === "function") {{
+                        window[timerKey] = window.setTimeout(() => window[clearFnName](), timeoutMs);
+                    }}
+                }}""",
+                timeout_ms,
+            )
+        except Exception:
+            pass
+
+        return len(elements)
 
     @staticmethod
     def test_selector(page, selector: str, max_samples: int = 5) -> SelectorTestResult:
@@ -131,14 +255,15 @@ class SelectorTester:
                     continue
 
                 try:
+                    normalized_selector = _normalize_query_selector(selector)
                     # First check if item itself matches the selector (for leaf selectors like 'a', 'img')
                     # We use evaluate() to access the JS matches method, since Python ElementHandle
                     # may not expose matches as a direct attribute
                     sub_elements = []
-                    if selector:
+                    if normalized_selector and not normalized_selector.lower().startswith("xpath="):
                         try:
                             # Try JS matches via evaluate
-                            matched = item.evaluate(f'(el) => el.matches("{selector}")')
+                            matched = item.evaluate(f'(el) => el.matches("{normalized_selector}")')
                             if matched:
                                 sub_elements = [item]
                         except Exception:
@@ -146,10 +271,10 @@ class SelectorTester:
 
                     # If no match, try querying children within the item
                     if not sub_elements:
-                        if selector.startswith('.') or selector.startswith('#') or not selector.startswith(('div', 'span', 'a', 'img', 'li', 'tr', 'p', 'h')):
-                            sub_sel = selector
+                        if normalized_selector.startswith('.') or normalized_selector.startswith('#') or not normalized_selector.startswith(('div', 'span', 'a', 'img', 'li', 'tr', 'p', 'h')):
+                            sub_sel = normalized_selector
                         else:
-                            sub_sel = selector
+                            sub_sel = normalized_selector
 
                         sub_elements = item.query_selector_all(sub_sel) if hasattr(item, 'query_selector_all') else []
                         if not sub_elements and sub_sel.startswith(":scope"):

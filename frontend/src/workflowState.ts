@@ -44,12 +44,33 @@ export const workflowNodeTypes = new Set<WorkflowNodeType>([
   'end',
 ])
 
+const DEPRECATED_NODE_DATA_KEYS = new Set(['max_steps', 'max_items'])
+const DEPRECATED_EXTRACTION_FIELD_KEYS = new Set(['sample_value', 'clean_data_type', 'normalized_sample'])
+
+function sanitizeNodeData(data: WorkflowNodeData): WorkflowNodeData {
+  const sanitizedEntries = Object.entries(data)
+    .filter(([key]) => !DEPRECATED_NODE_DATA_KEYS.has(key))
+    .map(([key, value]) => {
+      if (key !== 'fields' || !Array.isArray(value)) return [key, value]
+      return [
+        key,
+        value.map((field) => {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) return field
+          return Object.fromEntries(
+            Object.entries(field).filter(([fieldKey]) => !DEPRECATED_EXTRACTION_FIELD_KEYS.has(fieldKey)),
+          )
+        }),
+      ]
+    })
+  return Object.fromEntries(sanitizedEntries) as WorkflowNodeData
+}
+
 export function toCanonicalGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowGraph {
   return {
     nodes: nodes.map((node) => ({
       id: node.id,
       type: node.type ?? 'open_page',
-      data: node.data,
+      data: sanitizeNodeData(node.data),
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -101,7 +122,7 @@ export function validateGraphShape(value: unknown): WorkflowGraph {
     if (!candidate.data || typeof candidate.data !== 'object' || Array.isArray(candidate.data)) {
       throw new Error(`Node ${candidate.id} requires object data.`)
     }
-    const data = candidate.data as WorkflowNodeData
+    const data = sanitizeNodeData(candidate.data as WorkflowNodeData)
     if (candidate.type === 'extract_field' && data.fields) {
       for (const [fieldIndex, field] of data.fields.entries()) {
         const resolvedName = typeof field.name === 'string' && field.name.trim()
@@ -170,7 +191,7 @@ export function graphToFlowState(graph: WorkflowGraph, previousNodes: WorkflowNo
     nodes: graph.nodes.map((node, index) => ({
       id: node.id,
       type: node.type,
-      data: node.data,
+      data: sanitizeNodeData(node.data),
       position: previousById.get(node.id)?.position ?? { x: 80 + (index % 4) * 230, y: 100 + Math.floor(index / 4) * 150 },
     })),
     edges: graph.edges.map((edge) => ({ ...edge, markerEnd: { type: MarkerType.ArrowClosed } })),

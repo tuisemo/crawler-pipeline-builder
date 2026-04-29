@@ -19,7 +19,9 @@ from .workflows.script_artifacts import (
     format_script,
     save_script,
 )
+from .workflows.script_sandbox import run_generated_script_sandbox
 from .workflows.validation import WorkflowValidationError, validate_graph
+from .core.settings import get_settings
 
 from .workflow_schemas import (
     FromLegacyConfigRequest,
@@ -33,7 +35,48 @@ from .workflow_schemas import (
     CompilePlanResponse,
     GenerateSkeletonRequest,
     GenerateSkeletonResponse,
+    RunScriptSandboxRequest,
+    RunScriptSandboxResponse,
 )
+
+
+DEPRECATED_NODE_DATA_KEYS = {"max_steps", "max_items"}
+DEPRECATED_EXTRACTION_FIELD_KEYS = {"sample_value", "clean_data_type", "normalized_sample"}
+
+
+def _sanitize_extract_fields(fields: list[dict] | None) -> list[dict] | None:
+    if fields is None:
+        return None
+    sanitized_fields: list[dict] = []
+    for field in fields:
+        if not isinstance(field, dict):
+            sanitized_fields.append(field)
+            continue
+        sanitized_fields.append({
+            key: value
+            for key, value in field.items()
+            if key not in DEPRECATED_EXTRACTION_FIELD_KEYS
+        })
+    return sanitized_fields
+
+
+def _sanitize_node_data(data: NodeData) -> NodeData:
+    payload = data.model_dump()
+    for key in DEPRECATED_NODE_DATA_KEYS:
+        payload.pop(key, None)
+    if isinstance(payload.get("fields"), list):
+        payload["fields"] = _sanitize_extract_fields(payload.get("fields"))
+    return NodeData.model_validate(payload)
+
+
+def _sanitize_graph(graph: WorkflowGraph) -> WorkflowGraph:
+    return WorkflowGraph(
+        nodes=[
+            WorkflowNode(id=node.id, type=node.type, data=_sanitize_node_data(node.data))
+            for node in graph.nodes
+        ],
+        edges=list(graph.edges),
+    )
 
 
 # ----------------------------------------------------------------------
@@ -74,7 +117,7 @@ def convert_legacy_config(request: FromLegacyConfigRequest) -> FromLegacyConfigR
         WorkflowNode(
             id="node_3",
             type="extract_field",
-            data=NodeData(fields=request.fields, html_fragment=request.html_fragment),
+            data=NodeData(fields=_sanitize_extract_fields(request.fields), html_fragment=request.html_fragment),
         ),
     ]
     edges = [
@@ -108,7 +151,8 @@ def graph_to_prompt(request: ToPromptRequest) -> dict:
     
     Raises PromptGenerationError if required config is missing.
     """
-    final_prompt, editable_prompt, plan_dict = _build_generation_prompt(request.graph)
+    sanitized_graph = _sanitize_graph(request.graph)
+    final_prompt, editable_prompt, plan_dict = _build_generation_prompt(sanitized_graph)
     return {
         "success": True,
         "prompt": editable_prompt,
@@ -121,7 +165,7 @@ def graph_to_prompt(request: ToPromptRequest) -> dict:
 def compile_plan(request: CompilePlanRequest) -> CompilePlanResponse:
     """Compile a DSL workflow graph to a deterministic execution plan."""
     try:
-        plan = compile_graph_to_plan(request.graph)
+        plan = compile_graph_to_plan(_sanitize_graph(request.graph))
         return CompilePlanResponse(success=True, plan=execution_plan_to_dict(plan), warnings=[])
     except Exception as e:
         return CompilePlanResponse(success=False, error=str(e))
@@ -130,7 +174,7 @@ def compile_plan(request: CompilePlanRequest) -> CompilePlanResponse:
 def generate_skeleton(request: GenerateSkeletonRequest) -> GenerateSkeletonResponse:
     """Generate deterministic crawler skeleton from workflow graph."""
     try:
-        plan = compile_graph_to_plan(request.graph)
+        plan = compile_graph_to_plan(_sanitize_graph(request.graph))
         plan_dict = execution_plan_to_dict(plan)
         if not plan.entry_url or not plan.item_selector:
             return GenerateSkeletonResponse(
@@ -148,3 +192,20 @@ def generate_skeleton(request: GenerateSkeletonRequest) -> GenerateSkeletonRespo
     except Exception as e:
         return GenerateSkeletonResponse(success=False, error=str(e))
 
+
+def run_script_sandbox(request: RunScriptSandboxRequest) -> RunScriptSandboxResponse:
+    """Manually execute a generated or edited script in the configured sandbox."""
+    settings = get_settings()
+    if not settings.script_sandbox_enabled:
+        return RunScriptSandboxResponse(success=False, error="Script sandbox is disabled by configuration.")
+
+    try:
+        result = run_generated_script_sandbox(
+            request.script,
+            filename=request.filename,
+            timeout_seconds=request.timeout_seconds or settings.script_sandbox_timeout_seconds,
+            metadata={"source": "manual_request"},
+        )
+        return RunScriptSandboxResponse(success=result.success, sandbox_result=result.to_dict(), error=result.error)
+    except Exception as e:
+        return RunScriptSandboxResponse(success=False, error=str(e))

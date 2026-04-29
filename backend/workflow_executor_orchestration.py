@@ -72,11 +72,11 @@ def execute_subflow_loop(executor, graph, ctx, adjacency_map, pending_nodes, bou
             node_result = executor._execute_node_sync(node, ctx)
             if not node_result.success:
                 failed_node_ids.add(node_id)
-                if node_result.error and 'Max steps' in node_result.error:
+                if node_result.error and 'step budget' in node_result.error.lower():
                     ctx.add_log(LogLevel.WARNING, f"Stopped at step limit: {ctx.steps_executed}")
                     return build_partial_subflow_response(ctx, node_result.error)
         except RuntimeError as error:
-            if 'Max steps' in str(error):
+            if 'step budget' in str(error).lower():
                 ctx.add_log(LogLevel.WARNING, f"Stopped at step limit: {ctx.steps_executed}")
                 return build_partial_subflow_response(ctx, str(error))
             raise
@@ -99,6 +99,15 @@ def execute_subflow_loop(executor, graph, ctx, adjacency_map, pending_nodes, bou
                             node_id=node_id
                         )
                 continue
+
+            if node.type == "paginate":
+                if not bool(ctx.state.get("last_pagination_advanced")):
+                    ctx.add_log(
+                        LogLevel.INFO,
+                        f"Pagination stopped requeue at {node_id}; page did not advance",
+                        node_id=node_id,
+                    )
+                    continue
 
             skipped_boundary = boundary_end_node in adjacency_map.get(node_id, []) if boundary_end_node else False
             if skipped_boundary:

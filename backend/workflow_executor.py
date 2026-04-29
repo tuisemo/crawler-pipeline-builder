@@ -48,6 +48,10 @@ from .workflow_executor_orchestration import execute_subflow_loop
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_EXECUTION_STEP_BUDGET = 50000
+INTERNAL_SELECTOR_SAMPLE_LIMIT = 5
+INTERNAL_RECORD_PREVIEW_LIMIT = 20
+
 
 @dataclass
 class ExecutionContext:
@@ -63,9 +67,10 @@ class ExecutionContext:
     start_time: float = field(default_factory=time.time)
 
     # Execution limits
-    max_steps: int = 50000
-    max_items: int = 50
+    step_budget: int = field(default_factory=lambda: INTERNAL_EXECUTION_STEP_BUDGET)
     max_pages: int = 10
+    selector_sample_limit: int = field(default_factory=lambda: INTERNAL_SELECTOR_SAMPLE_LIMIT)
+    record_preview_limit: int = field(default_factory=lambda: INTERNAL_RECORD_PREVIEW_LIMIT)
 
     # Subflow boundaries
     boundary_start_node: Optional[str] = None
@@ -84,9 +89,9 @@ class ExecutionContext:
         logger.log(getattr(logging, level.value.upper()), message)
 
     def increment_step(self):
-        """Increment step counter and check limits."""
-        if self.steps_executed >= self.max_steps:
-            raise RuntimeError(f"Max steps ({self.max_steps}) exceeded")
+        """Increment step counter and check the internal safety budget."""
+        if self.steps_executed >= self.step_budget:
+            raise RuntimeError(f"Internal step budget ({self.step_budget}) exceeded")
         self.steps_executed += 1
 
 
@@ -107,20 +112,29 @@ class WorkflowExecutor:
     def __init__(self):
         pass
 
-    def _capture_revisit_fingerprint(self, ctx: ExecutionContext) -> Dict[str, Any]:
+    def _capture_revisit_fingerprint(self, node: WorkflowNode, ctx: ExecutionContext) -> Dict[str, Any]:
         """Capture execution state that indicates whether revisiting can do new work."""
         state = deepcopy(ctx.state)
         if "extracted_records" in state:
-            state["extracted_records"] = state["extracted_records"][:ctx.max_items]
-        return {
+            state["extracted_records"] = state["extracted_records"][:ctx.record_preview_limit]
+        fingerprint = {
             "state": state,
-            "records": deepcopy(ctx.records[:ctx.max_items]),
+            "records": deepcopy(ctx.records[:ctx.record_preview_limit]),
             "current_url": getattr(ctx.session.page, "url", None),
         }
+        if node.type == "extract_field":
+            fingerprint.pop("records", None)
+            fingerprint["state"].pop("extracted_records", None)
+            latest_result = ctx.node_results[-1].result if ctx.node_results else None
+            if isinstance(latest_result, dict):
+                batch = latest_result.get("records")
+                if isinstance(batch, list):
+                    fingerprint["latest_batch"] = deepcopy(batch[:ctx.record_preview_limit])
+        return fingerprint
 
     def _should_requeue_successors(self, node: WorkflowNode, ctx: ExecutionContext) -> bool:
         """Return False when a successful revisit leaves execution state unchanged."""
-        fingerprint = self._capture_revisit_fingerprint(ctx)
+        fingerprint = self._capture_revisit_fingerprint(node, ctx)
         previous = ctx.node_state_fingerprints.get(node.id)
         ctx.node_state_fingerprints[node.id] = fingerprint
 
@@ -202,8 +216,6 @@ class WorkflowExecutor:
             limits = resolve_test_node_limits(request, target_node)
             ctx = ExecutionContext(
                 session=session,
-                max_steps=limits["max_steps"],
-                max_items=limits["max_items"],
                 max_pages=limits["max_pages"],
             )
 
@@ -261,8 +273,6 @@ class WorkflowExecutor:
             limits = resolve_subflow_limits(request.graph, boundary)
             ctx = ExecutionContext(
                 session=session,
-                max_steps=limits["max_steps"],
-                max_items=limits["max_items"],
                 max_pages=limits["max_pages"],
                 boundary_start_node=boundary.start_node_id,
                 boundary_end_node=boundary.end_node_id
@@ -272,7 +282,7 @@ class WorkflowExecutor:
             adjacency_map = get_subflow_adjacency_map(request.graph)
 
             # Execute from start node (or entry if not specified). Requeue repeated
-            # nodes so max_steps, not visited-state alone, bounds cyclic graphs.
+            # nodes so the internal step budget, not visited-state alone, bounds cyclic graphs.
             pending_nodes = create_subflow_queue(entry_node.id, boundary.start_node_id)
 
             partial_response = execute_subflow_loop(

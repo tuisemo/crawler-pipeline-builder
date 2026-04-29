@@ -32,8 +32,8 @@ function nodeSummary(type: WorkflowNodeType, data: WorkflowNodeData) {
   if (type === 'open_page') return String(data.url || '设置目标地址')
   if (type === 'select_list') return String(data.item_selector || '设置列表选择器')
   if (type === 'extract_field') return `${data.fields?.length ?? 0} 个抽取字段`
-  if (type === 'paginate') return `${data.pagination_strategy || 'click_next'} · ${data.max_pages ?? 1} 页`
-  if (type === 'loop') return `${data.max_items ?? 5} 条上限`
+  if (type === 'paginate') return `${data.pagination_strategy || 'click_next'} · 自动结束`
+  if (type === 'loop') return String(data.on_error === 'stop' ? '失败即停止' : '失败跳过')
   if (type === 'condition') return String(data.condition || '设置条件')
   if (type === 'emit_record') {
     const mode = String(data.output_mode || 'memory')

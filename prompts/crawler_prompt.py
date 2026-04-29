@@ -18,9 +18,6 @@ class FieldSpec:
     selector: str
     extraction_type: str = "text"
     description: str = ""
-    clean_data_type: str = ""
-    normalized_sample: str = ""
-    sample_value: str = ""
 
     def to_dex(self) -> str:
         return f"{self.name}: {self.selector} > {self.extraction_type}"
@@ -33,12 +30,6 @@ class FieldSpec:
         }
         if self.description:
             data["description"] = self.description
-        if self.clean_data_type:
-            data["clean_data_type"] = self.clean_data_type
-        if self.normalized_sample:
-            data["normalized_sample"] = self.normalized_sample
-        if self.sample_value:
-            data["sample_value"] = self.sample_value
         return data
 
 
@@ -145,9 +136,6 @@ class CrawlerPromptGenerator:
                 selector=f.get("selector", f.get("css", "")),
                 extraction_type=f.get("type", f.get("extraction_type", "text")),
                 description=str(f.get("description", "") or ""),
-                clean_data_type=str(f.get("clean_data_type", "") or ""),
-                normalized_sample=str(f.get("normalized_sample", "") or ""),
-                sample_value=str(f.get("sample_value", "") or ""),
             )
             for index, f in enumerate(fields)
         ]
@@ -185,9 +173,10 @@ class CrawlerPromptGenerator:
     def _build_selector_contract(self) -> list[str]:
         return [
             "## Selector Compatibility Contract",
-            "- Every selector must remain a standard CSS selector that works directly with Playwright `page.query_selector(...)`, `page.query_selector_all(...)`, and `locator(...)`.",
-            "- Selectors must also be compatible with DOM APIs such as `document.querySelector(...)` and `document.querySelectorAll(...)`.",
-            "- Do not invent Playwright-only locator syntax such as `get_by_role(...)`, `get_by_text(...)`, `text=...`, `:has-text(...)`, `nth=`, `>>`, or XPath.",
+            "- Treat every selector present in the deterministic execution plan as user-validated input. Preserve it whenever possible instead of replacing it with a new selector style.",
+            "- Validated selectors may be CSS selectors or XPath selectors. Keep the original selector string unless it is clearly invalid, semantically wrong for the target field, or incompatible with Playwright execution.",
+            "- If a validated selector is XPath, keep using XPath in a Playwright-compatible form. Do not convert a validated XPath selector to CSS unless the XPath is clearly wrong or unsupported.",
+            "- Do not invent Playwright-only locator syntax such as `get_by_role(...)`, `get_by_text(...)`, `text=...`, `:has-text(...)`, `nth=`, or `>>`.",
             "- Prefer stable semantic classes, IDs, and data-attributes over brittle position-based selectors.",
             "",
         ]
@@ -241,14 +230,7 @@ class CrawlerPromptGenerator:
             parts.append("")
             parts.append("Field notes:")
             for field in self.extraction.fields:
-                line = f"- `{field.name}` from `{field.selector}` as `{field.extraction_type}`"
-                if field.clean_data_type:
-                    line += f"; normalize as `{field.clean_data_type}`"
-                if field.normalized_sample:
-                    line += f"; expected normalized sample: `{field.normalized_sample}`"
-                elif field.sample_value:
-                    line += f"; raw sample: `{field.sample_value}`"
-                parts.append(line)
+                parts.append(f"- `{field.name}` from `{field.selector}` as `{field.extraction_type}`")
 
         if not self.extraction.pagination_selector or self.extraction.pagination_strategy in {"none", ""}:
             parts.append("")
@@ -299,15 +281,27 @@ class CrawlerPromptGenerator:
             "## Implementation Requirements",
             "- Use Playwright for Python and keep the script runnable end-to-end.",
             "- Preserve the deterministic execution plan, field schema, and output contract.",
-            "- Do not replace validated selectors with alternative locator styles unless the provided selector is clearly invalid.",
+            "- Reuse the validated selectors from the execution plan exactly as provided whenever possible, including validated XPath selectors.",
+            "- Only replace a validated selector when it is clearly invalid, targets the wrong element, or the selector form is incompatible with Playwright.",
+            "- If a selector is evaluated from `page` or `frame`, `page.locator(...)` is acceptable; if you already have an `ElementHandle`, use `query_selector(...)` / `query_selector_all(...)` on that handle instead of calling `.locator(...)` on it.",
+            "- Never emit `ElementHandle.locator(...)` patterns such as `item.locator(...)`, `element.locator(...)`, or `first.locator(...)`; those are not valid in Playwright Python sync API.",
             "- Use robust waits and content verification around pagination or dynamic updates.",
             "- Keep extraction logic aligned with the declared field selectors and normalization rules.",
+            "- Prefer minimal deterministic implementation changes over speculative architecture rewrites.",
         ]
         if self.anti_detection:
             parts.extend([
                 "- Use realistic waits and browser settings; avoid noisy anti-detection theatrics that reduce determinism.",
                 "- Prefer explicit synchronization over random sleeps when possible.",
             ])
+        parts.extend([
+            "",
+            "## Acceptance Gate",
+            "- Accept only if control flow stays aligned with execution plan.",
+            "- Accept only if output persistence mode stays aligned with output contract.",
+            "- Accept only if selectors remain compatible and as-validated whenever possible.",
+            "- If any acceptance condition fails, revise before returning final script.",
+        ])
         parts.append("")
         return parts
 

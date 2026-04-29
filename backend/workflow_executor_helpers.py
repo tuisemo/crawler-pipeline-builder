@@ -34,22 +34,10 @@ def _node_limit_values(graph: WorkflowGraph, field_name: str) -> list[int]:
 def resolve_test_node_limits(request, target_node: WorkflowNode) -> dict[str, int]:
     """Resolve single-node execution limits.
 
-    Explicit request fields win; otherwise the target node data can narrow the
-    run before falling back to settings defaults.
+    Single-node tests now honor only explicit pagination boundaries.
     """
     settings = get_settings()
-    requested_fields = getattr(request, "model_fields_set", set())
     return {
-        "max_steps": (
-            _positive_int(request.max_steps) if "max_steps" in requested_fields else None
-        )
-        or _positive_int(getattr(target_node.data, "max_steps", None))
-        or settings.default_max_steps,
-        "max_items": (
-            _positive_int(request.max_items) if "max_items" in requested_fields else None
-        )
-        or _positive_int(getattr(target_node.data, "max_items", None))
-        or settings.default_max_items,
         "max_pages": _positive_int(getattr(target_node.data, "max_pages", None)) or settings.default_max_pages,
     }
 
@@ -57,17 +45,11 @@ def resolve_test_node_limits(request, target_node: WorkflowNode) -> dict[str, in
 def resolve_subflow_limits(graph: WorkflowGraph, boundary: SubflowBoundary) -> dict[str, int]:
     """Resolve subflow execution limits.
 
-    Priority: request boundary > explicit node data > settings defaults. When
-    several nodes declare the same limit, the smallest positive value is used so
-    a downstream node cannot silently widen an upstream boundary.
+    Priority: request boundary > explicit node data > settings defaults.
     """
     settings = get_settings()
-    node_max_steps = _node_limit_values(graph, "max_steps")
-    node_max_items = _node_limit_values(graph, "max_items")
     node_max_pages = _node_limit_values(graph, "max_pages")
     return {
-        "max_steps": _positive_int(boundary.max_steps) or (min(node_max_steps) if node_max_steps else settings.default_max_steps),
-        "max_items": _positive_int(boundary.max_items) or (min(node_max_items) if node_max_items else settings.default_max_items),
         "max_pages": _positive_int(boundary.max_pages) or (min(node_max_pages) if node_max_pages else settings.default_max_pages),
     }
 
@@ -169,7 +151,7 @@ def build_partial_subflow_response(ctx, error: str, session_expired: bool = Fals
         partial=True,
         node_results=ctx.node_results,
         logs=ctx.logs,
-        records=ctx.records[:ctx.max_items],
+        records=ctx.records[:ctx.record_preview_limit],
         error=error,
         session_expired=session_expired,
         steps_executed=ctx.steps_executed,
@@ -182,7 +164,7 @@ def build_subflow_success_response(ctx) -> TestSubflowResponse:
         partial=False,
         node_results=ctx.node_results,
         logs=ctx.logs,
-        records=ctx.records[:ctx.max_items],
+        records=ctx.records[:ctx.record_preview_limit],
         error=None,
         session_expired=False,
         steps_executed=ctx.steps_executed,
