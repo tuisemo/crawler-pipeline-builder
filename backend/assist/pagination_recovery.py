@@ -41,6 +41,8 @@ Identify the single actionable control that advances to the next page or loads m
 5. If a PAGINATION_CONTROL_SUMMARY is provided, read the `class`, `parent_tag`, and `parent_class` fields to build the ancestor-scoped path.
 6. Account for Chinese text: 下一页 (next), 加载更多 (load more), 上一页 (previous).
 7. All selectors in output must be standard CSS selectors (no Playwright text locators, no XPath).
+8. Do NOT treat view toggles, items-per-page controls, year filters, category tabs, or sorting controls as pagination.
+9. Symbolic controls such as `>`, `>>`, `›`, or `»` are valid next candidates only when pager context clearly supports that interpretation.
 """
 
 
@@ -90,7 +92,12 @@ def build_pagination_analysis_user_prompt(html_fragment: str) -> str:
     pagination_html = _extract_html_section("PAGINATION", html_fragment)
     control_summary = _extract_html_section("PAGINATION_CONTROL_SUMMARY", html_fragment)
 
-    evidence_sections = ["## Evidence Package"]
+    evidence_sections = [
+        "## Evidence Package",
+        "Base your answer only on the evidence below.",
+        "If the evidence is insufficient or contradictory, return `pagination_strategy: \"none\"` with an empty actionable selector.",
+        "",
+    ]
 
     if item_samples:
         evidence_sections.extend([

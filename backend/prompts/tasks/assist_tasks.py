@@ -1,8 +1,11 @@
 """Task prompt templates for assist capabilities."""
 
 from backend.prompts.shared.rules import (
+    EVIDENCE_FIRST_POLICY,
+    JSON_OUTPUT_LOCK,
     LOW_CONFIDENCE_FALLBACK_POLICY,
     PLAYWRIGHT_CSS_SELECTOR_COMPATIBILITY_RULES,
+    SMALLEST_STABLE_CHANGE_POLICY,
 )
 
 
@@ -13,9 +16,10 @@ HTML:
 
 ## Objective
 Produce selectors that are executable, stable, and minimally ambiguous on the current page evidence.
+{JSON_OUTPUT_LOCK}
 
 ## Evidence Handling
-Base your decision on the strongest structural evidence first:
+{EVIDENCE_FIRST_POLICY}
 1. Repeating DOM structures that clearly represent records
 2. Stable semantic anchors such as IDs, data attributes, list containers, cards, articles, or headings
 3. Field-specific cues from tag semantics, class names, and visible text
@@ -28,6 +32,8 @@ You MUST produce **progressively-converging** (逐级收敛) selectors that are 
    - Prefer a scoped path: `<ancestor> > <tag>.<stable-class>` (e.g. `ul.news-list > li`, `div.results-grid > article`).
    - If the item has a unique class, verify it is not shared by navigation, sidebar, or footer elements.
    - Do NOT return a bare tag like `li` or `div` that matches hundreds of unrelated elements.
+   - If the page is not card-based and instead shows repeated title/date links in a dense text block, identify the smallest repeating record boundary rather than selecting the whole content container.
+   - If records are anchor-led, prefer the repeating anchor wrapper or its nearest stable record container over a broad article list region.
 
 2. **field selectors** — relative to each list item element (i.e. evaluated inside the item, not the whole document).
    - Use `:scope > ...` or a short relative path when possible (e.g. `:scope > a > .title`, `.card-body > h3.title`).
@@ -41,6 +47,7 @@ You MUST produce **progressively-converging** (逐级收敛) selectors that are 
 - Prefer one high-confidence selector per field rather than multiple speculative alternatives.
 - Avoid assigning different field names to the same selector unless the HTML clearly supports both meanings.
 - If the page evidence only supports 2 strong fields, return 2 strong fields instead of padding to 6.
+- When title and date appear inline inside the same repeated block, keep the record boundary stable first, then choose the narrowest relative selector for each field.
 
 ## Failure Policy
 {LOW_CONFIDENCE_FALLBACK_POLICY}
@@ -79,6 +86,7 @@ Return a selector with better precision/stability tradeoff than the initial sele
 - Preserve the target meaning and expected match cardinality.
 - Improve selector quality only when the improvement is evidence-backed.
 - If the current selector is already the best stable choice, keep it.
+{SMALLEST_STABLE_CHANGE_POLICY}
 
 ## Optimization Steps
 1. **Diagnose ambiguity**: count how many elements on the page the current selector could match. If more than the expected item count, it is too broad.
@@ -105,9 +113,10 @@ HTML:
 
 ## Objective
 Identify the concrete, single control that advances pagination and return a durable selector policy.
+{JSON_OUTPUT_LOCK}
 
 ## Evidence Priority
-Use evidence in this order:
+{EVIDENCE_FIRST_POLICY}
 1. Explicit next/load-more semantics such as `rel="next"`, `aria-label`, button text, title, or stable next-specific classes
 2. `PAGINATION_CONTROL_SUMMARY` if present
 3. Pagination container structure and relative position
@@ -142,6 +151,8 @@ Task:
 12. If evidence for the next control is weak or contradictory, choose `pagination_strategy: "none"` rather than guessing.
 13. Do not confuse numbered page buttons, current-page indicators, previous buttons, or disabled controls with the real next/load-more action.
 14. Reject selectors that match multiple pagination anchors such as `div.kq-pager > a` when only one of those anchors is the real next-page control.
+15. Do not confuse pagination with non-pagination controls such as `Items per page`, `View grid/View list`, year filters, category tabs, sorting controls, or search refinements.
+16. Treat symbolic next controls such as `>`, `>>`, `›`, or `»` as candidates only when surrounding pager structure confirms they advance the list.
 
 Output format:
 ```json

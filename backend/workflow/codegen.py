@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -84,7 +85,59 @@ OUTPUT_BATCH_SIZE = {batch_size}
 SANDBOX_HEADLESS = os.environ.get("CRAWLER_SANDBOX_MODE") == "1"
 SANDBOX_TIMEOUT_SECONDS = int(os.environ.get("CRAWLER_SANDBOX_TIMEOUT_SECONDS", "0") or 0)
 SANDBOX_DEADLINE = time.monotonic() + SANDBOX_TIMEOUT_SECONDS if SANDBOX_TIMEOUT_SECONDS > 0 else None
+SCRIPT_BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+RUN_STARTED_AT = datetime.now().astimezone()
+RUN_ID = RUN_STARTED_AT.strftime("%Y%m%d-%H%M%S")
 LAST_PERSIST_INFO: dict[str, Any] = {{}}
+
+
+def resolve_artifact_path(relative_path: str, default_path: str) -> Path:
+    path = Path(relative_path or default_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def resolve_log_path() -> Path:
+    if OUTPUT_MODE == "sqlite":
+        target_path = resolve_artifact_path(OUTPUT_SQLITE_PATH, {DEFAULT_SQLITE_OUTPUT_PATH!r})
+    else:
+        target_path = resolve_artifact_path(OUTPUT_JSON_FILE, {DEFAULT_JSON_OUTPUT_PATH!r})
+    log_dir = target_path.parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"crawler-run-{{RUN_ID}}.log"
+
+
+RUN_LOG_PATH = resolve_log_path()
+
+
+def configure_logging(log_path: Path) -> logging.Logger:
+    logger = logging.getLogger("crawler_script")
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    logger.propagate = False
+    return logger
+
+
+LOGGER = configure_logging(RUN_LOG_PATH)
 
 
 def remaining_timeout_ms(default_ms: int, *, reserve_seconds: int = 0) -> int:
@@ -137,11 +190,7 @@ def extract_record(item, page_url: str) -> dict[str, Any]:
 
 
 def resolve_output_path(relative_path: str) -> Path:
-    path = Path(relative_path or {DEFAULT_JSON_OUTPUT_PATH!r})
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return resolve_artifact_path(relative_path, {DEFAULT_JSON_OUTPUT_PATH!r})
 
 
 def record_hash(record: dict[str, Any]) -> str:
@@ -183,12 +232,14 @@ def load_existing_json_records(path: Path) -> list[dict[str, Any]]:
 
 def persist_json_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     output_path = resolve_output_path(OUTPUT_JSON_FILE)
+    LOGGER.info("Persisting %s records to JSON file: %s", len(records), output_path)
     existing = load_existing_json_records(output_path)
     if WRITE_MODE == "upsert":
         merged = merge_records(existing, records)
     else:
         merged = [*existing, *records]
     output_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+    LOGGER.info("JSON persistence completed with %s stored records", len(merged))
     return {{
         "mode": "json_file",
         "target": str(output_path),
@@ -283,6 +334,12 @@ def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: lis
 def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> dict[str, Any]:
     output_path = resolve_output_path(OUTPUT_SQLITE_PATH)
     table_name = normalize_sqlite_table(OUTPUT_SQLITE_TABLE)
+    LOGGER.info(
+        "Persisting %s records to SQLite database: %s (table=%s)",
+        len(records),
+        output_path,
+        table_name,
+    )
     with sqlite3.connect(output_path) as conn:
         user_columns = ensure_sqlite_schema(conn, table_name, records)
         metadata_columns = ["_identity_key", "_run_id", "_source_url", "_emitted_at", "_record_hash"]
@@ -322,6 +379,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
             with conn:
                 conn.executemany(insert_sql, rows)
         stored_count = conn.execute(f'SELECT COUNT(*) FROM {{quote_ident(table_name)}}').fetchone()[0]
+    LOGGER.info("SQLite persistence completed with %s stored records", int(stored_count))
     return {{
         "mode": "sqlite",
         "target": str(output_path),
@@ -415,17 +473,26 @@ def wait_for_list_update(page, item_selector: str, before_snapshot: dict[str, An
 
 def click_next_page(page) -> bool:
     if not PAGINATION_SELECTOR:
+        LOGGER.info("Pagination selector is empty; stopping after current page")
         return False
     next_buttons = page.query_selector_all(PAGINATION_SELECTOR)
     if not next_buttons:
+        LOGGER.warning("No pagination control matched selector: %s", PAGINATION_SELECTOR)
         return False
     next_button = next_buttons[0]
     before_snapshot = collect_list_snapshot(page, ITEM_SELECTOR)
     try:
+        LOGGER.info("Attempting pagination with selector: %s", PAGINATION_SELECTOR)
         next_button.scroll_into_view_if_needed(timeout=remaining_timeout_ms(3000, reserve_seconds=3))
         next_button.click(timeout=remaining_timeout_ms(5000, reserve_seconds=3))
-        return wait_for_list_update(page, ITEM_SELECTOR, before_snapshot)
+        changed = wait_for_list_update(page, ITEM_SELECTOR, before_snapshot)
+        if changed:
+            LOGGER.info("Pagination succeeded; list content changed")
+        else:
+            LOGGER.warning("Pagination click completed but list content did not change")
+        return changed
     except Exception:
+        LOGGER.exception("Pagination failed while clicking the next page control")
         return False
 
 
@@ -437,40 +504,94 @@ def run() -> list[dict[str, Any]]:
         raise ValueError("ITEM_SELECTOR is required")
 
     records: list[dict[str, Any]] = []
+    LOGGER.info("Crawler run started")
+    LOGGER.info("Run log file: %s", RUN_LOG_PATH)
+    LOGGER.info(
+        "Crawler configuration: entry_url=%s, item_selector=%s, max_pages=%s, output_mode=%s",
+        ENTRY_URL,
+        ITEM_SELECTOR,
+        MAX_PAGES,
+        OUTPUT_MODE,
+    )
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=SANDBOX_HEADLESS, args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
 
         try:
+            LOGGER.info("Opening entry page: %s", ENTRY_URL)
             page.goto(ENTRY_URL, wait_until="domcontentloaded", timeout=remaining_timeout_ms(30000, reserve_seconds=5))
         except PlaywrightTimeoutError:
+            LOGGER.warning("domcontentloaded navigation timed out; retrying with full load wait")
             page.goto(ENTRY_URL, wait_until="load", timeout=remaining_timeout_ms(45000, reserve_seconds=2))
+        LOGGER.info("Entry page loaded: %s", page.url)
 
         for page_idx in range(MAX_PAGES):
             items = page.query_selector_all(ITEM_SELECTOR)
+            page_records: list[dict[str, Any]] = []
+            LOGGER.info(
+                "Processing page %s/%s: url=%s, matched_items=%s",
+                page_idx + 1,
+                MAX_PAGES,
+                page.url,
+                len(items),
+            )
+            if not items:
+                LOGGER.warning("No items matched selector on page %s: %s", page_idx + 1, ITEM_SELECTOR)
             for item in items:
-                records.append(extract_record(item, page.url))
+                try:
+                    record = extract_record(item, page.url)
+                    page_records.append(record)
+                    records.append(record)
+                except Exception:
+                    LOGGER.exception("Failed to extract one record on page %s", page_idx + 1)
+                    raise
+            LOGGER.info("Page %s extraction completed; total_records=%s", page_idx + 1, len(records))
+
+            if page_records:
+                LOGGER.info(
+                    "Persisting page %s records before pagination; page_records=%s, total_records=%s",
+                    page_idx + 1,
+                    len(page_records),
+                    len(records),
+                )
+                LAST_PERSIST_INFO = persist_records(page_records, page.url)
+                LOGGER.info("Page %s persistence result: %s", page_idx + 1, LAST_PERSIST_INFO)
+            elif not LAST_PERSIST_INFO:
+                LOGGER.info("No records extracted yet; creating/updating empty output artifact")
+                LAST_PERSIST_INFO = persist_records([], page.url)
+                LOGGER.info("Empty persistence result: %s", LAST_PERSIST_INFO)
 
             if PAGINATION_STRATEGY == "click_next":
                 if not click_next_page(page):
+                    LOGGER.info("Pagination stopped after page %s", page_idx + 1)
                     break
             else:
                 # Extend here for load_more / infinite_scroll.
+                LOGGER.info("Pagination strategy %s is not implemented in this skeleton; stopping", PAGINATION_STRATEGY)
                 break
 
-        # Standalone scripts always persist an artifact, even when the graph used memory-only emit_record mode.
-        LAST_PERSIST_INFO = persist_records(records, page.url)
+        if not LAST_PERSIST_INFO:
+            # Standalone scripts always persist an artifact, even when no records were extracted.
+            LAST_PERSIST_INFO = persist_records([], page.url)
+            LOGGER.info("Final empty persistence result: %s", LAST_PERSIST_INFO)
 
         context.close()
         browser.close()
+    LOGGER.info("Crawler run completed successfully with %s records", len(records))
     return records
 
 
 if __name__ == "__main__":
-    output = run()
-    target = LAST_PERSIST_INFO.get("target", OUTPUT_JSON_FILE)
-    mode = LAST_PERSIST_INFO.get("mode", OUTPUT_MODE)
-    print(f"Extracted {{len(output)}} records -> {{target}} ({{mode}})")
+    try:
+        output = run()
+        target = LAST_PERSIST_INFO.get("target", OUTPUT_JSON_FILE)
+        mode = LAST_PERSIST_INFO.get("mode", OUTPUT_MODE)
+        LOGGER.info("Extracted %s records -> %s (%s)", len(output), target, mode)
+        print(f"Extracted {{len(output)}} records -> {{target}} ({{mode}})")
+        print(f"Run log saved to: {{RUN_LOG_PATH}}")
+    except Exception:
+        LOGGER.exception("Crawler run failed")
+        raise
 """
     return textwrap.dedent(script).strip() + "\n"

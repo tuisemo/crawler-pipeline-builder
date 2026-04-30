@@ -39,6 +39,7 @@ Return exactly one valid JSON object and nothing else.
 
 ## Rules
 - Preserve the original meaning as much as possible.
+- Preserve the response contract shape exactly.
 - Remove any prose, markdown fences, comments, and trailing commas.
 - If a key required by the response contract is missing, add it with an empty string, empty array, null, or a low-confidence default.
 - Do not invent new explanatory prose.
@@ -124,6 +125,10 @@ def _build_json_repair_prompt(response_contract: str, raw_output: str) -> str:
         "Repair the following model output into one valid JSON object that matches the response contract.\n\n"
         "## Response Contract\n"
         f"{response_contract}\n\n"
+        "## Repair Requirements\n"
+        "- Keep the original meaning whenever possible.\n"
+        "- Output exactly one JSON object.\n"
+        "- If a required field is missing, add the safest empty or low-confidence value allowed by the contract.\n\n"
         "## Raw Model Output\n"
         f"{raw_output}"
     ).strip()

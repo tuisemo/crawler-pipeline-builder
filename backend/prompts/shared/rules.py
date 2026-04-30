@@ -3,6 +3,18 @@
 PLAYWRIGHT_CSS_SELECTOR_COMPATIBILITY_RULES = """3. Every selector MUST be a **standard CSS selector** compatible with `querySelector` / `querySelectorAll` and Playwright `locator()`.
 4. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors."""
 
+STRICT_OUTPUT_DISCIPLINE_RULES = """- Return only the requested artifact.
+- Do not add surrounding commentary when the contract expects machine-consumable output.
+- If evidence is weak, express uncertainty inside the allowed schema instead of writing prose outside it."""
+
+SCRIPT_OUTPUT_LOCK = """- Return only the final complete Python script.
+- Do not wrap the script in markdown fences.
+- Do not add commentary before or after the script."""
+
+JSON_OUTPUT_LOCK = """- Return JSON only.
+- Do not use markdown fences.
+- Do not add prose before or after the JSON object."""
+
 SELECTOR_PRESERVATION_RULES = """7. Treat the deterministic execution plan as the single source of truth; do not invent control flow, persistence behavior, or selectors that conflict with it
 8. Treat selectors already present in the execution plan as user-validated configuration. Preserve them whenever possible instead of replacing them
 9. Validated selectors may be CSS or XPath. If XPath is already validated and Playwright-compatible, keep it rather than rewriting it as CSS
@@ -20,4 +32,11 @@ MINIMAL_CHANGE_POLICY = """- Make the smallest safe change set that resolves the
 LOW_CONFIDENCE_FALLBACK_POLICY = """- If evidence is insufficient, return the best structured result with lower confidence instead of fabricating certainty.
 - Prefer fewer high-quality fields or selectors over many speculative ones.
 - If the next control is weak or contradictory, choose `pagination_strategy: "none"` rather than guessing."""
+
+EVIDENCE_FIRST_POLICY = """- Use the strongest structural evidence first.
+- Prefer stable semantic anchors and repeatable patterns over brittle heuristics.
+- If evidence conflicts, choose the more conservative interpretation."""
+
+SMALLEST_STABLE_CHANGE_POLICY = """- Make the smallest stable improvement that increases correctness or robustness.
+- If the current selector or implementation is already acceptable, keep it unchanged."""
 

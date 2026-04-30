@@ -632,7 +632,14 @@ def test_generate_crawler_uses_sqlite_capable_skeleton_as_base(monkeypatch):
     assert "OUTPUT_MODE = 'sqlite'" in generation_prompt
     assert "OUTPUT_SQLITE_PATH = 'output/products.db'" in generation_prompt
     assert "persist_sqlite_records" in generation_prompt
+    assert "def resolve_log_path() -> Path:" in generation_prompt
+    assert 'log_dir = target_path.parent / "logs"' in generation_prompt
+    assert "configure_logging(RUN_LOG_PATH)" in generation_prompt
+    assert "Persisting page %s records before pagination" in generation_prompt
+    assert "persist_records(page_records, page.url)" in generation_prompt
     assert "reference skeleton" in generation_system.lower()
+    assert "per-run log file" in generation_system.lower()
+    assert "before attempting pagination" in generation_system.lower()
 
 
 def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatch):
@@ -876,6 +883,14 @@ def test_generate_skeleton_returns_script_with_required_input():
     assert result.success is True
     assert result.filename == "crawler_skeleton.py"
     assert "sync_playwright" in result.script
+    assert "import logging" in result.script
+    assert "def resolve_log_path() -> Path:" in result.script
+    assert 'log_dir = target_path.parent / "logs"' in result.script
+    assert "def configure_logging(log_path: Path) -> logging.Logger:" in result.script
+    assert 'logger = logging.getLogger("crawler_script")' in result.script
+    assert 'print(f"Run log saved to: {RUN_LOG_PATH}")' in result.script
+    assert "page_records: list[dict[str, Any]] = []" in result.script
+    assert "LAST_PERSIST_INFO = persist_records(page_records, page.url)" in result.script
 
 
 def test_generate_skeleton_embeds_sqlite_output_config():
@@ -984,6 +999,92 @@ def test_generate_skeleton_adapts_timeouts_for_sandbox_runs():
     assert 'page.wait_for_load_state("networkidle", timeout=remaining_timeout_ms(5000, reserve_seconds=3))' in result.script
     assert 'after_snapshot = collect_list_snapshot(page, item_selector)' in result.script
     assert 'if pagination_state_changed(before_snapshot, after_snapshot):' in result.script
+
+
+def test_generate_skeleton_places_run_log_next_to_json_output(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="json_file", json_file_path="exports/items.json"),
+                ),
+            ],
+            edges=[],
+        )
+    )
+    workspace_root = make_test_workspace("skeleton-log-json")
+    monkeypatch.chdir(workspace_root)
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "json_log_probe"}
+    exec(result.script, namespace)
+
+    assert result.success is True
+    run_log_path = namespace["RUN_LOG_PATH"]
+    assert isinstance(run_log_path, Path)
+    assert run_log_path.parent == workspace_root / "exports" / "logs"
+
+
+def test_generate_skeleton_places_run_log_next_to_sqlite_output(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(
+                        output_mode="sqlite",
+                        sqlite_path="exports/items.db",
+                        sqlite_table="items",
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+    )
+    workspace_root = make_test_workspace("skeleton-log-sqlite")
+    monkeypatch.chdir(workspace_root)
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "sqlite_log_probe"}
+    exec(result.script, namespace)
+
+    assert result.success is True
+    run_log_path = namespace["RUN_LOG_PATH"]
+    assert isinstance(run_log_path, Path)
+    assert run_log_path.parent == workspace_root / "exports" / "logs"
+
+
+def test_generate_skeleton_persists_each_page_before_pagination():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(id="n4", type="emit_record", data=NodeData(output_mode="json_file", json_file_path="exports/items.json")),
+                WorkflowNode(id="n5", type="paginate", data=NodeData(pagination_selector=".next", pagination_strategy="click_next")),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    persist_index = result.script.index("LAST_PERSIST_INFO = persist_records(page_records, page.url)")
+    pagination_index = result.script.index('if PAGINATION_STRATEGY == "click_next":')
+    assert persist_index < pagination_index
+    assert 'LOGGER.info("Page %s persistence result: %s", page_idx + 1, LAST_PERSIST_INFO)' in result.script
+    assert 'LAST_PERSIST_INFO = persist_records(records, page.url)' not in result.script
 
 
 def test_generate_skeleton_clamps_timeouts_with_small_sandbox_budget(monkeypatch):

@@ -70,16 +70,33 @@ def test_generation_prompts_use_task_quality_gates_not_autoresearch_label():
     assert "autoresearch" not in lowered_review
 
 
+def test_generation_prompts_require_runtime_logging_for_exported_crawlers():
+    from backend.llm import CRAWLER_SYSTEM_PROMPT
+
+    lowered_system = CRAWLER_SYSTEM_PROMPT.lower()
+
+    assert "per-run log file" in lowered_system
+    assert "progress to both console output" in lowered_system
+    assert "preserve skeleton logging helpers" in lowered_system
+    assert "runtime logging needed for troubleshooting crawl interruptions" in lowered_system
+    assert "persist each page's extracted records" in lowered_system
+    assert "before attempting pagination" in lowered_system
+    assert "incremental persistence behavior" in lowered_system
+
+
 def test_pagination_prompt_requires_concrete_next_button_not_broad_pager_selector():
     assert "single actionable next/load-more control" in PAGINATION_ANALYSIS_PROMPT
     assert "not for the whole pagination container" in PAGINATION_ANALYSIS_PROMPT
     assert "PAGINATION_CONTROL_SUMMARY" in PAGINATION_ANALYSIS_PROMPT
     assert 'return `pagination_strategy: "none"` or an empty `next_button_selector` rather than guessing a broad selector' in PAGINATION_ANALYSIS_PROMPT
+    assert "Items per page" in PAGINATION_ANALYSIS_PROMPT
+    assert "View grid/View list" in PAGINATION_ANALYSIS_PROMPT
 
 
 def test_assist_prompts_add_evidence_and_semantic_guardrails():
     assert "Evidence Handling" in FIELD_INFERENCE_PROMPT
     assert "primary record link" in FIELD_INFERENCE_PROMPT
+    assert "not card-based" in FIELD_INFERENCE_PROMPT
     assert "expected match cardinality" in SELECTOR_OPTIMIZATION_PROMPT
     assert "Evidence Priority" in PAGINATION_ANALYSIS_PROMPT
     assert "Do not confuse numbered page buttons" in PAGINATION_ANALYSIS_PROMPT
