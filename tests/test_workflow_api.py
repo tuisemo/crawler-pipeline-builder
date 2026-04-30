@@ -274,6 +274,87 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
     assert data.get("sandbox_result") is None
 
 
+def test_generate_detail_batch_runner_endpoint_returns_valid_script():
+    response = client.post("/api/workflows/generate-detail-batch-runner", json={
+        "database": {
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    })
+
+    data = response_data(response)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert data["filename"] == "run_detail_batch.py"
+    assert data["generation_mode"] == "skeleton_enhancement"
+    assert data["prompt"] is not None
+    assert data["generation_trace"][0]["stage"] == "prompt_build"
+    assert data["validation"]["passed"] is True
+    assert "class Config:" in data["script"]
+    assert "class TaskRepository:" in data["script"]
+    assert "ThreadPoolExecutor" in data["script"]
+    assert "page-extractor" in data["script"]
+
+
+def test_generate_detail_batch_runner_endpoint_rejects_non_sqlite_database_type():
+    response = client.post("/api/workflows/generate-detail-batch-runner", json={
+        "database": {
+            "type": "mysql",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    })
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert "sqlite" in response.json()["error"].lower()
+
+
+def test_generate_detail_batch_runner_endpoint_supports_optional_llm_enhancement(monkeypatch):
+    from backend.workflow.detail_batch_codegen import generate_detail_batch_runner_skeleton
+
+    request_payload = {
+        "database": {
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        },
+        "generation_policy": {
+            "mode": "llm_skeleton_enhancement",
+        },
+    }
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from backend.llm import LLMResponse
+            from backend.workflow.schemas import GenerateDetailBatchRunnerRequest
+
+            request = GenerateDetailBatchRunnerRequest.model_validate(request_payload)
+            return LLMResponse(
+                content=generate_detail_batch_runner_skeleton(request),
+                model="fake-model",
+                usage={"prompt_tokens": 10, "completion_tokens": 20},
+            )
+
+    monkeypatch.setattr("backend.workflow.detail_batch_generation_pipeline.get_default_client", lambda: FakeClient())
+
+    response = client.post("/api/workflows/generate-detail-batch-runner", json=request_payload)
+
+    data = response_data(response)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert data["model"] == "fake-model"
+    assert data["generation_mode"] == "llm_skeleton_enhancement"
+    assert any(item["stage"] == "llm_generation" for item in data["generation_trace"])
+
+
 def test_run_script_sandbox_endpoint(monkeypatch, tmp_path):
     monkeypatch.setattr("backend.workflow.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
 

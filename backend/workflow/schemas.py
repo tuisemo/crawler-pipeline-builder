@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import List, Dict, Any, Optional
 from enum import Enum
 
@@ -294,6 +294,89 @@ class GenerateCrawlerResponse(BaseModel):
     sandbox_result: Optional[Dict[str, Any]] = None
     warnings: List[str] = []
     review_summary: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class DetailBatchRunnerDatabaseConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    database_type: str = Field(default="sqlite", alias="type")
+    path: str
+    list_table_name: str = "records"
+    record_id_field: str = "record_id"
+    detail_url_field: str = "detail_url"
+    source_url_field: Optional[str] = "source_url"
+    title_field: Optional[str] = "title"
+
+
+class DetailBatchRunnerTaskConfig(BaseModel):
+    table_name: str = "detail_collection_tasks"
+    status_values: List[str] = [
+        "pending",
+        "running",
+        "succeeded",
+        "failed_retryable",
+        "failed_terminal",
+        "skipped",
+    ]
+    max_attempts: int = 3
+
+
+class DetailBatchRunnerCliConfig(BaseModel):
+    executable: str = "page-extractor"
+    command_prefix: Optional[List[str]] = None
+    subcommand: str = "collect"
+    output_root: str = "./detail-output"
+    stdout_format: str = "json"
+    exit_code_policy: str = "0_success_nonzero_failure"
+
+
+class DetailBatchRunnerExecutionPolicy(BaseModel):
+    default_concurrency: int = 4
+    default_batch_size: int = 20
+    subprocess_timeout_seconds: int = 180
+    support_dry_run: bool = True
+    support_limit: bool = True
+
+
+class DetailBatchRunnerGenerationPolicy(BaseModel):
+    language: str = "python"
+    mode: str = "skeleton_enhancement"
+
+
+class GeneratedScriptValidationCheck(BaseModel):
+    name: str
+    passed: bool
+    detail: Optional[str] = None
+
+
+class GeneratedScriptValidationResult(BaseModel):
+    passed: bool
+    checks: List[GeneratedScriptValidationCheck] = []
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class GenerateDetailBatchRunnerRequest(BaseModel):
+    database: DetailBatchRunnerDatabaseConfig
+    detail_task: DetailBatchRunnerTaskConfig = DetailBatchRunnerTaskConfig()
+    detail_cli: DetailBatchRunnerCliConfig = DetailBatchRunnerCliConfig()
+    execution_policy: DetailBatchRunnerExecutionPolicy = DetailBatchRunnerExecutionPolicy()
+    generation_policy: DetailBatchRunnerGenerationPolicy = DetailBatchRunnerGenerationPolicy()
+    prompt_override: Optional[str] = None
+
+
+class GenerateDetailBatchRunnerResponse(BaseModel):
+    success: bool
+    prompt: Optional[str] = None
+    script: Optional[str] = None
+    filename: Optional[str] = None
+    model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    generation_mode: Optional[str] = None
+    generation_trace: Optional[List[Dict[str, Any]]] = None
+    warnings: List[str] = []
+    validation: Optional[GeneratedScriptValidationResult] = None
     error: Optional[str] = None
 
 

@@ -5,7 +5,13 @@ These tests verify that service functions:
 2. Raise domain exceptions (not JSONResponse) on failure
 """
 
+import http.server
+import socketserver
+import sqlite3
+import subprocess
 import shutil
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -20,6 +26,7 @@ from backend.workflow.schemas import (
     FromLegacyConfigRequest,
     ToPromptRequest,
     GenerateCrawlerRequest,
+    GenerateDetailBatchRunnerRequest,
     CompilePlanRequest,
     GenerateSkeletonRequest,
 )
@@ -30,6 +37,7 @@ from backend.workflow.services import (
     format_script,
     graph_to_prompt,
     generate_skeleton,
+    generate_detail_batch_runner,
     generate_crawler,
     save_script,
     WorkflowValidationError,
@@ -37,6 +45,11 @@ from backend.workflow.services import (
     PromptGenerationError,
     ScriptPersistenceError,
 )
+from backend.workflow.detail_batch_prompting import (
+    build_detail_batch_generation_payload,
+    build_detail_batch_runner_prompt,
+)
+from backend.workflow.detail_batch_codegen import generate_detail_batch_runner_skeleton
 
 
 def make_test_workspace(name: str) -> Path:
@@ -891,6 +904,255 @@ def test_generate_skeleton_returns_script_with_required_input():
     assert 'print(f"Run log saved to: {RUN_LOG_PATH}")' in result.script
     assert "page_records: list[dict[str, Any]] = []" in result.script
     assert "LAST_PERSIST_INFO = persist_records(page_records, page.url)" in result.script
+
+
+def test_generate_detail_batch_runner_returns_valid_script():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    )
+
+    result = generate_detail_batch_runner(request)
+
+    assert result.success is True
+    assert result.filename == "run_detail_batch.py"
+    assert result.generation_mode == "skeleton_enhancement"
+    assert result.prompt is not None
+    assert result.generation_trace is not None
+    assert result.generation_trace[0]["stage"] == "prompt_build"
+    assert result.validation is not None
+    assert result.validation.passed is True
+    assert "class Config:" in result.script
+    assert "class TaskRepository:" in result.script
+    assert "class CliInvoker:" in result.script
+    assert "class TaskRunner:" in result.script
+    assert "class BatchExecutor:" in result.script
+    assert "ThreadPoolExecutor" in result.script
+    assert "subprocess.run" in result.script
+    assert "page-extractor" in result.script
+    assert "detail_collection_tasks" in result.script
+    assert "--save-markdown" in result.script
+
+
+def test_generate_detail_batch_runner_rejects_non_sqlite_database_type():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "postgres",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    )
+
+    result = generate_detail_batch_runner(request)
+
+    assert result.success is False
+    assert "sqlite" in (result.error or "").lower()
+
+
+def test_generate_detail_batch_runner_supports_optional_llm_enhancement(monkeypatch):
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        },
+        generation_policy={"mode": "llm_skeleton_enhancement"},
+    )
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from backend.llm import LLMResponse
+
+            return LLMResponse(
+                content=generate_detail_batch_runner_skeleton(request),
+                model="fake-model",
+                usage={"prompt_tokens": 10, "completion_tokens": 20},
+            )
+
+    monkeypatch.setattr("backend.workflow.detail_batch_generation_pipeline.get_default_client", lambda: FakeClient())
+
+    result = generate_detail_batch_runner(request)
+
+    assert result.success is True
+    assert result.model == "fake-model"
+    assert result.usage == {"prompt_tokens": 10, "completion_tokens": 20}
+    assert result.generation_mode == "llm_skeleton_enhancement"
+    assert any(item["stage"] == "llm_generation" for item in result.generation_trace or [])
+
+
+def test_generated_detail_batch_runner_can_execute_against_reference_cli(tmp_path):
+    site_root = tmp_path / "site"
+    site_root.mkdir(parents=True, exist_ok=True)
+    (site_root / "detail.html").write_text(
+        """
+        <html>
+          <head><title>Smoke Detail</title></head>
+          <body>
+            <main>
+              <h1>Smoke Detail</h1>
+              <p>Smoke paragraph one.</p>
+              <p>Smoke paragraph two.</p>
+            </main>
+          </body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+
+    handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(  # noqa: E731
+        *args,
+        directory=str(site_root),
+        **kwargs,
+    )
+    with socketserver.TCPServer(("127.0.0.1", 0), handler) as server:
+        port = server.server_address[1]
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            db_path = tmp_path / "crawler_output.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE records (
+                        record_id TEXT PRIMARY KEY,
+                        detail_url TEXT NOT NULL,
+                        source_url TEXT,
+                        title TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO records (record_id, detail_url, source_url, title)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        "record-1",
+                        f"http://127.0.0.1:{port}/detail.html",
+                        "http://127.0.0.1/list",
+                        "Smoke Detail",
+                    ),
+                )
+                conn.commit()
+
+            detail_output_root = tmp_path / "detail-output"
+            request = GenerateDetailBatchRunnerRequest(
+                database={
+                    "type": "sqlite",
+                    "path": str(db_path),
+                    "list_table_name": "records",
+                    "record_id_field": "record_id",
+                    "detail_url_field": "detail_url",
+                },
+                detail_cli={
+                    "executable": sys.executable,
+                    "command_prefix": [sys.executable, "-m", "page_extractor.cli"],
+                    "subcommand": "collect",
+                    "output_root": str(detail_output_root),
+                },
+            )
+
+            result = generate_detail_batch_runner(request)
+            assert result.success is True
+            script_path = tmp_path / "run_detail_batch.py"
+            script_path.write_text(result.script or "", encoding="utf-8")
+
+            completed = subprocess.run(
+                [sys.executable, str(script_path), "--db", str(db_path), "--output-root", str(detail_output_root)],
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+
+            assert completed.returncode == 0, completed.stderr
+
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """
+                    SELECT record_id, detail_url, status, content_markdown_path, result_summary_path, task_dir
+                    FROM detail_collection_tasks
+                    WHERE record_id = ?
+                    """,
+                    ("record-1",),
+                ).fetchone()
+
+            assert row is not None
+            assert row["status"] == "succeeded"
+            assert Path(row["content_markdown_path"]).exists()
+            assert Path(row["result_summary_path"]).exists()
+            assert Path(row["task_dir"]).exists()
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=5)
+
+
+def test_detail_batch_generation_payload_preserves_contract_values():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/custom.db",
+            "list_table_name": "list_records",
+            "record_id_field": "rid",
+            "detail_url_field": "detail_link",
+        },
+        detail_cli={
+            "executable": "page-extractor",
+            "subcommand": "collect",
+            "output_root": "./detail-output",
+        },
+    )
+
+    payload = build_detail_batch_generation_payload(request)
+
+    assert payload["generation_target"] == "detail_batch_runner"
+    assert payload["list_output_contract"]["database_path"] == "output/custom.db"
+    assert payload["list_output_contract"]["table_name"] == "list_records"
+    assert payload["list_output_contract"]["record_id_field"] == "rid"
+    assert payload["list_output_contract"]["detail_url_field"] == "detail_link"
+    assert payload["detail_cli_contract"]["executable"] == "page-extractor"
+    assert payload["execution_constraints"]["main_thread_claims_tasks"] is True
+    assert payload["script_skeleton_contract"]["required_classes"] == [
+        "Config",
+        "TaskRepository",
+        "CliInvoker",
+        "TaskRunner",
+        "BatchExecutor",
+    ]
+
+
+def test_detail_batch_runner_prompt_includes_payload_and_reference_skeleton():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    )
+
+    prompt, skeleton = build_detail_batch_runner_prompt(request)
+
+    assert "Generation Payload" in prompt
+    assert '"generation_target": "detail_batch_runner"' in prompt
+    assert "Deterministic Skeleton (Reference Base)" in prompt
+    assert "class Config:" in skeleton
+    assert "class TaskRepository:" in skeleton
+    assert "ThreadPoolExecutor" in skeleton
+    assert "page-extractor" in skeleton
 
 
 def test_generate_skeleton_embeds_sqlite_output_config():

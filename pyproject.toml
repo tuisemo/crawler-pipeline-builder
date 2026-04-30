@@ -6,13 +6,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "beautifulsoup4>=4.14.3",
+    "cssselect>=1.4.0",
     "fastapi>=0.115.0",
     "greenlet==3.1.1",
+    "lxml>=5.0.0",
     "openai>=2.32.0",
     "playwright>=1.58.0",
     "pydantic>=2.10.0",
     "pytest>=8.4.0",
     "requests>=2.33.1",
+    "trafilatura>=1.6.0",
     "tqdm>=4.67.3",
     "uvicorn>=0.32.0",
 ]
@@ -22,11 +25,14 @@ llm = [
     "openai>=1.0.0",
 ]
 
+[project.scripts]
+page-extractor = "page_extractor.cli:main"
+
 [tool.setuptools]
 py-modules = ["server"]
 
 [tool.setuptools.packages.find]
-include = ["backend*"]
+include = ["backend*", "page_extractor*"]
 exclude = ["frontend*", "tests*", "docs*"]
 
 [tool.pytest.ini_options]

@@ -6,6 +6,7 @@ from backend.workflow.schemas import (
     FromLegacyConfigRequest,
     FormatScriptRequest,
     GenerateCrawlerRequest,
+    GenerateDetailBatchRunnerRequest,
     RunScriptSandboxRequest,
     SaveScriptRequest,
     TestNodeRequest,
@@ -20,6 +21,7 @@ from backend.workflow.services import (
     convert_legacy_config,
     format_script,
     generate_skeleton,
+    generate_detail_batch_runner,
     generate_crawler,
     graph_to_prompt,
     run_script_sandbox,
@@ -83,6 +85,12 @@ def generate_crawler_endpoint(request: GenerateCrawlerRequest):
     4. Returns {success, prompt, script, filename, model, usage} or error
     """
     return api_response(generate_crawler(request))
+
+
+@router.post("/generate-detail-batch-runner")
+def generate_detail_batch_runner_endpoint(request: GenerateDetailBatchRunnerRequest):
+    """Generate a standalone Python batch runner that dispatches detail collection CLI tasks."""
+    return api_response(generate_detail_batch_runner(request))
 
 
 @router.post("/run-script-sandbox")

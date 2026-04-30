@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from backend.workflow.compiler import compile_graph_to_plan, execution_plan_to_dict
 from backend.workflow.codegen import generate_playwright_skeleton
+from backend.workflow.detail_batch_generation_pipeline import generate_detail_batch_runner_pipeline
 from backend.workflow.generation_pipeline import generate_crawler
 from backend.workflow.prompting import (
     PromptGenerationError,
@@ -35,6 +36,8 @@ from backend.workflow.schemas import (
     CompilePlanResponse,
     GenerateSkeletonRequest,
     GenerateSkeletonResponse,
+    GenerateDetailBatchRunnerRequest,
+    GenerateDetailBatchRunnerResponse,
     RunScriptSandboxRequest,
     RunScriptSandboxResponse,
 )
@@ -191,6 +194,19 @@ def generate_skeleton(request: GenerateSkeletonRequest) -> GenerateSkeletonRespo
         )
     except Exception as e:
         return GenerateSkeletonResponse(success=False, error=str(e))
+
+
+def generate_detail_batch_runner(request: GenerateDetailBatchRunnerRequest) -> GenerateDetailBatchRunnerResponse:
+    """Generate deterministic detail batch orchestration script from structured contracts."""
+    try:
+        if request.database.database_type.strip().lower() != "sqlite":
+            return GenerateDetailBatchRunnerResponse(
+                success=False,
+                error="Only sqlite database_type is supported for detail batch runner generation.",
+            )
+        return generate_detail_batch_runner_pipeline(request)
+    except Exception as e:
+        return GenerateDetailBatchRunnerResponse(success=False, error=str(e))
 
 
 def run_script_sandbox(request: RunScriptSandboxRequest) -> RunScriptSandboxResponse:

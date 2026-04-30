@@ -104,6 +104,56 @@ function resolveDefaultScriptPath(filename: string) {
   return `generated/${trimmed}`.replace(/\/+/g, '/')
 }
 
+type DetailBatchRunnerGenerationMode = 'skeleton_enhancement' | 'llm_skeleton_enhancement'
+
+type DetailBatchRunnerFormState = {
+  databasePath: string
+  listTableName: string
+  recordIdField: string
+  detailUrlField: string
+  taskTableName: string
+  outputRoot: string
+  concurrency: string
+  batchSize: string
+  maxAttempts: string
+  timeout: string
+  cliExecutable: string
+  generationMode: DetailBatchRunnerGenerationMode
+}
+
+function extractPythonStringConstant(script: string, constantName: string) {
+  const pattern = new RegExp(`${constantName}\\s*=\\s*['"]([^'"]+)['"]`)
+  const match = script.match(pattern)
+  return match?.[1] ?? ''
+}
+
+function inferDetailBatchRunnerDefaults(script: string): DetailBatchRunnerFormState {
+  const outputMode = extractPythonStringConstant(script, 'OUTPUT_MODE')
+  const sqlitePath = extractPythonStringConstant(script, 'OUTPUT_SQLITE_PATH')
+  const sqliteTable = extractPythonStringConstant(script, 'OUTPUT_SQLITE_TABLE')
+  const inferredDatabasePath = outputMode === 'sqlite' && sqlitePath ? sqlitePath : 'output/crawler_output.db'
+  let inferredOutputRoot = './detail-output'
+  if (inferredDatabasePath) {
+    const normalized = inferredDatabasePath.replace(/\\/g, '/')
+    const lastSlash = normalized.lastIndexOf('/')
+    inferredOutputRoot = lastSlash >= 0 ? `${normalized.slice(0, lastSlash + 1)}detail-output` : './detail-output'
+  }
+  return {
+    databasePath: inferredDatabasePath,
+    listTableName: sqliteTable || 'records',
+    recordIdField: 'record_id',
+    detailUrlField: 'detail_url',
+    taskTableName: 'detail_collection_tasks',
+    outputRoot: inferredOutputRoot,
+    concurrency: '4',
+    batchSize: '20',
+    maxAttempts: '3',
+    timeout: '180',
+    cliExecutable: 'page-extractor',
+    generationMode: 'skeleton_enhancement',
+  }
+}
+
 function StatTags({ value, accent }: { value: string; accent?: 'blue' | 'green' | 'orange' | 'red' }) {
   return (
     <Tag color={accent} style={{ borderRadius: 999, paddingInline: 10 }}>
@@ -188,6 +238,18 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
   const [manualSandboxResult, setManualSandboxResult] = useState<Record<string, unknown> | null>(null)
   const [scriptNotice, setScriptNotice] = useState('')
   const [scriptNoticeTone, setScriptNoticeTone] = useState<'success' | 'warning' | 'error' | 'info'>('info')
+  const [detailBatchForm, setDetailBatchForm] = useState<DetailBatchRunnerFormState>(() => inferDetailBatchRunnerDefaults(''))
+  const [detailBatchBusy, setDetailBatchBusy] = useState(false)
+  const [detailBatchScriptDraft, setDetailBatchScriptDraft] = useState('')
+  const [detailBatchEditable, setDetailBatchEditable] = useState(false)
+  const [detailBatchWrapMode, setDetailBatchWrapMode] = useState<'off' | 'on'>('off')
+  const [detailBatchResultPayload, setDetailBatchResultPayload] = useState<Record<string, unknown> | null>(null)
+  const [detailBatchSavePath, setDetailBatchSavePath] = useState('generated/run_detail_batch.py')
+  const [detailBatchOverwrite, setDetailBatchOverwrite] = useState(false)
+  const [detailBatchSaveBusy, setDetailBatchSaveBusy] = useState(false)
+  const [detailBatchFormatBusy, setDetailBatchFormatBusy] = useState(false)
+  const [detailBatchNotice, setDetailBatchNotice] = useState('')
+  const [detailBatchNoticeTone, setDetailBatchNoticeTone] = useState<'success' | 'warning' | 'error' | 'info'>('info')
 
   const hasPayload = Boolean(payload)
   const record = hasPayload && typeof payload === 'object' && payload !== null ? payload as Record<string, unknown> : {}
@@ -238,6 +300,18 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
   const effectivePromptStats = useMemo(() => summarizeText(effectivePrompt), [effectivePrompt])
   const scriptStats = useMemo(() => summarizeText(scriptDraft), [scriptDraft])
   const scriptDirty = scriptDraft !== normalizedScript
+  const detailBatchScriptStats = useMemo(() => summarizeText(detailBatchScriptDraft), [detailBatchScriptDraft])
+  const detailBatchScriptDirty = detailBatchResultPayload
+    ? detailBatchScriptDraft !== normalizeMultilineText(typeof detailBatchResultPayload.script === 'string' ? detailBatchResultPayload.script : '')
+    : false
+  const detailBatchValidation = detailBatchResultPayload?.validation && typeof detailBatchResultPayload.validation === 'object'
+    ? detailBatchResultPayload.validation as Record<string, unknown>
+    : null
+  const detailBatchWarnings = Array.isArray(detailBatchResultPayload?.warnings)
+    ? detailBatchResultPayload?.warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+  const canDeriveDetailBatchRunner = normalizedScript.length > 0
+  const isDetailBatchRunnerScript = normalizedScript.includes('detail_collection_tasks') && normalizedScript.includes('page-extractor')
 
   useEffect(() => {
     setScriptDraft(normalizedScript)
@@ -248,6 +322,19 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     setScriptNotice('')
     setScriptNoticeTone('info')
   }, [filename, normalizedScript, scriptResultKey])
+
+  useEffect(() => {
+    const defaults = inferDetailBatchRunnerDefaults(normalizedScript)
+    setDetailBatchForm(defaults)
+    setDetailBatchScriptDraft('')
+    setDetailBatchEditable(false)
+    setDetailBatchWrapMode('off')
+    setDetailBatchResultPayload(null)
+    setDetailBatchSavePath('generated/run_detail_batch.py')
+    setDetailBatchOverwrite(false)
+    setDetailBatchNotice('')
+    setDetailBatchNoticeTone('info')
+  }, [normalizedScript, scriptResultKey])
 
   const handleCopy = async (key: string, text: string) => {
     await copyText(text)
@@ -320,6 +407,123 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
       setScriptNotice(error instanceof Error ? error.message : '脚本保存失败。')
     } finally {
       setSaveBusy(false)
+    }
+  }
+
+  function updateDetailBatchForm<K extends keyof DetailBatchRunnerFormState>(key: K, value: DetailBatchRunnerFormState[K]) {
+    setDetailBatchForm((current) => ({ ...current, [key]: value }))
+  }
+
+  async function handleGenerateDetailBatchRunner() {
+    if (!detailBatchForm.databasePath.trim()) {
+      setDetailBatchNoticeTone('warning')
+      setDetailBatchNotice('请先填写列表结果数据库路径。')
+      return
+    }
+    setDetailBatchBusy(true)
+    try {
+      const { response, payload: generationPayload } = await postWorkflowAction('/api/workflows/generate-detail-batch-runner', {
+        database: {
+          type: 'sqlite',
+          path: detailBatchForm.databasePath.trim(),
+          list_table_name: detailBatchForm.listTableName.trim() || 'records',
+          record_id_field: detailBatchForm.recordIdField.trim() || 'record_id',
+          detail_url_field: detailBatchForm.detailUrlField.trim() || 'detail_url',
+        },
+        detail_task: {
+          table_name: detailBatchForm.taskTableName.trim() || 'detail_collection_tasks',
+          max_attempts: Number(detailBatchForm.maxAttempts) || 3,
+        },
+        detail_cli: {
+          executable: detailBatchForm.cliExecutable.trim() || 'page-extractor',
+          output_root: detailBatchForm.outputRoot.trim() || './detail-output',
+        },
+        execution_policy: {
+          default_concurrency: Number(detailBatchForm.concurrency) || 4,
+          default_batch_size: Number(detailBatchForm.batchSize) || 20,
+          subprocess_timeout_seconds: Number(detailBatchForm.timeout) || 180,
+          support_dry_run: true,
+          support_limit: true,
+        },
+        generation_policy: {
+          mode: detailBatchForm.generationMode,
+        },
+      })
+      const result = generationPayload as Record<string, unknown>
+      setDetailBatchResultPayload(result)
+      const nextScript = typeof result.script === 'string' ? normalizeMultilineText(result.script) : ''
+      setDetailBatchScriptDraft(nextScript)
+      const nextFilename = typeof result.filename === 'string' ? result.filename : 'run_detail_batch.py'
+      setDetailBatchSavePath(resolveDefaultScriptPath(nextFilename))
+      if (!response.ok) {
+        throw new Error(getErrorMessage(generationPayload))
+      }
+      const passed = result.validation && typeof result.validation === 'object'
+        ? (result.validation as Record<string, unknown>).passed === true
+        : true
+      setDetailBatchNoticeTone(passed ? 'success' : 'warning')
+      setDetailBatchNotice(passed ? '详情批处理脚本已生成。' : '详情批处理脚本已生成，但存在校验警告。')
+    } catch (error) {
+      setDetailBatchNoticeTone('error')
+      setDetailBatchNotice(error instanceof Error ? error.message : '详情批处理脚本生成失败。')
+    } finally {
+      setDetailBatchBusy(false)
+    }
+  }
+
+  async function handleFormatDetailBatchScript() {
+    if (!detailBatchScriptDraft.trim()) {
+      setDetailBatchNoticeTone('warning')
+      setDetailBatchNotice('当前没有可格式化的详情批处理脚本。')
+      return
+    }
+    setDetailBatchFormatBusy(true)
+    try {
+      const { response, payload: formatPayload } = await postWorkflowAction('/api/workflows/format-script', {
+        content: detailBatchScriptDraft,
+        language: 'python',
+      })
+      if (!response.ok) {
+        throw new Error(getErrorMessage(formatPayload))
+      }
+      const result = formatPayload as Record<string, unknown>
+      const formatted = typeof result.formatted_content === 'string' ? result.formatted_content : detailBatchScriptDraft
+      setDetailBatchScriptDraft(normalizeMultilineText(formatted))
+      setDetailBatchNoticeTone('success')
+      setDetailBatchNotice('详情批处理脚本已格式化。')
+    } catch (error) {
+      setDetailBatchNoticeTone('error')
+      setDetailBatchNotice(error instanceof Error ? error.message : '详情批处理脚本格式化失败。')
+    } finally {
+      setDetailBatchFormatBusy(false)
+    }
+  }
+
+  async function handleSaveDetailBatchScript() {
+    if (!detailBatchScriptDraft.trim()) {
+      setDetailBatchNoticeTone('warning')
+      setDetailBatchNotice('请先生成详情批处理脚本，再保存。')
+      return
+    }
+    setDetailBatchSaveBusy(true)
+    try {
+      const { response, payload: savePayload } = await postWorkflowAction('/api/workflows/save-script', {
+        relative_path: detailBatchSavePath,
+        content: detailBatchScriptDraft,
+        overwrite: detailBatchOverwrite,
+      })
+      if (!response.ok) {
+        throw new Error(getErrorMessage(savePayload))
+      }
+      const result = savePayload as Record<string, unknown>
+      const savedPath = typeof result.relative_path === 'string' ? result.relative_path : detailBatchSavePath
+      setDetailBatchNoticeTone('success')
+      setDetailBatchNotice(`详情批处理脚本已保存到 ${savedPath}`)
+    } catch (error) {
+      setDetailBatchNoticeTone('error')
+      setDetailBatchNotice(error instanceof Error ? error.message : '详情批处理脚本保存失败。')
+    } finally {
+      setDetailBatchSaveBusy(false)
     }
   }
 
@@ -540,6 +744,197 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
             onChange={setScriptDraft}
             visibilityToken={visibilityToken}
           />
+        </div>
+      ),
+    })
+
+    if (!isDetailBatchRunnerScript) collapseItems.push({
+      key: 'detail-batch-runner',
+      label: (
+        <Space size={8} wrap>
+          <Typography.Text strong>详情批处理脚本</Typography.Text>
+          <StatTags value="可选第二阶段" accent="orange" />
+          {detailBatchResultPayload?.script ? <StatTags value="已生成" accent="green" /> : <StatTags value="未生成" /> }
+          {detailBatchResultPayload?.script ? <StatTags value={`${detailBatchScriptStats.lines} 行`} /> : null}
+          {detailBatchResultPayload?.script ? <StatTags value={detailBatchScriptDirty ? '已编辑' : '原始版本'} accent={detailBatchScriptDirty ? 'orange' : 'green'} /> : null}
+          {detailBatchForm.databasePath ? <StatTags value={detailBatchForm.databasePath} accent="blue" /> : null}
+        </Space>
+      ),
+      children: (
+        <div className="result-workspace-block">
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            基于当前列表采集脚本的输出契约，生成一个独立的第二阶段批处理脚本。该脚本会从 SQLite 读取 <Typography.Text code>detail_url</Typography.Text>，并并发调用 <Typography.Text code>page-extractor collect</Typography.Text>。
+          </Typography.Paragraph>
+          <div className="detail-batch-form-grid">
+            <Input
+              value={detailBatchForm.databasePath}
+              onChange={(event) => updateDetailBatchForm('databasePath', event.target.value)}
+              addonBefore="数据库"
+              placeholder="output/crawler_output.db"
+            />
+            <Input
+              value={detailBatchForm.listTableName}
+              onChange={(event) => updateDetailBatchForm('listTableName', event.target.value)}
+              addonBefore="列表表"
+              placeholder="records"
+            />
+            <Input
+              value={detailBatchForm.recordIdField}
+              onChange={(event) => updateDetailBatchForm('recordIdField', event.target.value)}
+              addonBefore="记录主键"
+              placeholder="record_id"
+            />
+            <Input
+              value={detailBatchForm.detailUrlField}
+              onChange={(event) => updateDetailBatchForm('detailUrlField', event.target.value)}
+              addonBefore="详情 URL 字段"
+              placeholder="detail_url"
+            />
+            <Input
+              value={detailBatchForm.taskTableName}
+              onChange={(event) => updateDetailBatchForm('taskTableName', event.target.value)}
+              addonBefore="任务表"
+              placeholder="detail_collection_tasks"
+            />
+            <Input
+              value={detailBatchForm.outputRoot}
+              onChange={(event) => updateDetailBatchForm('outputRoot', event.target.value)}
+              addonBefore="CLI 输出根目录"
+              placeholder="./detail-output"
+            />
+            <Input
+              value={detailBatchForm.concurrency}
+              onChange={(event) => updateDetailBatchForm('concurrency', event.target.value)}
+              addonBefore="并发度"
+              placeholder="4"
+            />
+            <Input
+              value={detailBatchForm.batchSize}
+              onChange={(event) => updateDetailBatchForm('batchSize', event.target.value)}
+              addonBefore="批大小"
+              placeholder="20"
+            />
+            <Input
+              value={detailBatchForm.maxAttempts}
+              onChange={(event) => updateDetailBatchForm('maxAttempts', event.target.value)}
+              addonBefore="最大重试"
+              placeholder="3"
+            />
+            <Input
+              value={detailBatchForm.timeout}
+              onChange={(event) => updateDetailBatchForm('timeout', event.target.value)}
+              addonBefore="超时（秒）"
+              placeholder="180"
+            />
+            <Input
+              value={detailBatchForm.cliExecutable}
+              onChange={(event) => updateDetailBatchForm('cliExecutable', event.target.value)}
+              addonBefore="CLI 可执行名"
+              placeholder="page-extractor"
+            />
+            <Segmented
+              value={detailBatchForm.generationMode}
+              onChange={(value) => updateDetailBatchForm('generationMode', value as DetailBatchRunnerGenerationMode)}
+              options={[
+                { label: 'Deterministic', value: 'skeleton_enhancement' },
+                { label: 'LLM Enhance', value: 'llm_skeleton_enhancement' },
+              ]}
+            />
+          </div>
+          <Space wrap style={{ marginBottom: 12 }}>
+            <Button size="small" type="primary" loading={detailBatchBusy} onClick={() => void handleGenerateDetailBatchRunner()}>
+              生成详情批处理脚本
+            </Button>
+            <Button size="small" disabled={!canDeriveDetailBatchRunner} onClick={() => {
+              const defaults = inferDetailBatchRunnerDefaults(normalizedScript)
+              setDetailBatchForm(defaults)
+              setDetailBatchNoticeTone('info')
+              setDetailBatchNotice('已恢复为从当前列表脚本推导出的默认配置。')
+            }}>
+              恢复推导默认值
+            </Button>
+          </Space>
+          {detailBatchNotice ? (
+            <Typography.Paragraph
+              type={
+                detailBatchNoticeTone === 'error'
+                  ? 'danger'
+                  : detailBatchNoticeTone === 'warning'
+                    ? 'warning'
+                    : 'secondary'
+              }
+              style={{ marginBottom: 12 }}
+            >
+              {detailBatchNotice}
+            </Typography.Paragraph>
+          ) : null}
+          {detailBatchResultPayload?.script ? (
+            <div className="detail-batch-script-block">
+              <Space wrap style={{ marginBottom: 12 }}>
+                <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy('detail-batch-script', detailBatchScriptDraft)}>
+                  {copiedKey === 'detail-batch-script' ? '已复制' : '复制脚本'}
+                </Button>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(detailBatchScriptDraft, typeof detailBatchResultPayload.filename === 'string' ? detailBatchResultPayload.filename : 'run_detail_batch.py')}>
+                  下载
+                </Button>
+                <Button size="small" icon={<EditOutlined />} type={detailBatchEditable ? 'primary' : 'default'} onClick={() => setDetailBatchEditable((current) => !current)}>
+                  {detailBatchEditable ? '结束编辑' : '编辑'}
+                </Button>
+                <Button size="small" loading={detailBatchFormatBusy} onClick={() => void handleFormatDetailBatchScript()}>
+                  格式化
+                </Button>
+                <Button size="small" type="primary" icon={<SaveOutlined />} loading={detailBatchSaveBusy} onClick={() => void handleSaveDetailBatchScript()}>
+                  保存到项目
+                </Button>
+                <Segmented
+                  size="small"
+                  value={detailBatchWrapMode}
+                  onChange={(value) => setDetailBatchWrapMode(value as 'off' | 'on')}
+                  options={[
+                    { label: '不换行', value: 'off' },
+                    { label: '自动换行', value: 'on' },
+                  ]}
+                />
+              </Space>
+              <div className="script-save-row" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                <Input
+                  value={detailBatchSavePath}
+                  onChange={(event) => setDetailBatchSavePath(event.target.value)}
+                  addonBefore="保存路径"
+                  placeholder="generated/run_detail_batch.py"
+                  style={{ flex: '1 1 320px', minWidth: 280 }}
+                />
+                <Checkbox checked={detailBatchOverwrite} onChange={(event) => setDetailBatchOverwrite(event.target.checked)}>
+                  覆盖已有文件
+                </Checkbox>
+              </div>
+              {detailBatchValidation ? (
+                <Descriptions size="small" column={1} bordered style={{ borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+                  <Descriptions.Item label="校验结果">
+                    {detailBatchValidation.passed === true ? 'passed' : 'failed'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="生成模式">
+                    {typeof detailBatchResultPayload.generation_mode === 'string' ? detailBatchResultPayload.generation_mode : '—'}
+                  </Descriptions.Item>
+                  {detailBatchWarnings.length > 0 ? (
+                    <Descriptions.Item label="Warnings">
+                      {detailBatchWarnings.join(' | ')}
+                    </Descriptions.Item>
+                  ) : null}
+                </Descriptions>
+              ) : null}
+              <EditorShell
+                value={detailBatchScriptDraft}
+                language="python"
+                height={320}
+                readOnly={!detailBatchEditable}
+                theme="vs-dark"
+                wordWrap={detailBatchWrapMode}
+                onChange={setDetailBatchScriptDraft}
+                visibilityToken={visibilityToken}
+              />
+            </div>
+          ) : null}
         </div>
       ),
     })
@@ -767,6 +1162,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
 
   const itemOrder: Record<string, number> = {
     script: 0,
+    'detail-batch-runner': 1,
     'prompt-workspace': 1,
     prompt: 1,
     'effective-prompt': 2,
@@ -785,7 +1181,7 @@ export function ResultDetails({ payload, promptWorkspace, view = 'all', focusMod
     : prioritizedCollapseItems.map((item) => String(item.key))
 
   const viewFilterKeys: Record<Exclude<ResultDetailsView, 'all'>, string[]> = {
-    script: ['script', 'sandbox', 'meta'],
+    script: ['script', 'detail-batch-runner', 'sandbox', 'meta'],
     prompt: ['prompt-workspace', 'prompt', 'effective-prompt'],
     records: ['records', 'node-results'],
     logs: ['sandbox', 'logs', 'node-results', 'generation-trace'],

@@ -20,6 +20,10 @@
   面向生成脚本执行验证的技术选型说明：比较 Docker、gVisor、本地 subprocess 与 RestrictedPython，并记录当前手动沙箱执行方案。
 - `developer-checklist.md`
   面向贡献者的上手清单与迭代 SOP，适合改节点、改运行时、改脚本生成、改辅助链路或改前端布局时查阅。
+- `page-extractor-cli-guide.md`
+  面向 CLI 使用者的独立页面采集工具说明，介绍 `page-extractor collect` 的参数、产物目录和典型用法。
+- `page-extractor-publish-and-install.md`
+  面向工程交付与发布准备的安装/验证说明，覆盖 `page-extractor` 的安装方式、Playwright 依赖和发布前检查项。
 - `examples/workflows/eworldship_product_1772.json`
   当前仍可复用的示例 DSL，用于真实列表页采集场景。
 
@@ -39,6 +43,8 @@
 
 - `README.md`
   项目概览、启动命令与目录结构说明。
+- `page_extractor/README.md`
+  独立页面采集工具自己的 README，适合作为 `page-extractor` 包级入口文档。
 - `DESIGN.md`
   当前前端工作台的视觉与交互规范。
 - `AGENTS.md`

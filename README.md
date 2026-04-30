@@ -9,6 +9,7 @@
 - Prompt 预览、骨架脚本生成、完整爬虫脚本生成
 - 选择器检测、字段推断、分页分析、数据清洗等 AI 辅助动作
 - 前端工作台中的脚本与提示词编辑工作区
+- 独立的详情页页面采集工具 `page-extractor`（供批处理脚本或手工 CLI 调用）
 
 ## 快速开始
 
@@ -37,6 +38,9 @@ npm run dev -- --host 127.0.0.1 --port 3101
 # 后端测试
 .venv\Scripts\python.exe -m pytest tests -v
 
+# 详情页 CLI 帮助
+page-extractor collect --help
+
 # 前端测试
 cd frontend
 npm run test
@@ -60,6 +64,7 @@ crawler-workflow/
 │   ├── prompts/               # prompt 共享规则、契约、任务与组装器
 │   ├── runtime/               # 浏览器会话、异步桥接、记录输出
 │   └── workflow/              # workflow schema、编译、执行、脚本生成
+├── page_extractor/            # 独立详情页采集工具与 CLI 运行时
 ├── frontend/                  # React 工作台
 │   └── src/
 │       ├── app/               # 应用壳层与布局编排
@@ -80,6 +85,9 @@ crawler-workflow/
 - [docs/optimization-implementation-plan.md](docs/optimization-implementation-plan.md)
 - [docs/developer-checklist.md](docs/developer-checklist.md)
 - [docs/analysis/guide.md](docs/analysis/guide.md)
+- [page_extractor/README.md](page_extractor/README.md)
+- [docs/page-extractor-cli-guide.md](docs/page-extractor-cli-guide.md)
+- [docs/page-extractor-publish-and-install.md](docs/page-extractor-publish-and-install.md)
 - [DESIGN.md](DESIGN.md)
 
 ## 备注

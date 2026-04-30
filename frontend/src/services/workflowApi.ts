@@ -9,6 +9,7 @@ export type WorkflowActionPath =
   | '/api/workflows/compile-plan'
   | '/api/workflows/generate-skeleton'
   | '/api/workflows/generate-crawler'
+  | '/api/workflows/generate-detail-batch-runner'
   | '/api/workflows/run-script-sandbox'
   | '/api/workflows/format-script'
   | '/api/workflows/save-script'
