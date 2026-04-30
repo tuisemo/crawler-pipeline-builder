@@ -1,4 +1,4 @@
-from extraction.auto_detector import AutoDetector
+from backend.extraction.auto_detector import AutoDetector
 
 
 class FakePageResult:

@@ -1,4 +1,4 @@
-from llm_client import (
+from backend.llm import (
     FIELD_INFERENCE_PROMPT,
     PAGINATION_ANALYSIS_PROMPT,
     SELECTOR_OPTIMIZATION_PROMPT,
@@ -23,8 +23,8 @@ def test_selector_prompts_require_playwright_compatible_css_selectors():
 
 
 def test_generation_prompts_preserve_validated_xpath_selectors():
-    from llm_client import CRAWLER_SYSTEM_PROMPT
-    from prompts import CrawlerPromptGenerator
+    from backend.llm import CRAWLER_SYSTEM_PROMPT
+    from backend.prompts import CrawlerPromptGenerator
 
     generator_prompt = CrawlerPromptGenerator().generate_from_simple_config(
         url="https://example.com",
@@ -46,9 +46,9 @@ def test_generation_prompts_preserve_validated_xpath_selectors():
 
 
 def test_generation_prompts_use_task_quality_gates_not_autoresearch_label():
-    from backend.workflows.generation_pipeline import CRAWLER_REVIEW_SYSTEM_PROMPT
-    from backend.workflows.prompting import _build_generation_prompt
-    from backend.workflow_schemas import NodeData, WorkflowGraph, WorkflowNode
+    from backend.workflow.generation_pipeline import CRAWLER_REVIEW_SYSTEM_PROMPT
+    from backend.workflow.prompting import _build_generation_prompt
+    from backend.workflow.schemas import NodeData, WorkflowGraph, WorkflowNode
 
     graph = WorkflowGraph(
         nodes=[
@@ -64,6 +64,7 @@ def test_generation_prompts_use_task_quality_gates_not_autoresearch_label():
     lowered_review = CRAWLER_REVIEW_SYSTEM_PROMPT.lower()
 
     assert "quality gate" in lowered_prompt
+    assert "confirm that the list content actually updated" in lowered_prompt
     assert "autoresearch" not in lowered_prompt
     assert "release gate" in lowered_review
     assert "autoresearch" not in lowered_review

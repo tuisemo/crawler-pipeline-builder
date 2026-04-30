@@ -5,10 +5,10 @@ This document audits all model-facing prompts in the crawler-workflow system and
 The goal is not to make business prompts "sound like AutoResearch", but to use its prompt-R&D discipline to produce higher-quality selectors, pagination decisions, and crawler scripts.
 
 Audited modules:
-- `llm_client.py`
-- `prompts/crawler_prompt.py`
-- `backend/workflows/prompting.py`
-- `backend/workflows/generation_pipeline.py`
+- `backend/llm/client.py`
+- `backend/prompts/crawler_prompt.py`
+- `backend/workflow/prompting.py`
+- `backend/workflow/generation_pipeline.py`
 - `backend/assist/json_protocol.py`
 - `backend/assist/pagination_recovery.py`
 
@@ -118,7 +118,7 @@ Audited modules:
   - pagination semantic-empty fallback stability.
 
 ### Prompt quality telemetry
-- Added structured quality event `assist_prompt_quality_metric` in `backend/assist_services.py`.
+- Added structured quality event `assist_prompt_quality_metric` in `backend/assist/services.py`.
 - This event tracks:
   - `json_valid_first_pass`,
   - `used_partial_recovery`,
@@ -132,7 +132,7 @@ Audited modules:
 These metrics enable longitudinal tracking of prompt quality without changing API contracts.
 
 ## Manual Script Sandbox Feedback Loop
-- Added a final script execution sandbox in `backend/workflows/script_sandbox.py`.
+- Added a final script execution sandbox in `backend/workflow/script_sandbox.py`.
 - The generation API returns scripts without executing them by default.
 - Users manually trigger sandbox execution from the script workspace when they want runtime validation for the current generated or edited script.
 - Each sandbox run writes:

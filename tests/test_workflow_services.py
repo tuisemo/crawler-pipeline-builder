@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from backend.workflow_schemas import (
+from backend.workflow.schemas import (
     FormatScriptRequest,
     SaveScriptRequest,
     ValidateWorkflowRequest,
@@ -23,7 +23,7 @@ from backend.workflow_schemas import (
     CompilePlanRequest,
     GenerateSkeletonRequest,
 )
-from backend.workflow_services import (
+from backend.workflow.services import (
     validate_graph,
     convert_legacy_config,
     compile_plan,
@@ -123,7 +123,7 @@ def test_validate_graph_raises_on_duplicate_node_ids():
 
 def test_validate_graph_raises_on_duplicate_edge_ids():
     """Duplicate edge IDs raises WorkflowValidationError."""
-    from backend.workflow_schemas import WorkflowEdge
+    from backend.workflow.schemas import WorkflowEdge
     request = ValidateWorkflowRequest(
         graph=WorkflowGraph(
             nodes=[
@@ -480,7 +480,7 @@ def test_generate_crawler_returns_domain_response(monkeypatch):
     """generate_crawler returns GenerateCrawlerResponse, not JSONResponse."""
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             if "principal reviewer" in system.lower():
                 return LLMResponse(
                     content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
@@ -489,7 +489,7 @@ def test_generate_crawler_returns_domain_response(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -513,7 +513,7 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
 
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
             if "principal reviewer" in system.lower():
                 return LLMResponse(
@@ -523,7 +523,7 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -553,11 +553,11 @@ def test_generate_crawler_strips_deprecated_max_steps_from_generation_prompt(mon
 
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -587,7 +587,7 @@ def test_generate_crawler_uses_sqlite_capable_skeleton_as_base(monkeypatch):
 
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             captured_calls.append({"system": system, "user": user})
             if "principal reviewer" in system.lower():
                 return LLMResponse(
@@ -597,7 +597,7 @@ def test_generate_crawler_uses_sqlite_capable_skeleton_as_base(monkeypatch):
                 )
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -641,7 +641,7 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
             self.calls = []
 
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             self.calls.append({"system": system, "kwargs": kwargs})
             if "principal reviewer" in system.lower():
                 return LLMResponse(
@@ -667,7 +667,7 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
             )
 
     fake_client = FakeClient()
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: fake_client)
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: fake_client)
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -705,7 +705,7 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
 def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(
                 content="print('truncated')",
                 model="fake-model",
@@ -713,7 +713,7 @@ def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
                 finish_reason="length",
             )
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -736,7 +736,7 @@ def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
 def test_generate_crawler_fails_when_length_stop_returns_empty_script(monkeypatch):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(
                 content="",
                 model="fake-model",
@@ -744,7 +744,7 @@ def test_generate_crawler_fails_when_length_stop_returns_empty_script(monkeypatc
                 finish_reason="length",
             )
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -767,14 +767,14 @@ def test_generate_crawler_fails_when_length_stop_returns_empty_script(monkeypatc
 def test_generate_crawler_rejects_elementhandle_locator_usage(monkeypatch):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(
                 content="for item in items:\n    title = item.locator('.title').inner_text()\n",
                 model="fake-model",
                 usage={"prompt_tokens": 1, "completion_tokens": 1},
             )
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -797,15 +797,15 @@ def test_generate_crawler_rejects_elementhandle_locator_usage(monkeypatch):
 def test_generate_crawler_records_sandbox_failure(monkeypatch, tmp_path):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(
                 content="raise RuntimeError('sandbox boom')",
                 model="fake-model",
                 usage={"prompt_tokens": 1, "completion_tokens": 1},
             )
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
-    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -834,10 +834,10 @@ def test_generate_crawler_records_sandbox_failure(monkeypatch, tmp_path):
 def test_generate_crawler_can_skip_sandbox(monkeypatch):
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     request = GenerateCrawlerRequest(
         graph=WorkflowGraph(
@@ -980,7 +980,10 @@ def test_generate_skeleton_adapts_timeouts_for_sandbox_runs():
     assert 'page.goto(ENTRY_URL, wait_until="load", timeout=remaining_timeout_ms(45000, reserve_seconds=2))' in result.script
     assert 'next_button.scroll_into_view_if_needed(timeout=remaining_timeout_ms(3000, reserve_seconds=3))' in result.script
     assert 'next_button.click(timeout=remaining_timeout_ms(5000, reserve_seconds=3))' in result.script
-    assert 'page.wait_for_load_state("domcontentloaded", timeout=remaining_timeout_ms(10000, reserve_seconds=3))' in result.script
+    assert 'before_snapshot = collect_list_snapshot(page, ITEM_SELECTOR)' in result.script
+    assert 'page.wait_for_load_state("networkidle", timeout=remaining_timeout_ms(5000, reserve_seconds=3))' in result.script
+    assert 'after_snapshot = collect_list_snapshot(page, item_selector)' in result.script
+    assert 'if pagination_state_changed(before_snapshot, after_snapshot):' in result.script
 
 
 def test_generate_skeleton_clamps_timeouts_with_small_sandbox_budget(monkeypatch):
@@ -1018,7 +1021,7 @@ def test_format_script_normalizes_python_whitespace():
 
 def test_save_script_writes_inside_workspace(monkeypatch):
     workspace_root = make_test_workspace("service-save-script")
-    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflow.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     response = save_script(
         SaveScriptRequest(
@@ -1035,7 +1038,7 @@ def test_save_script_writes_inside_workspace(monkeypatch):
 
 def test_save_script_rejects_outside_workspace(monkeypatch):
     workspace_root = make_test_workspace("service-save-script-outside")
-    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflow.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     with pytest.raises(ScriptPersistenceError) as exc_info:
         save_script(
@@ -1054,7 +1057,7 @@ def test_save_script_rejects_outside_workspace(monkeypatch):
 
 def test_service_module_does_not_use_json_response():
     """Verify that workflow_services.py does not import or construct JSONResponse."""
-    import backend.workflow_services as services_module
+    import backend.workflow.services as services_module
     import inspect
     
     source = inspect.getsource(services_module)

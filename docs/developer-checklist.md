@@ -85,12 +85,12 @@ npm run build
 
 通常要改这些位置：
 
-1. `frontend/src/workflowContracts.ts`
-2. `frontend/src/workbenchDefaults.ts` 中的 palette 与默认数据
-3. `frontend/src/components/PropertyPanel.tsx`
-4. `backend/workflow_schemas.py`
-5. `backend/workflow_services.py` 校验逻辑
-6. `backend/workflow_compiler.py`
+1. `frontend/src/features/workflow/workflowContracts.ts`
+2. `frontend/src/features/workflow/workbenchDefaults.ts` 中的 palette 与默认数据
+3. `frontend/src/features/workflow/components/PropertyPanel.tsx`
+4. `backend/workflow/schemas.py`
+5. `backend/workflow/services.py` 校验逻辑
+6. `backend/workflow/compiler.py`
 7. 相关测试
 
 ### 适用例子
@@ -103,9 +103,9 @@ npm run build
 
 通常要改这些位置：
 
-1. `backend/workflow_handlers.py`
-2. `backend/workflow_executor.py`
-3. `backend/workflow_executor_orchestration.py`
+1. `backend/workflow/handlers.py`
+2. `backend/workflow/executor.py`
+3. `backend/workflow/executor_orchestration.py`
 4. `tests/test_workflow_executor.py`
 
 ### 适用例子
@@ -118,11 +118,11 @@ npm run build
 
 通常要改这些位置：
 
-1. `backend/workflow_compiler.py`
-2. `backend/workflow_codegen.py`
-3. `prompts/crawler_prompt.py`
-4. `backend/workflow_services.py`
-5. `llm_client.py`
+1. `backend/workflow/compiler.py`
+2. `backend/workflow/codegen.py`
+3. `backend/prompts/crawler_prompt.py`
+4. `backend/workflow/services.py`
+5. `backend/llm/client.py`
 6. `tests/test_workflow_services.py`
 
 ### 适用例子
@@ -136,12 +136,12 @@ npm run build
 
 通常要改这些位置：
 
-1. `backend/assist_services.py`
-2. `backend/assist_routes.py`
-3. `extraction/auto_detector.py`
-4. `extraction/html_extractor.py`
-5. `frontend/src/App.tsx`
-6. `frontend/src/components/PropertyPanel.tsx`
+1. `backend/assist/services.py`
+2. `backend/api/assist_routes.py`
+3. `backend/extraction/auto_detector.py`
+4. `backend/extraction/html_extractor.py`
+5. `frontend/src/app/App.tsx`
+6. `frontend/src/features/workflow/components/PropertyPanel.tsx`
 7. `tests/test_assist_services.py`
 
 ### 适用例子
@@ -154,12 +154,12 @@ npm run build
 
 通常要改这些位置：
 
-1. `frontend/src/App.tsx`
-2. `frontend/src/components/WorkbenchToolbar.tsx`
-3. `frontend/src/components/WorkflowCanvas.tsx`
-4. `frontend/src/components/ResultsPanel.tsx`
-5. `frontend/src/components/ResultDetails.tsx`
-6. `frontend/src/components/DslEditorPanel.tsx`
+1. `frontend/src/app/App.tsx`
+2. `frontend/src/app/components/WorkbenchToolbar.tsx`
+3. `frontend/src/features/workflow/components/WorkflowCanvas.tsx`
+4. `frontend/src/features/results/ResultsPanel.tsx`
+5. `frontend/src/features/results/ResultDetails.tsx`
+6. `frontend/src/features/workflow/components/DslEditorPanel.tsx`
 7. `frontend/src/index.css`
 8. `DESIGN.md`
 
@@ -168,14 +168,14 @@ npm run build
 ### 规程 1：新增一个节点类型
 
 1. 先在 `docs/product-guide.md` 和 `docs/technical-guide.md` 想清楚它属于哪类能力。
-2. 在 `frontend/src/workflowContracts.ts` 增加类型。
-3. 给 `frontend/src/workbenchDefaults.ts` 的 palette 和默认节点数据补上入口。
+2. 在 `frontend/src/features/workflow/workflowContracts.ts` 增加类型。
+3. 给 `frontend/src/features/workflow/workbenchDefaults.ts` 的 palette 和默认节点数据补上入口。
 4. 给 `PropertyPanel.tsx` 增加配置表单。
 5. 给 `WorkflowCanvas.tsx` 增加节点视觉摘要。
-6. 在 `backend/workflow_schemas.py` 加字段。
-7. 在 `backend/workflow_services.py` 加校验。
-8. 在 `backend/workflow_compiler.py` 决定它是否进入 plan。
-9. 在 `backend/workflow_handlers.py` 决定它的执行行为。
+6. 在 `backend/workflow/schemas.py` 加字段。
+7. 在 `backend/workflow/services.py` 加校验。
+8. 在 `backend/workflow/compiler.py` 决定它是否进入 plan。
+9. 在 `backend/workflow/handlers.py` 决定它的执行行为。
 10. 补前后端测试。
 11. 更新文档。
 
@@ -200,8 +200,8 @@ npm run build
 
 1. 先看 `compile_plan` 是否已经表达出需求。
 2. 再判断问题应落在 skeleton、prompt 还是 review/revision 阶段。
-3. 如果是确定性逻辑，优先改 `workflow_codegen.py`。
-4. 如果是模型约束问题，优先改 `crawler_prompt.py` 和 `workflow_services.py` 的 prompt 组装。
+3. 如果是确定性逻辑，优先改 `workflow/codegen.py`。
+4. 如果是模型约束问题，优先改 `backend/prompts/crawler_prompt.py`、`backend/prompts/tasks/` 与 `backend/workflow/prompting.py` 的 prompt 组装。
 5. 用假 LLM 响应测试或 service 测试验证返回结构。
 
 ## 6. 现在最值得优先关注的工程现实

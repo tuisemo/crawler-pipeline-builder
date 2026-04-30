@@ -1,5 +1,5 @@
-import { getErrorMessage } from '../workflowState'
-import type { WorkflowGraph } from '../workflowContracts'
+import { getErrorMessage } from '../features/workflow/workflowState'
+import type { WorkflowGraph } from '../features/workflow/workflowContracts'
 
 export type WorkflowActionPath =
   | '/api/workflows/validate'

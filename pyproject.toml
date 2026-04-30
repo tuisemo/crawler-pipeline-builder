@@ -23,8 +23,11 @@ llm = [
 ]
 
 [tool.setuptools]
-packages = ["backend", "backend.assist", "backend.core", "backend.workflows", "extraction", "prompts"]
-py-modules = ["llm_client", "server"]
+py-modules = ["server"]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+exclude = ["frontend*", "tests*", "docs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

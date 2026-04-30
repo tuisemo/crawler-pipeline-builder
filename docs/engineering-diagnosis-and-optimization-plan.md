@@ -61,11 +61,8 @@ flowchart LR
 ```text
 crawler-workflow/
 ├── server.py
-├── llm_client.py
 ├── backend/
 ├── frontend/
-├── extraction/
-├── prompts/
 ├── docs/
 ├── tests/
 ├── static/
@@ -100,8 +97,8 @@ flowchart TD
     R --> E["workflow_executor.py"]
     S --> C["workflow_compiler.py"]
     S --> G["workflow_codegen.py"]
-    S --> P["prompts/crawler_prompt.py"]
-    S --> L["llm_client.py"]
+    S --> P["backend/prompts/crawler_prompt.py"]
+    S --> L["backend/llm/client.py"]
     E --> H["workflow_handlers.py"]
     H --> K["record_sinks.py"]
     AR["assist_routes.py"] --> AS["assist_services.py"]
@@ -134,7 +131,7 @@ flowchart TD
 | --- | --- | --- |
 | 后端启动端口 | `server.py` | 默认 `8000` |
 | 前端开发代理 | `frontend/vite.config.ts`、`frontend/.env.development` | 默认代理到 `8090` |
-| LLM 配置 | `.env`、环境变量、`llm_client.py` | `API_BASE_URL`、`API_TOKEN`、`MODEL_NAME` |
+| LLM 配置 | `.env`、环境变量、`backend/llm/client.py` | `API_BASE_URL`、`API_TOKEN`、`MODEL_NAME` |
 | 脚本生成 token | `workflow_services.py` | `SCRIPT_GENERATION_MAX_TOKENS=12000` |
 | 输出默认值 | `backend/output_defaults.py` | `memory`、`output/crawler_output.json` |
 | 浏览器 session TTL | `backend/browser_session.py` | `600s` |
@@ -144,7 +141,7 @@ flowchart TD
 ### 6.2 主要问题
 
 1. 前端代理默认 `8090`，后端默认 `8000`，新同学按 README 启动后可能遇到请求打不到后端。
-2. LLM provider、模型、base URL、token 的读取散落在 `llm_client.py` 内部，没有统一配置对象。
+2. LLM provider、模型、base URL、token 的读取集中在 `backend/llm/client.py`，但仍应继续通过统一 settings 对象约束边界。
 3. 执行边界同时存在于节点数据、前端 action payload、后端 `ExecutionContext`，缺少统一优先级说明。
 4. 输出默认值已有独立模块，但脚本生成 prompt 中仍有局部 fallback 字符串，需要继续收敛。
 5. `.env` 仅被自定义加载器读取，没有 Pydantic settings 或类似结构来做类型校验。
@@ -157,7 +154,7 @@ flowchart TD
 flowchart TD
     ENV["环境变量 / .env"] --> ST["Settings"]
     ST --> API["server.py"]
-    ST --> LLM["llm_client.py"]
+ST --> LLM["backend/llm/client.py"]
     ST --> BS["browser_session.py"]
     ST --> WS["workflow_services.py"]
     ST --> OUT["output_defaults.py"]

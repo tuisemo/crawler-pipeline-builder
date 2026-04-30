@@ -50,13 +50,23 @@ npm run build
 
 ```text
 crawler-workflow/
-├── server.py                  # FastAPI 入口
-├── llm_client.py              # OpenAI 兼容 LLM 客户端
-├── backend/                   # workflow API、assist API、执行器、schema
+├── server.py                  # 根目录兼容启动入口
+├── backend/                   # 后端真实实现
+│   ├── api/                   # FastAPI 路由层
+│   ├── assist/                # assist 任务编排与 JSON 协议
+│   ├── core/                  # settings / logging / api_response
+│   ├── extraction/            # DOM 检测、HTML 提取、选择器测试
+│   ├── llm/                   # LLM client 实现
+│   ├── prompts/               # prompt 共享规则、契约、任务与组装器
+│   ├── runtime/               # 浏览器会话、异步桥接、记录输出
+│   └── workflow/              # workflow schema、编译、执行、脚本生成
 ├── frontend/                  # React 工作台
-├── extraction/                # 选择器与 HTML 提取辅助模块
-├── prompts/                   # crawler prompt 模板
-├── docs/                      # 当前有效文档与归档文档
+│   └── src/
+│       ├── app/               # 应用壳层与布局编排
+│       ├── features/          # workflow / assist / results / prompt-workspace
+│       ├── services/          # API client
+│       └── shared/            # 共享资源
+├── docs/                      # 当前有效文档、专项分析与归档文档
 └── tests/                     # 后端测试
 ```
 
@@ -69,6 +79,7 @@ crawler-workflow/
 - [docs/engineering-diagnosis-and-optimization-plan.md](docs/engineering-diagnosis-and-optimization-plan.md)
 - [docs/optimization-implementation-plan.md](docs/optimization-implementation-plan.md)
 - [docs/developer-checklist.md](docs/developer-checklist.md)
+- [docs/analysis/guide.md](docs/analysis/guide.md)
 - [DESIGN.md](DESIGN.md)
 
 ## 备注

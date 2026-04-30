@@ -1,4 +1,4 @@
-from backend.assist_services import (
+from backend.assist.services import (
     FIELD_INFERENCE_RESPONSE_CONTRACT,
     PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
     _ensure_session,
@@ -8,9 +8,9 @@ from backend.assist_services import (
     extract_html_fragment,
     run_selector_test,
 )
-from backend.workflow_schemas import AssistHtmlExtractRequest, AssistLlmRequest
-from backend.workflow_schemas import AssistLlmResponse, AssistSelectorTestRequest
-from llm_client import LLMResponse
+from backend.workflow.schemas import AssistHtmlExtractRequest, AssistLlmRequest
+from backend.workflow.schemas import AssistLlmResponse, AssistSelectorTestRequest
+from backend.llm import LLMResponse
 
 
 def test_extract_json_payload_recovers_wrapped_balanced_object():
@@ -39,7 +39,7 @@ def test_run_llm_json_task_uses_json_object_mode_and_normalizes_fields(monkeypat
                 usage={"prompt_tokens": 10, "completion_tokens": 5},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         "Infer fields from this HTML",
@@ -84,7 +84,7 @@ def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):
             },
         )
 
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist.services._run_llm_json_task", fake_run_llm_json_task)
 
     html_fragment = """<!-- ITEM_SAMPLES -->
 <article class="row">item-1</article>
@@ -137,8 +137,8 @@ def test_analyze_pagination_normalizes_raw_xpath_selector_when_live_page_matches
             },
         )
 
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
-    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+    monkeypatch.setattr("backend.assist.services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist.services.page_session_mgr.get", lambda session_id: FakeSession())
 
     response = analyze_pagination(AssistLlmRequest(html_fragment="<!-- PAGINATION --><a rel='next'>下一页</a>", session_id="s1"))
 
@@ -174,8 +174,8 @@ def test_analyze_pagination_replaces_unmatched_model_selector_with_summary_fallb
             },
         )
 
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
-    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+    monkeypatch.setattr("backend.assist.services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist.services.page_session_mgr.get", lambda session_id: FakeSession())
 
     html_fragment = """<!-- PAGINATION -->
 <div class="kq-pager"><span class="current">1</span><a rel="next" href="/list?p=2">下一页</a></div>
@@ -240,8 +240,8 @@ def test_analyze_pagination_replaces_broad_multi_match_selector_with_summary_fal
             },
         )
 
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
-    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
+    monkeypatch.setattr("backend.assist.services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist.services.page_session_mgr.get", lambda session_id: FakeSession())
 
     html_fragment = """<!-- PAGINATION -->
 <div class="kq-pager"><span class="current">1</span><a href="/list?p=2">2</a><a rel="next" href="/list?p=2">下一页</a></div>
@@ -283,9 +283,9 @@ def test_analyze_pagination_returns_warning_when_selector_cannot_be_validated(mo
             },
         )
 
-    monkeypatch.setattr("backend.assist_services._run_llm_json_task", fake_run_llm_json_task)
-    monkeypatch.setattr("backend.assist_services.page_session_mgr.get", lambda session_id: FakeSession())
-    monkeypatch.setattr("backend.assist_services.recover_pagination_from_summary", lambda user_prompt: None)
+    monkeypatch.setattr("backend.assist.services._run_llm_json_task", fake_run_llm_json_task)
+    monkeypatch.setattr("backend.assist.services.page_session_mgr.get", lambda session_id: FakeSession())
+    monkeypatch.setattr("backend.assist.services.recover_pagination_from_summary", lambda user_prompt: None)
 
     response = analyze_pagination(
         AssistLlmRequest(
@@ -308,18 +308,18 @@ def test_test_selector_highlights_matches_and_returns_session_id(monkeypatch):
     clear_calls: list[object] = []
     highlight_calls: list[tuple[str, int]] = []
 
-    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
     monkeypatch.setattr(
-        "backend.assist_services.SelectorTester.test_selector",
+        "backend.assist.services.SelectorTester.test_selector",
         lambda page, selector, max_samples=5: type("Result", (), {
             "match_count": 3,
             "sample_items": [{"text": "A"}],
             "error": None,
         })(),
     )
-    monkeypatch.setattr("backend.assist_services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
+    monkeypatch.setattr("backend.assist.services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
     monkeypatch.setattr(
-        "backend.assist_services.SelectorTester.highlight_selector",
+        "backend.assist.services.SelectorTester.highlight_selector",
         lambda page, selector, clear_after_ms=2200: highlight_calls.append((selector, clear_after_ms)) or 3,
     )
 
@@ -357,9 +357,9 @@ def test_extract_html_fragment_clears_selector_highlight_before_sampling(monkeyp
 
     clear_calls: list[object] = []
 
-    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
-    monkeypatch.setattr("backend.assist_services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
-    monkeypatch.setattr("backend.assist_services.HtmlExtractor", lambda: FakeExtractor())
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
+    monkeypatch.setattr("backend.assist.services.HtmlExtractor", lambda: FakeExtractor())
 
     response = extract_html_fragment(AssistHtmlExtractRequest(item_selector=".item"))
 
@@ -376,7 +376,7 @@ def test_run_llm_json_task_reports_invalid_json_when_unrecoverable(monkeypatch):
                 model="fake-model",
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         "Optimize selector",
@@ -411,7 +411,7 @@ def test_run_llm_json_task_repairs_invalid_json_with_second_pass(monkeypatch):
                 usage={"prompt_tokens": 4, "completion_tokens": 3},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         "Optimize selector",
@@ -448,7 +448,7 @@ def test_run_llm_json_task_uses_heuristic_fallback_for_empty_pagination_result(m
                 usage={"prompt_tokens": 7, "completion_tokens": 4},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         html_prompt,
@@ -493,7 +493,7 @@ Identify the concrete control that advances pagination.
                 usage={"prompt_tokens": 7, "completion_tokens": 4},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         prompt,
@@ -522,7 +522,7 @@ def test_run_llm_json_task_uses_parent_class_hint_for_next_arrow_summary(monkeyp
                 usage={"prompt_tokens": 7, "completion_tokens": 4},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         prompt,
@@ -555,7 +555,7 @@ def test_run_llm_json_task_rejects_empty_pagination_result_when_retry_still_empt
                 usage={"prompt_tokens": 5, "completion_tokens": 3},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         html_prompt,
@@ -576,7 +576,7 @@ def test_run_llm_json_task_recovers_truncated_pagination_json(monkeypatch):
                 usage={"prompt_tokens": 12, "completion_tokens": 9},
             )
 
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         "<!-- PAGINATION --><div class='pager'></div>",
@@ -613,8 +613,8 @@ def test_ensure_session_creates_fresh_session_for_url_without_explicit_session_i
             created.append(True)
             return created_session
 
-    monkeypatch.setattr("backend.assist_services.get_active_session", lambda: active_session)
-    monkeypatch.setattr("backend.assist_services.page_session_mgr", FakeManager())
+    monkeypatch.setattr("backend.assist.services.get_active_session", lambda: active_session)
+    monkeypatch.setattr("backend.assist.services.page_session_mgr", FakeManager())
 
     session, error = _ensure_session(None, "https://example.com/list")
 

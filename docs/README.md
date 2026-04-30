@@ -23,6 +23,11 @@
 - `examples/workflows/eworldship_product_1772.json`
   当前仍可复用的示例 DSL，用于真实列表页采集场景。
 
+## 专项分析文档
+
+- `analysis/guide.md`
+  当前工程与能力边界的综合阅读笔记，适合作为补充背景材料。
+
 ## 历史归档文档
 
 - `archive/README.md`

@@ -1,4 +1,4 @@
-from extraction.html_extractor import HtmlExtractor
+from backend.extraction.html_extractor import HtmlExtractor
 
 
 class FakeItem:

@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sqlite3
 
-from backend import record_sinks
+from backend.runtime import record_sinks
 
 
 def make_test_workspace(name: str) -> Path:

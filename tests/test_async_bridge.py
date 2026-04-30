@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from backend.async_bridge import run_blocking
+from backend.runtime.async_bridge import run_blocking
 
 
 @pytest.mark.anyio

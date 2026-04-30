@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from backend.assist_services import _run_llm_json_task
-from llm_client import LLMResponse
+from backend.assist.services import _run_llm_json_task
+from backend.llm import LLMResponse
 
 
 def _load_cases() -> list[dict]:
@@ -22,7 +22,7 @@ def test_prompt_regression_cases_are_stable(monkeypatch):
                     usage={"prompt_tokens": 10, "completion_tokens": 6},
                 )
 
-        monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+        monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
         response = _run_llm_json_task(
             case["user_prompt"],
             task_name=case["task_name"],
@@ -64,8 +64,8 @@ def test_assist_prompt_quality_metric_marks_repair_path(monkeypatch):
                 usage={"prompt_tokens": 4, "completion_tokens": 3},
             )
 
-    monkeypatch.setattr("backend.assist_services.audit_event", fake_audit_event)
-    monkeypatch.setattr("backend.assist_services.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.assist.services.audit_event", fake_audit_event)
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
 
     response = _run_llm_json_task(
         "Optimize selector",

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from server import app
-from backend.workflow_schemas import AssistLlmResponse, AssistSelectorTestResponse, AutoDetectResponse
+from backend.workflow.schemas import AssistLlmResponse, AssistSelectorTestResponse, AutoDetectResponse
 
 client = TestClient(app)
 
@@ -248,10 +248,10 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
     """Test that generate-crawler returns a structured response without real LLM I/O."""
     class FakeClient:
         def generate_with_system(self, system: str, user: str, **kwargs):
-            from llm_client import LLMResponse
+            from backend.llm import LLMResponse
             return LLMResponse(content="print('ok')", model="fake-model", usage={"prompt_tokens": 1, "completion_tokens": 1})
 
-    monkeypatch.setattr("backend.workflows.generation_pipeline.get_default_client", lambda: FakeClient())
+    monkeypatch.setattr("backend.workflow.generation_pipeline.get_default_client", lambda: FakeClient())
 
     response = client.post("/api/workflows/generate-crawler", json={
         "graph": {
@@ -275,7 +275,7 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
 
 
 def test_run_script_sandbox_endpoint(monkeypatch, tmp_path):
-    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+    monkeypatch.setattr("backend.workflow.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
 
     response = client.post("/api/workflows/run-script-sandbox", json={
         "script": "print('sandbox ok')",
@@ -293,7 +293,7 @@ def test_run_script_sandbox_endpoint(monkeypatch, tmp_path):
 
 
 def test_run_script_sandbox_endpoint_exposes_sandbox_runtime_env(monkeypatch, tmp_path):
-    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+    monkeypatch.setattr("backend.workflow.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
 
     response = client.post("/api/workflows/run-script-sandbox", json={
         "script": (
@@ -314,7 +314,7 @@ def test_run_script_sandbox_endpoint_exposes_sandbox_runtime_env(monkeypatch, tm
 
 
 def test_run_script_sandbox_endpoint_reports_timeout(monkeypatch, tmp_path):
-    monkeypatch.setattr("backend.workflows.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
+    monkeypatch.setattr("backend.workflow.script_sandbox.SANDBOX_ROOT", tmp_path / "script-sandbox")
 
     response = client.post("/api/workflows/run-script-sandbox", json={
         "script": "import time\ntime.sleep(2)\n",
@@ -390,7 +390,7 @@ def test_format_script_endpoint_returns_formatted_content():
 
 def test_save_script_endpoint_persists_file(monkeypatch):
     workspace_root = make_test_workspace("api-save-script")
-    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflow.script_artifacts.WORKSPACE_ROOT", workspace_root)
 
     response = client.post("/api/workflows/save-script", json={
         "relative_path": "generated/api_saved.py",
@@ -407,7 +407,7 @@ def test_save_script_endpoint_persists_file(monkeypatch):
 
 def test_save_script_endpoint_rejects_existing_target_without_overwrite(monkeypatch):
     workspace_root = make_test_workspace("api-save-script-existing")
-    monkeypatch.setattr("backend.workflows.script_artifacts.WORKSPACE_ROOT", workspace_root)
+    monkeypatch.setattr("backend.workflow.script_artifacts.WORKSPACE_ROOT", workspace_root)
     target = workspace_root / "generated" / "existing.py"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("print('first')\n", encoding="utf-8")
@@ -452,7 +452,7 @@ def test_compile_plan_valid():
 
 def test_assist_auto_detect_surfaces_session_errors(monkeypatch):
     monkeypatch.setattr(
-        "backend.assist_routes.auto_detect",
+        "backend.api.assist_routes.auto_detect",
         lambda _request: AutoDetectResponse(success=False, error="No active browser session found"),
     )
     response = client.post("/api/assist/auto-detect", json={})
@@ -478,7 +478,7 @@ def test_assist_extract_html_reports_total_match_count_not_sample_size(monkeypat
         id = "session-1"
         page = FakePage()
 
-    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
 
     response = client.post("/api/assist/extract-html", json={
         "item_selector": ".item",
@@ -549,7 +549,7 @@ def test_assist_extract_html_can_include_pagination_context(monkeypatch):
         id = "session-1"
         page = FakePage()
 
-    monkeypatch.setattr("backend.assist_services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
 
     response = client.post("/api/assist/extract-html", json={
         "item_selector": ".item",
@@ -578,7 +578,7 @@ def test_assist_test_selector_returns_highlight_metadata(monkeypatch):
             },
         )
 
-    monkeypatch.setattr("backend.assist_routes.run_selector_test", fake_test_selector)
+    monkeypatch.setattr("backend.api.assist_routes.run_selector_test", fake_test_selector)
 
     response = client.post("/api/assist/test-selector", json={
         "selector": ".item",
@@ -607,7 +607,7 @@ def test_assist_analyze_pagination_surfaces_warnings_without_400(monkeypatch):
             warnings=["Pagination analysis produced a candidate selector, but it could not be validated against the current page session. Review the selector before applying it."],
         )
 
-    monkeypatch.setattr("backend.assist_routes.analyze_pagination", fake_analyze_pagination)
+    monkeypatch.setattr("backend.api.assist_routes.analyze_pagination", fake_analyze_pagination)
 
     response = client.post("/api/assist/analyze-pagination", json={
         "html_fragment": "<div class='pager'><a class='next'>下一页</a></div>",

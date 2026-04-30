@@ -13,31 +13,31 @@
 ```mermaid
 flowchart TD
     FE["React Workbench<br/>frontend/src"] --> API["FastAPI<br/>server.py"]
-    API --> WR["/api/workflows/*<br/>workflow_routes.py"]
-    API --> AR["/api/assist/*<br/>assist_routes.py"]
+    API --> WR["/api/workflows/*<br/>api/workflow_routes.py"]
+    API --> AR["/api/assist/*<br/>api/assist_routes.py"]
 
-    WR --> WS["workflow_services.py"]
-    WR --> WE["workflow_executor.py"]
+    WR --> WS["workflow/services.py"]
+    WR --> WE["workflow/executor.py"]
 
-    WS --> WC["workflow_compiler.py"]
-    WS --> WCG["workflow_codegen.py"]
-    WS --> WP["workflows/prompting.py"]
-    WS --> GP["workflows/generation_pipeline.py"]
-    WS --> SA["workflows/script_artifacts.py"]
-    WS --> PG["prompts/crawler_prompt.py"]
-    GP --> LLM["llm_client.py"]
+    WS --> WC["workflow/compiler.py"]
+    WS --> WCG["workflow/codegen.py"]
+    WS --> WP["workflow/prompting.py"]
+    WS --> GP["workflow/generation_pipeline.py"]
+    WS --> SA["workflow/script_artifacts.py"]
+    WS --> PG["backend/prompts/crawler_prompt.py"]
+    GP --> LLM["backend/llm/client.py"]
 
-    AR --> AS["assist_services.py"]
+    AR --> AS["backend/assist/services.py"]
     AS --> AJ["assist/json_protocol.py"]
-    AS --> EXT["extraction/*"]
+    AS --> EXT["backend/extraction/*"]
 
-    WE --> BH["workflow_handlers.py"]
-    WE --> WG["workflow_graph.py"]
-    WE --> WT["workflow_executor_traversal.py"]
-    WE --> WO["workflow_executor_orchestration.py"]
-    WR --> WV["workflows/validation.py"]
-    WE --> BS["browser_session.py"]
-    BH --> RS["record_sinks.py"]
+    WE --> BH["workflow/handlers.py"]
+    WE --> WG["workflow/graph.py"]
+    WE --> WT["workflow/executor_traversal.py"]
+    WE --> WO["workflow/executor_orchestration.py"]
+    WR --> WV["workflow/validation.py"]
+    WE --> BS["runtime/browser_session.py"]
+    BH --> RS["runtime/record_sinks.py"]
 
     API --> CORE["core/settings.py<br/>core/app_logging.py<br/>core/api_response.py"]
     LLM --> CORE
@@ -53,8 +53,8 @@ flowchart TD
 | `server.py` | FastAPI 入口、静态资源挂载、生命周期清理 |
 | `backend/` | 工作流 API、辅助 API、执行器、浏览器会话、编译器、代码生成器、输出落盘 |
 | `frontend/` | React 工作台、画布、属性面板、结果区、DSL 编辑器、前端 API 封装 |
-| `extraction/` | 自动检测、HTML 片段提取、选择器测试与字段抽取 |
-| `prompts/` | Prompt 生成器 |
+| `backend/extraction/` | 自动检测、HTML 片段提取、选择器测试与字段抽取 |
+| `backend/prompts/` | Prompt 生成器 |
 | `tests/` | 后端与前端关键单测/回归测试 |
 | `docs/` | 当前说明文档、示例 DSL、历史归档 |
 
@@ -65,10 +65,10 @@ flowchart TD
 | 路径 | 当前职责 |
 | --- | --- |
 | `backend/core/` | 横切基础设施，包括配置、日志、统一 API envelope |
-| `backend/workflows/` | 工作流领域支撑能力，包括 graph 校验、prompt 组装、脚本格式化与保存 |
+| `backend/workflow/` | 工作流领域支撑能力，包括 graph 校验、prompt 组装、脚本格式化与保存 |
 | `backend/assist/` | 智能辅助领域支撑能力，目前承载 LLM JSON 协议与 repair prompt |
-| `backend/*_routes.py` | HTTP 协议层，只负责路由、状态码和统一响应包装 |
-| `backend/*_services.py` | 领域编排门面，继续作为路由层和细分模块之间的稳定入口 |
+| `backend/api/*.py` | HTTP 协议层，只负责路由、状态码和统一响应包装 |
+| `backend/assist/services.py` / `backend/workflow/services.py` | 领域编排门面，继续作为路由层和细分模块之间的稳定入口 |
 
 ## 4. 服务入口与生命周期
 
@@ -142,7 +142,7 @@ flowchart TD
 
 ## 6. 为什么会有 `run_blocking`
 
-`backend/async_bridge.py` 用一个单线程 `ThreadPoolExecutor(max_workers=1)` 来串行化浏览器相关同步任务。
+`backend/runtime/async_bridge.py` 用一个单线程 `ThreadPoolExecutor(max_workers=1)` 来串行化浏览器相关同步任务。
 
 原因是：
 
@@ -150,11 +150,11 @@ flowchart TD
 - 页面对象和 context 不能安全地在任意线程之间跳转
 - 所以浏览器相关工作被统一串到一个固定后台线程中执行
 
-这也是为什么 `assist_routes.py` 和 `workflow_executor.py` 里很多逻辑会包在 `run_blocking(...)` 中。
+这也是为什么 `api/assist_routes.py` 和 `workflow/executor.py` 里很多逻辑会包在 `run_blocking(...)` 中。
 
 ## 7. 浏览器会话模型
 
-`backend/browser_session.py` 当前的真实语义是：
+`backend/runtime/browser_session.py` 当前的真实语义是：
 
 - **浏览器进程共享**
 - **每个会话独立 context**
@@ -178,7 +178,7 @@ flowchart TD
 
 ### 8.1 后端核心模型
 
-`backend/workflow_schemas.py` 定义了：
+`backend/workflow/schemas.py` 定义了：
 
 - `WorkflowGraph`
 - `WorkflowNode`
@@ -223,9 +223,9 @@ flowchart TD
 
 ## 9. 校验逻辑
 
-`workflow_services.validate_graph()` 当前会校验：
+`backend/workflow/services.py` 导出的 `validate_graph()` 当前会校验：
 
-实现位置：`backend/workflows/validation.py`。`workflow_services.py` 仍导出 `validate_graph` 与 `WorkflowValidationError`，用于保持 service 层调用入口清晰。
+实现位置：`backend/workflow/validation.py`。`workflow/services.py` 仍导出 `validate_graph` 与 `WorkflowValidationError`，用于保持 service 层调用入口清晰。
 
 1. `nodes` 不能为空
 2. node id 唯一
@@ -249,7 +249,7 @@ flowchart TD
 
 ### 10.1 `compile_graph_to_plan`
 
-`backend/workflow_compiler.py` 会从 graph 中提取：
+`backend/workflow/compiler.py` 会从 graph 中提取：
 
 - `entry_url`
 - `node_types`
@@ -269,7 +269,7 @@ flowchart TD
 
 ### 10.2 `generate_playwright_skeleton`
 
-`backend/workflow_codegen.py` 当前会生成一份可运行的 Python Playwright 骨架，包含：
+`backend/workflow/codegen.py` 当前会生成一份可运行的 Python Playwright 骨架，包含：
 
 - Playwright 启动
 - 字段抽取
@@ -285,7 +285,7 @@ flowchart TD
 
 ### 11.1 Prompt 生成
 
-`backend/workflows/prompting.py` 会组合出最终 prompt：
+`backend/workflow/prompting.py` 会组合出最终 prompt：
 
 1. `Execution Plan (Deterministic)`
 2. 输出策略说明
@@ -303,11 +303,11 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant UI as Frontend
-    participant WS as workflow_services
-    participant GP as workflows/generation_pipeline
-    participant WC as workflow_compiler
-    participant CG as workflow_codegen
-    participant LLM as llm_client
+    participant WS as workflow/services
+    participant GP as workflow/generation_pipeline
+    participant WC as workflow/compiler
+    participant CG as workflow/codegen
+    participant LLM as backend/llm/client
 
     UI->>WS: generate_crawler(graph, prompt_override, generation_mode)
     WS->>GP: generate_crawler(request)
@@ -344,15 +344,15 @@ sequenceDiagram
 
 ## 12. 运行时执行器
 
-`backend/workflow_executor.py` 现在已经从“大单文件”拆成了几个协作模块：
+`backend/workflow/executor.py` 现在已经从“大单文件”拆成了几个协作模块：
 
-- `workflow_executor.py`
-- `workflow_handlers.py`
-- `workflow_graph.py`
-- `workflow_executor_traversal.py`
-- `workflow_executor_orchestration.py`
-- `workflow_executor_helpers.py`
-- `workflows/validation.py`
+- `workflow/executor.py`
+- `workflow/handlers.py`
+- `workflow/graph.py`
+- `workflow/executor_traversal.py`
+- `workflow/executor_orchestration.py`
+- `workflow/executor_helpers.py`
+- `workflow/validation.py`
 
 ### 12.1 `test-node`
 
@@ -430,7 +430,7 @@ sequenceDiagram
 
 ### 13.1 `condition` 分支选择规则
 
-`workflow_executor_orchestration.py` 当前优先按 edge 元数据选分支：
+`workflow/executor_orchestration.py` 当前优先按 edge 元数据选分支：
 
 1. `edge.branch == true/false`
 2. `edge.branch == default`
@@ -449,7 +449,7 @@ sequenceDiagram
 
 ## 14. 记录落盘与输出约束
 
-`backend/record_sinks.py` 负责 `emit_record` 的持久化输出。
+`backend/runtime/record_sinks.py` 负责 `emit_record` 的持久化输出。
 
 ### 14.1 输出模式
 
@@ -480,7 +480,7 @@ sequenceDiagram
 
 ### 14.4 当前没有的能力
 
-当前 `record_sinks.py` 没有：
+当前 `backend/runtime/record_sinks.py` 没有：
 
 - `_sea_runs` / `_sea_checkpoints` 任务级 checkpoint 表
 - 断点续跑状态恢复
@@ -503,14 +503,14 @@ sequenceDiagram
 
 ### 15.3 LLM JSON 任务
 
-`assist_services.py` 里三类智能推断共用一套模式：
+`backend/assist/services.py` 里三类智能推断共用一套模式：
 
 1. 约束模型只返回 JSON
 2. 尝试直接解析
 3. 必要时做一次 JSON repair
 4. 某些场景下再做启发式回退
 
-JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 JSON 对象提取、assist system prompt、JSON repair prompt。分页分析的证据 prompt、截断 JSON 恢复、语义空结果判断和控件摘要 fallback 已拆入 `backend/assist/pagination_recovery.py`。`assist_services.py` 继续负责业务编排、LLM 调用、repair/retry 调度和各 assist endpoint 的领域响应。
+JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 JSON 对象提取、assist system prompt、JSON repair prompt。分页分析的证据 prompt、截断 JSON 恢复、语义空结果判断和控件摘要 fallback 已拆入 `backend/assist/pagination_recovery.py`。`backend/assist/services.py` 继续负责业务编排、LLM 调用、repair/retry 调度和各 assist endpoint 的领域响应。
 
 这套机制当前用于：
 
@@ -524,7 +524,7 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 
 | 路径 | 当前职责 |
 | --- | --- |
-| `frontend/src/App.tsx` | 顶层编排、节点/边管理、画布与结果区装配 |
+| `frontend/src/app/App.tsx` | 顶层编排、节点/边管理、画布与结果区装配 |
 | `workbenchDefaults.ts` | 节点 palette、初始 graph、默认节点数据、layout 读取、数字边界处理 |
 | `workflowState.ts` | DSL 校验、画布图与 canonical graph 转换 |
 | `workflowContracts.ts` | 前端工作流类型定义 |
@@ -575,7 +575,7 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 | `tests/test_workflow_services.py` | service 层行为与异常 |
 | `tests/test_workflow_executor.py` | 执行器、分页 smoke、emit_record、循环/条件支持 |
 | `tests/test_record_sinks.py` | JSON/SQLite 输出 |
-| `tests/test_assist_services.py` | assist JSON 合同、修复、启发式回退 |
+| `tests/test_backend/assist/services.py` | assist JSON 合同、修复、启发式回退 |
 | `tests/test_auto_detector.py` | 自动检测 |
 | `tests/test_html_extractor.py` | HTML 提取 |
 
@@ -583,11 +583,11 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 
 | 文件 | 当前覆盖重点 |
 | --- | --- |
-| `frontend/src/workflowState.test.ts` | DSL 校验与应用 |
+| `frontend/src/features/workflow/workflowState.test.ts` | DSL 校验与应用 |
 | `frontend/src/services/workflowApi.test.ts` | 前端 API 封装 |
 | `frontend/src/promptDrafts.test.ts` | prompt 草稿持久化 |
-| `frontend/src/workflowNodePlacement.test.ts` | 新节点命名和布局位置 |
-| `frontend/src/components/workflowEdgeDecorators.test.ts` | 语义边装饰 |
+| `frontend/src/features/workflow/workflowNodePlacement.test.ts` | 新节点命名和布局位置 |
+| `frontend/src/features/workflow/components/workflowEdgeDecorators.test.ts` | 语义边装饰 |
 
 ## 18. 新功能迭代入口
 
@@ -595,27 +595,27 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 
 当前至少要检查这些位置：
 
-- `frontend/src/workflowContracts.ts`
-- `frontend/src/workflowState.ts`
-- `frontend/src/App.tsx` 的默认节点和 palette
-- `frontend/src/components/PropertyPanel.tsx`
-- `frontend/src/components/WorkflowCanvas.tsx`
-- `backend/workflow_schemas.py`
-- `backend/workflows/validation.py`
-- `backend/workflow_compiler.py`
-- `backend/workflow_handlers.py`
-- `backend/workflows/prompting.py`
-- `backend/workflows/generation_pipeline.py`
-- `backend/workflow_services.py` 的生成入口门面
+- `frontend/src/features/workflow/workflowContracts.ts`
+- `frontend/src/features/workflow/workflowState.ts`
+- `frontend/src/app/App.tsx` 的默认节点和 palette
+- `frontend/src/features/workflow/components/PropertyPanel.tsx`
+- `frontend/src/features/workflow/components/WorkflowCanvas.tsx`
+- `backend/workflow/schemas.py`
+- `backend/workflow/validation.py`
+- `backend/workflow/compiler.py`
+- `backend/workflow/handlers.py`
+- `backend/workflow/prompting.py`
+- `backend/workflow/generation_pipeline.py`
+- `backend/workflow/services.py` 的生成入口门面
 - 对应测试文件
 
 ### 18.2 如果要增强运行时分页
 
 优先关注：
 
-- `backend/workflow_handlers.py` 的 `handle_paginate`
-- `backend/workflow_executor_orchestration.py`
-- `backend/workflow_executor.py`
+- `backend/workflow/handlers.py` 的 `handle_paginate`
+- `backend/workflow/executor_orchestration.py`
+- `backend/workflow/executor.py`
 - `tests/test_workflow_executor.py`
 
 ### 18.3 如果要真正落地 loop 逐项语义
@@ -631,14 +631,14 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 
 优先关注：
 
-- `workflow_compiler.py`
-- `workflow_codegen.py`
-- `workflow_services.py`
-- `workflows/generation_pipeline.py`
-- `workflows/prompting.py`
-- `workflows/script_artifacts.py`
-- `prompts/crawler_prompt.py`
-- `llm_client.py`
+- `workflow/compiler.py`
+- `workflow/codegen.py`
+- `workflow/services.py`
+- `workflow/generation_pipeline.py`
+- `workflow/prompting.py`
+- `workflow/script_artifacts.py`
+- `backend/prompts/crawler_prompt.py`
+- `backend/llm/client.py`
 
 ## 19. 目前最容易踩坑的认知偏差
 
@@ -652,7 +652,7 @@ JSON 协议基础工具已经拆入 `backend/assist/json_protocol.py`：包括 J
 1. 先读 `product-guide.md`
 2. 再读本文
 3. 然后从以下三条真实主链路进入代码：
-   - `frontend/src/App.tsx`
-   - `backend/workflow_services.py`
-   - `backend/workflow_executor.py`
+   - `frontend/src/app/App.tsx`
+   - `backend/workflow/services.py`
+   - `backend/workflow/executor.py`
 4. 最后配合 `tests/` 反向验证自己对系统的理解

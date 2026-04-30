@@ -206,7 +206,7 @@ npm run test -- services/workflowApi.test.ts
 - 接入 `server.py`
 - 接入 `browser_session.py`
 - 接入 `workflow_services.py`
-- 接入 `llm_client.py`
+- 接入 `backend/llm/client.py`
 - 前端代理默认端口对齐到 `8000`
 - 清理 `pyproject.toml` 的 `demo` 引用
 - 新增配置契约测试

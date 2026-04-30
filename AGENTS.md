@@ -9,7 +9,7 @@
 ```text
 crawler-workflow/
 ├── server.py         # FastAPI application entrypoint
-├── llm_client.py     # OpenAI-compatible LLM client
+├── backend/llm/      # OpenAI-compatible LLM client and prompt exports
 ├── backend/          # workflow routes, assist routes, executor, schemas
 ├── frontend/         # React workbench
 ├── extraction/       # auto-detection and selector/html helpers
@@ -46,6 +46,6 @@ crawler-workflow/
 ## Architecture Notes
 
 - `server.py` mounts `/api/workflows/*` and `/api/assist/*`
-- `backend/browser_session.py` manages Playwright browser and page sessions
-- `frontend/src/App.tsx` is the workbench shell for canvas, property panel, result dock, and DSL editor
+- `backend/runtime/browser_session.py` manages Playwright browser and page sessions
+- `frontend/src/app/App.tsx` is the workbench shell for canvas, property panel, result dock, and DSL editor
 - `docs/README.md` is the curated index for active repository documentation
