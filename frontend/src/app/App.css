@@ -472,7 +472,22 @@
   gap: 10px;
 }
 
+.result-specific-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding-bottom: 6px;
+}
+
 .result-specific-block {
+  display: flex;
+  flex-direction: column;
+  min-height: fit-content;
+  overflow: visible;
   padding: 20px;
   background: rgba(255, 255, 255, 0.98);
   border-radius: var(--sd-radius-lg);
@@ -490,6 +505,13 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--sd-color-text);
+}
+
+.result-block-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: visible;
 }
 
 .result-workspace-block {

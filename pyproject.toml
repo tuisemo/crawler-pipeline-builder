@@ -11,6 +11,7 @@ dependencies = [
     "greenlet==3.1.1",
     "lxml>=5.0.0",
     "openai>=2.32.0",
+    "page-extractor",
     "playwright>=1.58.0",
     "pydantic>=2.10.0",
     "pytest>=8.4.0",
@@ -25,18 +26,21 @@ llm = [
     "openai>=1.0.0",
 ]
 
-[project.scripts]
-page-extractor = "page_extractor.cli:main"
-
 [tool.setuptools]
 py-modules = ["server"]
 
 [tool.setuptools.packages.find]
-include = ["backend*", "page_extractor*"]
-exclude = ["frontend*", "tests*", "docs*"]
+include = ["backend*"]
+exclude = ["frontend*", "tests*", "docs*", "packages*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.uv.workspace]
+members = ["packages/page-extractor"]
+
+[tool.uv.sources]
+page-extractor = { workspace = true }
