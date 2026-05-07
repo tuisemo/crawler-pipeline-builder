@@ -61,9 +61,10 @@ class PageSession:
     - Closing one session does not affect other sessions' pages or contexts
     """
 
-    def __init__(self, browser):
+    def __init__(self, browser, is_remote: bool = False):
         self.id = str(uuid.uuid4())[:8]
         self.browser = browser
+        self.is_remote = is_remote
         # Each session creates its own isolated context
         self.context = browser.new_context(no_viewport=True)
         self.page = self.context.new_page()
@@ -99,6 +100,11 @@ class PageSession:
             self.context.close()
         except Exception:
             pass
+        if getattr(self, "is_remote", False):
+            try:
+                self.browser.close()
+            except Exception:
+                pass
 
     def navigate(self, url: str, timeout: int = 30000):
         """Navigate to URL on the session's page."""
@@ -161,10 +167,22 @@ class SessionManager:
                 s.touch()
             return s
 
-    def create(self) -> PageSession:
+    def create(self, agent_id: str | None = None) -> PageSession:
         """Create a new session with its own isolated browser context."""
-        # Each session gets its own context from the shared browser process
-        session = PageSession(get_browser())
+        if agent_id:
+            # 建立桥接连接 (每次 connect 会新建一个浏览器上下文)
+            # websocket url 必须根据环境变量或者 settings 决定域名
+            settings = get_settings()
+            ws_url = f"ws://127.0.0.1:{settings.backend_port}/api/relay/hub/{agent_id}"
+            global _playwright
+            with self._lock:
+                if _playwright is None:
+                    _playwright = sync_playwright().start()
+            browser = _playwright.chromium.connect_over_cdp(ws_url, timeout=60000)
+            session = PageSession(browser, is_remote=True)
+        else:
+            # Each session gets its own context from the shared browser process
+            session = PageSession(get_browser())
         with self._lock:
             expired = self._collect_expired_session_ids()
             for sid in expired:

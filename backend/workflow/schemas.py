@@ -241,6 +241,7 @@ class TestNodeRequest(BaseModel):
     graph: WorkflowGraph
     node_id: str
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
 
 class TestNodeResponse(BaseModel):
     success: bool
@@ -259,6 +260,7 @@ class TestSubflowRequest(BaseModel):
     graph: WorkflowGraph
     boundary: Optional[SubflowBoundary] = None
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
 
 class TestSubflowResponse(BaseModel):
     success: bool
@@ -459,6 +461,7 @@ class CompilePlanResponse(BaseModel):
 class AutoDetectRequest(BaseModel):
     """Run list/pagination auto-detection on the active browser page."""
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
     url: Optional[str] = None
 
 
@@ -473,6 +476,7 @@ class AssistHtmlExtractRequest(BaseModel):
     """Extract cleaned HTML fragments for a target item selector."""
     item_selector: str
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
     url: Optional[str] = None
     max_items: int = 3
     include_pagination: bool = False
@@ -491,6 +495,7 @@ class AssistSelectorTestRequest(BaseModel):
 
     selector: str
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
     url: Optional[str] = None
     clear_after_ms: int = 2200
     max_samples: int = 5
@@ -507,6 +512,7 @@ class AssistLlmRequest(BaseModel):
     """Generic request used by infer-fields / optimize-selector / analyze-pagination."""
     html_fragment: str
     session_id: Optional[str] = None
+    agent_id: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     initial_selector: Optional[str] = None

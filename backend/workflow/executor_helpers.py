@@ -54,7 +54,7 @@ def resolve_subflow_limits(graph: WorkflowGraph, boundary: SubflowBoundary) -> d
     }
 
 
-def get_or_create_session(session_id: Optional[str]):
+def get_or_create_session(session_id: Optional[str], agent_id: Optional[str] = None):
     """Return an existing session by id or create a new one."""
     if session_id:
         session = page_session_mgr.get(session_id)
@@ -63,7 +63,7 @@ def get_or_create_session(session_id: Optional[str]):
         if session:
             page_session_mgr.close(session_id)
         return None
-    return page_session_mgr.create()
+    return page_session_mgr.create(agent_id=agent_id)
 
 
 def build_missing_node_response(node_id: str, target_node: Optional[WorkflowNode]) -> TestNodeResponse:

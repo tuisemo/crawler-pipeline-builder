@@ -1,4 +1,4 @@
-import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography, Input } from 'antd'
 import {
   AppstoreOutlined,
   BarsOutlined,
@@ -38,6 +38,10 @@ type WorkbenchToolbarProps = {
   onRunAction: (action: WorkbenchAction) => void
   generationMode: ScriptGenerationMode
   onGenerationModeChange: (mode: ScriptGenerationMode) => void
+  executionMode: 'cloud' | 'local'
+  onExecutionModeChange: (mode: 'cloud' | 'local') => void
+  agentId: string
+  onAgentIdChange: (id: string) => void
   layout: {
     leftPanelOpen: boolean
     rightPanelOpen: boolean
@@ -73,6 +77,10 @@ export function WorkbenchToolbar({
   onRunAction,
   generationMode,
   onGenerationModeChange,
+  executionMode,
+  onExecutionModeChange,
+  agentId,
+  onAgentIdChange,
   layout,
 }: WorkbenchToolbarProps) {
   return (
@@ -126,6 +134,32 @@ export function WorkbenchToolbar({
                   { label: 'Pro', value: 'pro' },
                 ]}
               />
+            </div>
+
+            <div className="toolbar-control-row">
+              <Typography.Text type="secondary" className="toolbar-group-title">
+                环境
+              </Typography.Text>
+              <Space.Compact>
+                <Segmented
+                  size="small"
+                  value={executionMode}
+                  onChange={(value) => onExecutionModeChange(value as 'cloud' | 'local')}
+                  options={[
+                    { label: 'Cloud', value: 'cloud' },
+                    { label: 'Local CDP', value: 'local' },
+                  ]}
+                />
+                {executionMode === 'local' && (
+                  <Input
+                    size="small"
+                    placeholder="Agent ID"
+                    value={agentId}
+                    onChange={(e) => onAgentIdChange(e.target.value)}
+                    style={{ width: 120 }}
+                  />
+                )}
+              </Space.Compact>
             </div>
 
             <div className="toolbar-control-row">

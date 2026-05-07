@@ -21,6 +21,8 @@ type UseWorkflowActionsArgs = {
   graphKey: string
   getPromptOverride: (graphKey: string) => string
   generationMode: ScriptGenerationMode
+  executionMode: 'cloud' | 'local'
+  agentId: string
 }
 
 const actionLabels: Record<WorkbenchAction, string> = {
@@ -62,7 +64,7 @@ function resolveResultMessage(action: WorkbenchAction, responseOk: boolean, payl
   return `${actionLabels[action]} failed. Inspect the structured output below.`
 }
 
-export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, getPromptOverride, generationMode }: UseWorkflowActionsArgs) {
+export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, getPromptOverride, generationMode, executionMode, agentId }: UseWorkflowActionsArgs) {
   const [resultState, setResultState] = useState<ResultState>({
     tone: 'idle',
     title: 'Idle',
@@ -95,7 +97,7 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
 
     try {
       const promptOverride = action === 'generate-script' ? getPromptOverride(graphKey) : ''
-      const requestBody = action === 'test-node'
+      const basePayload = action === 'test-node'
         ? { graph: canonicalGraph, node_id: selectedOrEntryNodeId }
         : action === 'test-subflow'
           ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined } }
@@ -104,6 +106,10 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
             : action === 'generate-script'
               ? { graph: canonicalGraph, generation_mode: generationMode }
             : { graph: canonicalGraph }
+            
+      const requestBody = (action === 'test-node' || action === 'test-subflow') && executionMode === 'local' && agentId
+        ? { ...basePayload, agent_id: agentId }
+        : basePayload
       const path = action === 'validate'
         ? '/api/workflows/validate'
         : action === 'prompt'

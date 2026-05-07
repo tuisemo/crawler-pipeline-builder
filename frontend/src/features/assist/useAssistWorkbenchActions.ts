@@ -25,6 +25,8 @@ type UseAssistWorkbenchActionsArgs = {
   setNodes: Dispatch<SetStateAction<WorkflowNode[]>>
   updateSelectedNodeData: (patch: Partial<WorkflowNodeData>) => void
   notify: AssistNotifier
+  executionMode: 'cloud' | 'local'
+  agentId: string
 }
 
 function normalizeAssistError(payload: unknown, responseOk: boolean) {
@@ -54,6 +56,8 @@ export function useAssistWorkbenchActions({
   setNodes,
   updateSelectedNodeData,
   notify,
+  executionMode,
+  agentId,
 }: UseAssistWorkbenchActionsArgs) {
   const [assistBusyAction, setAssistBusyAction] = useState<AssistActionKey>(null)
   const [assistApplyMode, setAssistApplyMode] = useState<AssistApplyMode>('related-nodes')
@@ -69,8 +73,11 @@ export function useAssistWorkbenchActions({
     return nodes.find((node) => node.type === 'select_list') ?? null
   }
 
-  function withAssistSession<T extends Record<string, unknown>>(payload: T): T & { session_id?: string } {
-    return assistSessionId ? { ...payload, session_id: assistSessionId } : payload
+  function withAssistSession<T extends Record<string, unknown>>(payload: T): T & { session_id?: string; agent_id?: string } {
+    const result: Record<string, unknown> = { ...payload }
+    if (assistSessionId) result.session_id = assistSessionId
+    if (executionMode === 'local' && agentId) result.agent_id = agentId
+    return result as T & { session_id?: string; agent_id?: string }
   }
 
   function syncAssistSession(payload: unknown) {

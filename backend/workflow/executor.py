@@ -208,7 +208,7 @@ class WorkflowExecutor:
             if not target_node:
                 return build_missing_node_response(request.node_id, target_node)
 
-            session = get_or_create_session(request.session_id)
+            session = get_or_create_session(request.session_id, getattr(request, "agent_id", None))
             if not session:
                 return build_session_expired_node_response(request.node_id, target_node)
 
@@ -263,7 +263,7 @@ class WorkflowExecutor:
             if not entry_node:
                 return build_subflow_missing_entry_response()
 
-            session = get_or_create_session(request.session_id)
+            session = get_or_create_session(request.session_id, getattr(request, "agent_id", None))
             if not session:
                 return build_subflow_session_expired_response()
 

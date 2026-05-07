@@ -19,6 +19,7 @@ dependencies = [
     "trafilatura>=1.6.0",
     "tqdm>=4.67.3",
     "uvicorn>=0.32.0",
+    "websockets>=16.0",
 ]
 
 [project.optional-dependencies]

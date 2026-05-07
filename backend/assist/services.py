@@ -480,7 +480,7 @@ def _attempt_repair_json_payload(client: Any, raw_output: str, response_contract
     return _extract_json_payload(repair_response.content or ""), repair_response
 
 
-def _ensure_session(session_id: str | None, url: str | None):
+def _ensure_session(session_id: str | None, url: str | None, agent_id: str | None = None):
     session = None
     if session_id:
         session = page_session_mgr.get(session_id)
@@ -496,7 +496,7 @@ def _ensure_session(session_id: str | None, url: str | None):
         # most recent browser session from another site. Reuse is reserved for
         # explicit session_id-based workflows initiated by the UI.
         if url and not session_id:
-            session = page_session_mgr.create()
+            session = page_session_mgr.create(agent_id=agent_id)
         else:
             session = get_active_session()
             if session is not None and not session.is_alive():
@@ -504,7 +504,7 @@ def _ensure_session(session_id: str | None, url: str | None):
                 session = None
 
             if session is None:
-                session = page_session_mgr.create()
+                session = page_session_mgr.create(agent_id=agent_id)
 
     # Wait, what if we just created a new session? We need to navigate to the URL if provided.
     # The previous logic conditionally navigated if url was provided.
@@ -525,7 +525,7 @@ def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
         session_id=request.session_id,
         url=request.url,
     )
-    session, error = _ensure_session(request.session_id, request.url)
+    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
     if error:
         audit_event(
             "assist_auto_detect_failed",
@@ -580,7 +580,7 @@ def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
 
 
 def run_selector_test(request: AssistSelectorTestRequest) -> AssistSelectorTestResponse:
-    session, error = _ensure_session(request.session_id, request.url)
+    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
     if error:
         audit_event(
             "assist_test_selector_failed",
@@ -636,7 +636,7 @@ def run_selector_test(request: AssistSelectorTestRequest) -> AssistSelectorTestR
 
 
 def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtractResponse:
-    session, error = _ensure_session(request.session_id, request.url)
+    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
     if error:
         audit_event(
             "assist_extract_html_failed",

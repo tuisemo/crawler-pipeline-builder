@@ -66,6 +66,20 @@ export default function App() {
 
   const [canvasFitToken, setCanvasFitToken] = useState(0)
   const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
+  const [executionMode, setExecutionMode] = useState<'cloud' | 'local'>(
+    () => (localStorage.getItem('executionMode') as 'cloud' | 'local') || 'cloud'
+  )
+  const [agentId, setAgentId] = useState<string>(
+    () => localStorage.getItem('agentId') || 'test_agent'
+  )
+
+  useEffect(() => {
+    localStorage.setItem('executionMode', executionMode)
+  }, [executionMode])
+
+  useEffect(() => {
+    localStorage.setItem('agentId', agentId)
+  }, [agentId])
   const {
     leftPanelOpen,
     rightPanelOpen,
@@ -106,6 +120,8 @@ export default function App() {
     setNodes,
     updateSelectedNodeData,
     notify: message,
+    executionMode,
+    agentId,
   })
   const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
     nodes.map((n) => `${n.id}-${n.type}`).join('|'),
@@ -128,6 +144,8 @@ export default function App() {
     graphKey,
     getPromptOverride,
     generationMode,
+    executionMode,
+    agentId,
   })
 
   const conditionOutgoingEdges = useMemo(() => {
@@ -344,6 +362,10 @@ export default function App() {
           onRunAction={handleRunWorkflowAction}
           generationMode={generationMode}
           onGenerationModeChange={setGenerationMode}
+          executionMode={executionMode}
+          onExecutionModeChange={setExecutionMode}
+          agentId={agentId}
+          onAgentIdChange={setAgentId}
           layout={{
             leftPanelOpen,
             rightPanelOpen,
