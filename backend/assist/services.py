@@ -43,6 +43,7 @@ from backend.assist.pagination_recovery import (
     recover_partial_pagination_json,
 )
 from backend.runtime.browser_session import get_active_session, page_session_mgr
+from backend.runtime.ext_session_mgr import ext_session_mgr
 from backend.workflow.schemas import (
     AssistLlmRequest,
     AssistLlmResponse,
@@ -63,6 +64,14 @@ PLAYWRIGHT_ONLY_SELECTOR_MARKERS = (
     ">>",
     ":has-text(",
 )
+
+
+def _is_extension_session(session: Any) -> bool:
+    return hasattr(session, "clear_highlight") and (
+        hasattr(session, "auto_detect")
+        or hasattr(session, "extract_html")
+        or hasattr(session, "test_selector")
+    )
 
 
 def _confidence_bucket(value: object) -> str:
@@ -481,22 +490,33 @@ def _attempt_repair_json_payload(client: Any, raw_output: str, response_contract
 
 
 def _ensure_session(session_id: str | None, url: str | None, agent_id: str | None = None):
+    extension_agent_id = agent_id[4:] if agent_id and agent_id.startswith("ext:") else None
     session = None
+    navigated_during_create = False
+
     if session_id:
-        session = page_session_mgr.get(session_id)
-        if session is not None and session.is_alive():
-            pass # Keep using it
+        if extension_agent_id:
+            session = ext_session_mgr.get(session_id)
         else:
-            if session:
+            session = page_session_mgr.get(session_id)
+        if session is not None and session.is_alive():
+            pass
+        else:
+            if session and extension_agent_id:
+                ext_session_mgr.close(session_id)
+            elif session:
                 page_session_mgr.close(session_id)
             session = None
 
     if session is None:
-        # Stateless assist calls with only a URL should not silently reuse the
-        # most recent browser session from another site. Reuse is reserved for
-        # explicit session_id-based workflows initiated by the UI.
-        if url and not session_id:
-            session = page_session_mgr.create(agent_id=agent_id)
+        if extension_agent_id:
+            try:
+                session = ext_session_mgr.create(extension_agent_id, url)
+                navigated_during_create = bool(url)
+            except RuntimeError as e:
+                return None, str(e)
+        elif url and not session_id:
+            session = page_session_mgr.create()
         else:
             session = get_active_session()
             if session is not None and not session.is_alive():
@@ -504,15 +524,12 @@ def _ensure_session(session_id: str | None, url: str | None, agent_id: str | Non
                 session = None
 
             if session is None:
-                session = page_session_mgr.create(agent_id=agent_id)
+                session = page_session_mgr.create()
 
-    # Wait, what if we just created a new session? We need to navigate to the URL if provided.
-    # The previous logic conditionally navigated if url was provided.
-    # We should always navigate to the URL if it's a new session, or if url is given.
-    # Actually, the original logic just did:
     if url:
         try:
-            session.navigate(url, timeout=30000)
+            if not navigated_during_create:
+                session.navigate(url, timeout=30000)
         except Exception as e:
             return None, f"Failed to navigate: {str(e)}"
             
@@ -534,6 +551,31 @@ def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
             error=error,
         )
         return AutoDetectResponse(success=False, error=error)
+
+    if _is_extension_session(session):
+        session.clear_highlight()
+        raw = session.auto_detect()
+        audit_event(
+            "assist_auto_detect_completed",
+            session_id=session.id,
+            url=request.url,
+            result=raw,
+        )
+        return AutoDetectResponse(
+            success=True,
+            session_id=session.id,
+            result={
+                "item_selector": raw.get("item_selector", ""),
+                "item_count": raw.get("item_count", 0),
+                "item_signature": raw.get("item_signature", ""),
+                "pagination_selector": raw.get("pagination_selector", ""),
+                "pagination_strategy": raw.get("pagination_strategy", "none"),
+                "pagination_score": raw.get("pagination_score", 0),
+                "confidence": raw.get("confidence", 0.0),
+                "fields": raw.get("fields", []),
+                "html_fragment": raw.get("html_fragment", ""),
+            },
+        )
 
     SelectorTester.clear_selector_highlight(session.page)
     detector = AutoDetector()
@@ -591,36 +633,65 @@ def run_selector_test(request: AssistSelectorTestRequest) -> AssistSelectorTestR
         )
         return AssistSelectorTestResponse(success=False, error=error)
 
-    SelectorTester.clear_selector_highlight(session.page)
-    result = SelectorTester.test_selector(
-        session.page,
-        request.selector,
-        max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
-    )
-    if result.error:
-        audit_event(
-            "assist_test_selector_failed",
-            session_id=session.id,
-            url=request.url,
-            selector=request.selector,
-            error=result.error,
+    if _is_extension_session(session):
+        session.clear_highlight()
+        ext_result = session.test_selector(
+            request.selector,
+            max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
         )
-        return AssistSelectorTestResponse(success=False, session_id=session.id, error=result.error)
-
-    highlighted_count = 0
-    if result.match_count > 0:
-        highlighted_count = SelectorTester.highlight_selector(
+        if ext_result.get("error"):
+            error = str(ext_result.get("error"))
+            audit_event(
+                "assist_test_selector_failed",
+                session_id=session.id,
+                url=request.url,
+                selector=request.selector,
+                error=error,
+            )
+            return AssistSelectorTestResponse(success=False, session_id=session.id, error=error)
+        highlighted_count = 0
+        if int(ext_result.get("count", 0)) > 0:
+            highlighted_count = session.highlight_selector(
+                request.selector,
+                clear_after_ms=request.clear_after_ms,
+            )
+        payload = {
+            "match_count": int(ext_result.get("count", 0)),
+            "highlighted_count": highlighted_count,
+            "clear_after_ms": request.clear_after_ms,
+            "sample_items": ext_result.get("elements", []),
+        }
+    else:
+        SelectorTester.clear_selector_highlight(session.page)
+        result = SelectorTester.test_selector(
             session.page,
             request.selector,
-            clear_after_ms=request.clear_after_ms,
+            max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
         )
+        if result.error:
+            audit_event(
+                "assist_test_selector_failed",
+                session_id=session.id,
+                url=request.url,
+                selector=request.selector,
+                error=result.error,
+            )
+            return AssistSelectorTestResponse(success=False, session_id=session.id, error=result.error)
 
-    payload = {
-        "match_count": result.match_count,
-        "highlighted_count": highlighted_count,
-        "clear_after_ms": request.clear_after_ms,
-        "sample_items": result.sample_items,
-    }
+        highlighted_count = 0
+        if result.match_count > 0:
+            highlighted_count = SelectorTester.highlight_selector(
+                session.page,
+                request.selector,
+                clear_after_ms=request.clear_after_ms,
+            )
+
+        payload = {
+            "match_count": result.match_count,
+            "highlighted_count": highlighted_count,
+            "clear_after_ms": request.clear_after_ms,
+            "sample_items": result.sample_items,
+        }
     audit_event(
         "assist_test_selector_completed",
         session_id=session.id,
@@ -648,6 +719,37 @@ def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtrac
             error=error,
         )
         return AssistHtmlExtractResponse(success=False, error=error)
+
+    if _is_extension_session(session):
+        session.clear_highlight()
+        ext_result = session.extract_html(
+            request.item_selector,
+            max_items=request.max_items,
+            include_pagination=request.include_pagination,
+        )
+        html_fragment = str(ext_result.get("html", ""))
+        metadata = {
+            "truncated": bool(ext_result.get("truncated", False)),
+            "original_size": int(ext_result.get("original_size", len(html_fragment.encode("utf-8")))),
+            "truncated_size": int(ext_result.get("truncated_size", len(html_fragment.encode("utf-8")))),
+            "item_count": int(ext_result.get("item_count", 0)),
+        }
+        audit_event(
+            "assist_extract_html_completed",
+            session_id=session.id,
+            url=request.url,
+            item_selector=request.item_selector,
+            include_pagination=request.include_pagination,
+            max_items=request.max_items,
+            html_fragment=html_fragment,
+            metadata=metadata,
+        )
+        return AssistHtmlExtractResponse(
+            success=True,
+            session_id=session.id,
+            html_fragment=html_fragment,
+            metadata=metadata,
+        )
 
     SelectorTester.clear_selector_highlight(session.page)
     extractor = HtmlExtractor()

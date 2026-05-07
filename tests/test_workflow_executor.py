@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from backend.workflow.executor import WorkflowExecutor
-from backend.workflow.schemas import TestSubflowRequest
+from backend.workflow.schemas import TestNodeRequest, TestSubflowRequest
 
 
 class FakeElement:
@@ -188,8 +188,6 @@ async def test_subflow_boundary_max_pages_does_not_limit_item_count(monkeypatch)
 
 @pytest.mark.anyio
 async def test_test_node_returns_all_target_matches(monkeypatch):
-    from backend.workflow.schemas import TestNodeRequest
-
     session = FakeSession()
     session.page._selectors[".item"] = [FakeElement(text=f"Item {idx}") for idx in range(5)]
     monkeypatch.setattr("backend.workflow.executor.page_session_mgr.create", lambda: session)
@@ -721,3 +719,24 @@ async def test_condition_branch_prefers_edge_metadata_over_position(monkeypatch)
     assert response.success is True
     assert [result.node_id for result in response.node_results] == ["open", "cond", "end_true"]
     assert all(result.node_id != "end_false" for result in response.node_results)
+
+
+@pytest.mark.anyio
+async def test_test_node_uses_extension_session_for_ext_agent(monkeypatch):
+    session = FakeSession()
+    captured = []
+    monkeypatch.setattr(
+        "backend.workflow.executor_helpers.ext_session_mgr.create",
+        lambda agent_id: captured.append(agent_id) or session,
+    )
+
+    request = TestNodeRequest.model_validate({
+        "graph": graph([node("open", "open_page", {"url": "http://example.com"})], []),
+        "node_id": "open",
+        "agent_id": "ext:desktop-a",
+    })
+
+    response = await WorkflowExecutor().test_node(request)
+
+    assert response.success is True
+    assert captured == ["desktop-a"]

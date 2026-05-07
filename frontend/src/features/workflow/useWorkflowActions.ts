@@ -3,6 +3,7 @@ import { getErrorMessage } from './workflowState'
 import type { ScriptGenerationMode, WorkflowGraph } from './workflowContracts'
 import { postWorkflowAction } from '../../services/workflowApi'
 import type { WorkbenchAction } from '../../app/components/WorkbenchToolbar'
+import { buildRuntimeAgentId, type ExecutionMode } from '../runtime/executionTarget'
 
 type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
 
@@ -21,7 +22,7 @@ type UseWorkflowActionsArgs = {
   graphKey: string
   getPromptOverride: (graphKey: string) => string
   generationMode: ScriptGenerationMode
-  executionMode: 'cloud' | 'local'
+  executionMode: ExecutionMode
   agentId: string
 }
 
@@ -107,8 +108,9 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
               ? { graph: canonicalGraph, generation_mode: generationMode }
             : { graph: canonicalGraph }
             
-      const requestBody = (action === 'test-node' || action === 'test-subflow') && executionMode === 'local' && agentId
-        ? { ...basePayload, agent_id: agentId }
+      const runtimeAgentId = buildRuntimeAgentId(executionMode, agentId)
+      const requestBody = (action === 'test-node' || action === 'test-subflow') && runtimeAgentId
+        ? { ...basePayload, agent_id: runtimeAgentId }
         : basePayload
       const path = action === 'validate'
         ? '/api/workflows/validate'

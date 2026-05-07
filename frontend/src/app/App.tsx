@@ -36,6 +36,7 @@ import { usePromptWorkspace } from '../features/prompt-workspace/usePromptWorksp
 import { useAssistWorkbenchActions } from '../features/assist/useAssistWorkbenchActions'
 import { useWorkbenchLayout } from './useWorkbenchLayout'
 import { useWorkflowActions } from '../features/workflow/useWorkflowActions'
+import type { ExecutionMode } from '../features/runtime/executionTarget'
 import {
   buildWorkflowGraphKey,
 } from '../features/prompt-workspace/promptDrafts'
@@ -66,9 +67,10 @@ export default function App() {
 
   const [canvasFitToken, setCanvasFitToken] = useState(0)
   const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
-  const [executionMode, setExecutionMode] = useState<'cloud' | 'local'>(
-    () => (localStorage.getItem('executionMode') as 'cloud' | 'local') || 'cloud'
-  )
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => {
+    const storedMode = localStorage.getItem('executionMode')
+    return storedMode === 'extension' ? 'extension' : 'cloud'
+  })
   const [agentId, setAgentId] = useState<string>(
     () => localStorage.getItem('agentId') || 'test_agent'
   )

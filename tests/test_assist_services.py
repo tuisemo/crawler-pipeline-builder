@@ -5,11 +5,12 @@ from backend.assist.services import (
     analyze_pagination,
     _extract_json_payload,
     _run_llm_json_task,
+    auto_detect,
     extract_html_fragment,
     run_selector_test,
 )
 from backend.workflow.schemas import AssistHtmlExtractRequest, AssistLlmRequest
-from backend.workflow.schemas import AssistLlmResponse, AssistSelectorTestRequest
+from backend.workflow.schemas import AssistLlmResponse, AssistSelectorTestRequest, AutoDetectRequest
 from backend.llm import LLMResponse
 
 
@@ -308,7 +309,7 @@ def test_test_selector_highlights_matches_and_returns_session_id(monkeypatch):
     clear_calls: list[object] = []
     highlight_calls: list[tuple[str, int]] = []
 
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
     monkeypatch.setattr(
         "backend.assist.services.SelectorTester.test_selector",
         lambda page, selector, max_samples=5: type("Result", (), {
@@ -357,7 +358,7 @@ def test_extract_html_fragment_clears_selector_highlight_before_sampling(monkeyp
 
     clear_calls: list[object] = []
 
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
     monkeypatch.setattr("backend.assist.services.SelectorTester.clear_selector_highlight", lambda page: clear_calls.append(page))
     monkeypatch.setattr("backend.assist.services.HtmlExtractor", lambda: FakeExtractor())
 
@@ -622,3 +623,88 @@ def test_ensure_session_creates_fresh_session_for_url_without_explicit_session_i
     assert session is created_session
     assert created == [True]
     assert session.navigated_to == ("https://example.com/list", 30000)
+
+
+def test_ensure_session_uses_extension_manager_for_ext_agent(monkeypatch):
+    created = []
+
+    class FakeSession:
+        id = "ext-88"
+
+        def is_alive(self):
+            return True
+
+        def navigate(self, url: str, timeout: int = 30000):
+            created.append((url, timeout))
+
+    class FakeExtManager:
+        def create(self, agent_id: str, url: str | None = None):
+            created.append(("create", agent_id, url))
+            return FakeSession()
+
+    monkeypatch.setattr("backend.assist.services.ext_session_mgr", FakeExtManager())
+
+    session, error = _ensure_session(None, "https://example.com", "ext:agent-9")
+
+    assert error is None
+    assert session.id == "ext-88"
+    assert created[0] == ("create", "agent-9", "https://example.com")
+
+
+def test_auto_detect_uses_extension_session_methods(monkeypatch):
+    class FakeSession:
+        id = "ext-5"
+
+        def clear_highlight(self):
+            return None
+
+        def auto_detect(self):
+            return {
+                "item_selector": ".card",
+                "item_count": 4,
+                "item_signature": "article|card",
+                "pagination_selector": "a.next",
+                "pagination_strategy": "click_next",
+                "pagination_score": 8,
+                "confidence": 0.91,
+                "fields": [{"name": "title", "selector": "h2", "type": "text", "confidence": 0.8}],
+                "html_fragment": "<article>Sample</article>",
+            }
+
+    monkeypatch.setattr(
+        "backend.assist.services._ensure_session",
+        lambda session_id, url, agent_id=None: (FakeSession(), None),
+    )
+
+    response = auto_detect(AutoDetectRequest(agent_id="ext:agent-a"))
+
+    assert response.success is True
+    assert response.session_id == "ext-5"
+    assert response.result["item_selector"] == ".card"
+
+
+def test_extract_html_fragment_uses_extension_session_extract_html(monkeypatch):
+    class FakeSession:
+        id = "ext-5"
+
+        def clear_highlight(self):
+            return None
+
+        def extract_html(self, selector: str, max_items: int = 3, include_pagination: bool = False):
+            return {
+                "html": "<div>ok</div>",
+                "truncated": False,
+                "original_size": 13,
+                "truncated_size": 13,
+                "item_count": 1,
+            }
+
+    monkeypatch.setattr(
+        "backend.assist.services._ensure_session",
+        lambda session_id, url, agent_id=None: (FakeSession(), None),
+    )
+
+    response = extract_html_fragment(AssistHtmlExtractRequest(item_selector=".item", agent_id="ext:agent-a"))
+
+    assert response.success is True
+    assert response.html_fragment == "<div>ok</div>"

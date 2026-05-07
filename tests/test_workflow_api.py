@@ -559,7 +559,7 @@ def test_assist_extract_html_reports_total_match_count_not_sample_size(monkeypat
         id = "session-1"
         page = FakePage()
 
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
 
     response = client.post("/api/assist/extract-html", json={
         "item_selector": ".item",
@@ -630,7 +630,7 @@ def test_assist_extract_html_can_include_pagination_context(monkeypatch):
         id = "session-1"
         page = FakePage()
 
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url: (FakeSession(), None))
+    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
 
     response = client.post("/api/assist/extract-html", json={
         "item_selector": ".item",

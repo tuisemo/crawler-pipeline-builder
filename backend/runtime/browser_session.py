@@ -169,20 +169,9 @@ class SessionManager:
 
     def create(self, agent_id: str | None = None) -> PageSession:
         """Create a new session with its own isolated browser context."""
-        if agent_id:
-            # 建立桥接连接 (每次 connect 会新建一个浏览器上下文)
-            # websocket url 必须根据环境变量或者 settings 决定域名
-            settings = get_settings()
-            ws_url = f"ws://127.0.0.1:{settings.backend_port}/api/relay/hub/{agent_id}"
-            global _playwright
-            with self._lock:
-                if _playwright is None:
-                    _playwright = sync_playwright().start()
-            browser = _playwright.chromium.connect_over_cdp(ws_url, timeout=60000)
-            session = PageSession(browser, is_remote=True)
-        else:
-            # Each session gets its own context from the shared browser process
-            session = PageSession(get_browser())
+        # `agent_id` is intentionally ignored here. Extension-backed sessions
+        # are created by backend.runtime.ext_session_mgr instead.
+        session = PageSession(get_browser())
         with self._lock:
             expired = self._collect_expired_session_ids()
             for sid in expired:

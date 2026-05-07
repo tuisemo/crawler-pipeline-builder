@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Sea Data Workbench Bridge",
+  "version": "1.0.0",
+  "description": "Local browser bridge for Sea Data Workbench",
+  "permissions": ["tabs", "scripting", "storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "dist/worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "dist/src/popup/popup.html"
+  }
+}
