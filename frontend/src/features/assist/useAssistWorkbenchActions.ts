@@ -2,6 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from 'react'
 import { postAssistAction } from '../../services/workflowApi'
 import { getErrorMessage, type WorkflowNode } from '../workflow/workflowState'
 import type { ExtractionField, WorkflowNodeData } from '../workflow/workflowContracts'
+import { buildRuntimeAgentId, type ExecutionMode } from '../runtime/executionTarget'
 
 export type AssistActionKey =
   | 'auto-detect'
@@ -25,7 +26,7 @@ type UseAssistWorkbenchActionsArgs = {
   setNodes: Dispatch<SetStateAction<WorkflowNode[]>>
   updateSelectedNodeData: (patch: Partial<WorkflowNodeData>) => void
   notify: AssistNotifier
-  executionMode: 'cloud' | 'local'
+  executionMode: ExecutionMode
   agentId: string
 }
 
@@ -76,7 +77,8 @@ export function useAssistWorkbenchActions({
   function withAssistSession<T extends Record<string, unknown>>(payload: T): T & { session_id?: string; agent_id?: string } {
     const result: Record<string, unknown> = { ...payload }
     if (assistSessionId) result.session_id = assistSessionId
-    if (executionMode === 'local' && agentId) result.agent_id = agentId
+    const runtimeAgentId = buildRuntimeAgentId(executionMode, agentId)
+    if (runtimeAgentId) result.agent_id = runtimeAgentId
     return result as T & { session_id?: string; agent_id?: string }
   }
 

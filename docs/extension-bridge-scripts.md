@@ -46,7 +46,7 @@ packages/sea-extension/
     "type": "module"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_popup": "dist/src/popup/popup.html",
     "default_icon": { "128": "icons/icon-128.png" }
   }
 }

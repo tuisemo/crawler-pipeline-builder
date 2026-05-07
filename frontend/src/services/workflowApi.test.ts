@@ -58,4 +58,28 @@ describe('workflowApi', () => {
     expect(result.response.ok).toBe(true)
     expect(result.payload).toEqual({ result: { item_selector: '.item' } })
   })
+
+  it('postWorkflowAction preserves ext-prefixed agent ids', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { ok: true }, warnings: [], meta: {} }),
+    } as Response)
+
+    await postWorkflowAction('/api/workflows/test-node', {
+      graph: { nodes: [], edges: [] },
+      node_id: 'node-1',
+      agent_id: 'ext:desktop-a',
+    })
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/workflows/test-node',
+      expect.objectContaining({
+        body: JSON.stringify({
+          graph: { nodes: [], edges: [] },
+          node_id: 'node-1',
+          agent_id: 'ext:desktop-a',
+        }),
+      }),
+    )
+  })
 })

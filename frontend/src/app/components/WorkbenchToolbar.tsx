@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 import type { ScriptGenerationMode } from '../../features/workflow/workflowContracts'
+import type { ExecutionMode } from '../../features/runtime/executionTarget'
 
 export type WorkbenchAction =
   | 'validate'
@@ -38,8 +39,8 @@ type WorkbenchToolbarProps = {
   onRunAction: (action: WorkbenchAction) => void
   generationMode: ScriptGenerationMode
   onGenerationModeChange: (mode: ScriptGenerationMode) => void
-  executionMode: 'cloud' | 'local'
-  onExecutionModeChange: (mode: 'cloud' | 'local') => void
+  executionMode: ExecutionMode
+  onExecutionModeChange: (mode: ExecutionMode) => void
   agentId: string
   onAgentIdChange: (id: string) => void
   layout: {
@@ -144,13 +145,13 @@ export function WorkbenchToolbar({
                 <Segmented
                   size="small"
                   value={executionMode}
-                  onChange={(value) => onExecutionModeChange(value as 'cloud' | 'local')}
+                  onChange={(value) => onExecutionModeChange(value as ExecutionMode)}
                   options={[
                     { label: 'Cloud', value: 'cloud' },
-                    { label: 'Local CDP', value: 'local' },
+                    { label: 'Extension', value: 'extension' },
                   ]}
                 />
-                {executionMode === 'local' && (
+                {executionMode === 'extension' && (
                   <Input
                     size="small"
                     placeholder="Agent ID"

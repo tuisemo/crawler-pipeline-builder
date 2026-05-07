@@ -6,6 +6,7 @@ import time
 from typing import Optional
 
 from backend.runtime.browser_session import page_session_mgr
+from backend.runtime.ext_session_mgr import ext_session_mgr
 from backend.core.settings import get_settings
 from backend.workflow.schemas import (
     LogLevel,
@@ -56,6 +57,8 @@ def resolve_subflow_limits(graph: WorkflowGraph, boundary: SubflowBoundary) -> d
 
 def get_or_create_session(session_id: Optional[str], agent_id: Optional[str] = None):
     """Return an existing session by id or create a new one."""
+    if agent_id and agent_id.startswith("ext:"):
+        return ext_session_mgr.create(agent_id[4:])
     if session_id:
         session = page_session_mgr.get(session_id)
         if session and session.is_alive():
@@ -63,7 +66,9 @@ def get_or_create_session(session_id: Optional[str], agent_id: Optional[str] = N
         if session:
             page_session_mgr.close(session_id)
         return None
-    return page_session_mgr.create(agent_id=agent_id)
+    if agent_id:
+        return page_session_mgr.create(agent_id=agent_id)
+    return page_session_mgr.create()
 
 
 def build_missing_node_response(node_id: str, target_node: Optional[WorkflowNode]) -> TestNodeResponse:

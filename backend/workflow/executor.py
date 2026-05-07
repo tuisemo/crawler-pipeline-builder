@@ -19,7 +19,7 @@ from backend.workflow.schemas import (
     SubflowBoundary,
 )
 from backend.runtime.async_bridge import run_blocking
-from backend.runtime.browser_session import PageSession, page_session_mgr
+from backend.runtime.browser_session import page_session_mgr
 from backend.workflow.graph import (
     build_node_map,
     find_entry_node,
@@ -56,7 +56,7 @@ INTERNAL_RECORD_PREVIEW_LIMIT = 20
 @dataclass
 class ExecutionContext:
     """Context for workflow execution with scoped side effects."""
-    session: PageSession
+    session: Any
     state: Dict[str, Any] = field(default_factory=dict)
     logs: List[ExecutionLog] = field(default_factory=list)
     node_results: List[NodeResult] = field(default_factory=list)
@@ -120,7 +120,7 @@ class WorkflowExecutor:
         fingerprint = {
             "state": state,
             "records": deepcopy(ctx.records[:ctx.record_preview_limit]),
-            "current_url": getattr(ctx.session.page, "url", None),
+            "current_url": getattr(getattr(ctx.session, "page", None), "url", getattr(ctx.session, "url", None)),
         }
         if node.type == "extract_field":
             fingerprint.pop("records", None)

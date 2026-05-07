@@ -18,6 +18,14 @@ PAGINATION_UPDATE_TIMEOUT_MS = 6000
 PAGINATION_POLL_INTERVAL_MS = 250
 
 
+def _is_extension_session(session) -> bool:
+    return hasattr(session, "test_selector") and hasattr(session, "extract_fields")
+
+
+def _session_url(session) -> str:
+    return getattr(getattr(session, "page", None), "url", getattr(session, "url", "")) or ""
+
+
 def _collect_planned_field_names(fields: list[dict[str, Any]] | None) -> list[str]:
     if not fields:
         return []
@@ -74,20 +82,31 @@ class NodeHandlers:
             return
 
         try:
-            test_result = self.selector_tester.test_selector(
-                ctx.session.page,
-                selector,
-                max_samples=ctx.selector_sample_limit
-            )
+            if _is_extension_session(ctx.session):
+                ext_result = ctx.session.test_selector(
+                    selector,
+                    max_samples=ctx.selector_sample_limit,
+                )
+                match_count = int(ext_result.get("count", 0))
+                sample_items = ext_result.get("elements", [])
+            else:
+                test_result = self.selector_tester.test_selector(
+                    ctx.session.page,
+                    selector,
+                    max_samples=ctx.selector_sample_limit
+                )
+                match_count = test_result.match_count
+                sample_items = test_result.sample_items
 
             result.result = {
-                "match_count": test_result.match_count,
-                "samples": test_result.sample_items
+                "match_count": match_count,
+                "samples": sample_items
             }
             ctx.state["item_selector"] = selector
-            ctx.state["item_count"] = test_result.match_count
-            setattr(ctx.session.page, "_last_item_selector", selector)
-            ctx.add_log(LogLevel.INFO, f"Found {test_result.match_count} items", node_id=node.id)
+            ctx.state["item_count"] = match_count
+            if hasattr(ctx.session, "page"):
+                setattr(ctx.session.page, "_last_item_selector", selector)
+            ctx.add_log(LogLevel.INFO, f"Found {match_count} items", node_id=node.id)
 
         except Exception as e:
             result.error = f"Failed to select items: {e}"
@@ -114,11 +133,14 @@ class NodeHandlers:
                     if field_name not in existing_planned:
                         existing_planned.append(field_name)
 
-            records = self.selector_tester.extract_fields_from_items(
-                ctx.session.page,
-                item_selector,
-                fields
-            )
+            if _is_extension_session(ctx.session):
+                records = ctx.session.extract_fields(item_selector, fields)
+            else:
+                records = self.selector_tester.extract_fields_from_items(
+                    ctx.session.page,
+                    item_selector,
+                    fields
+                )
 
             result.result = {
                 "extracted_count": len(records),
@@ -142,18 +164,36 @@ class NodeHandlers:
             return
 
         try:
-            elements = ctx.session.page.query_selector_all(selector)
-            exists = len(elements) > 0
+            if _is_extension_session(ctx.session):
+                selector_payload = ctx.session.test_selector(selector, max_samples=1)
+                exists = int(selector_payload.get("count", 0)) > 0
+            else:
+                elements = ctx.session.page.query_selector_all(selector)
+                exists = len(elements) > 0
             current_page = int(ctx.state.get("pages_processed") or 1)
             limit_reached = current_page >= ctx.max_pages
             advanced = False
             message = "Pagination selector found" if exists else "Pagination selector not found"
 
             if exists and not limit_reached:
-                if strategy in {"click_next", "load_more"}:
-                    advanced = self._advance_by_click(ctx.session.page, elements[0])
-                elif strategy == "infinite_scroll":
-                    advanced = self._advance_by_scroll(ctx.session.page)
+                if _is_extension_session(ctx.session):
+                    if strategy in {"click_next", "load_more"}:
+                        click_result = ctx.session.click_element(selector)
+                        advanced = bool(click_result.get("clicked")) and (
+                            bool(click_result.get("domChanged")) or strategy == "load_more"
+                        )
+                    elif strategy == "infinite_scroll":
+                        before_count = int(ctx.state.get("item_count") or 0)
+                        ctx.session.scroll_to_bottom()
+                        after_count = int(
+                            ctx.session.test_selector(ctx.state.get("item_selector", ""), max_samples=1).get("count", before_count)
+                        )
+                        advanced = after_count >= before_count
+                else:
+                    if strategy in {"click_next", "load_more"}:
+                        advanced = self._advance_by_click(ctx.session.page, elements[0])
+                    elif strategy == "infinite_scroll":
+                        advanced = self._advance_by_scroll(ctx.session.page)
 
                 if advanced:
                     current_page += 1
@@ -320,7 +360,7 @@ class NodeHandlers:
                 node.data,
                 pending_records,
                 context={
-                    "page_url": getattr(ctx.session.page, "url", ""),
+                    "page_url": _session_url(ctx.session),
                     "run_id": f"ctx-{int(ctx.start_time)}",
                     "planned_fields": ctx.state.get("planned_record_fields", []),
                 },
