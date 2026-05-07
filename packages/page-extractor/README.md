@@ -26,6 +26,7 @@
 - 可选 PDF 快照（A4 / 自定义边距）
 - 附件发现与下载（支持 .pdf/.doc/.xls/.zip 等 15 种扩展名，多策略并发）
 - 直接文件下载识别（绕过浏览器，直接抓取 PDF/ZIP 等二进制文件）
+- **高性能加载优化**：内置广告与追踪脚本拦截，滚动步进提速，networkidle 智能降级
 - 任务级工作空间、日志与元数据
 
 ## 包结构
@@ -38,7 +39,6 @@ packages/page-extractor/
     ├── cli.py                     # CLI 入口
     ├── service.py                 # 应用服务层
     ├── types.py                   # 请求/响应类型、版本常量
-    ├── workspace.py               # 旧版 workspace 工具（兼容层）
     ├── core/                      # 核心运行时
     │   ├── pipeline.py            # 主编排管道
     │   ├── browser_session.py     # Playwright 浏览器会话
@@ -143,7 +143,7 @@ page-extractor collect --url "https://example.com/detail/123" --output-root "./d
 - `--url`
   详情页 URL，必填
 - `--task-id`
-  外部传入的任务 ID。若不填，则根据 URL 自动生成确定性的 UUID（推荐）
+  可选。若不填，系统将根据 URL 生成确定性的 UUID v5（推荐，可防止重复采集）
 - `--output-root`
   任务工作空间根目录，必填
 - `--format`
@@ -162,8 +162,12 @@ page-extractor collect --url "https://example.com/detail/123" --output-root "./d
   保存 `content.html`（content area 范围格式化后的 HTML，默认 `False`）
 - `--save-pdf`
   尝试生成 `page.pdf`（默认 `False`）
+- `--save-meta-json`
+  是否为每个产物（md, html, pdf）生成配套的 `.meta.json` 元数据文件（默认 `False`）
 - `--download-attachments`
   开启附件扫描与下载目录（默认 `False`）
+- `--headed`
+  使用有头模式（可见浏览器界面），常用于调试（默认 `False/无头`）
 - `--xpath`
   XPath 或 CSS selector，覆盖算法检测（覆盖 `--detector` 结果）
 - `--extra-wait`
@@ -179,12 +183,16 @@ page-extractor collect --url "https://example.com/detail/123" --output-root "./d
 <output-root>/
 └── <task-id>/
     ├── content.md
+    ├── content.md.meta.json       # [可选]
     ├── content.html
+    ├── content.html.meta.json     # [可选]
     ├── page.pdf
-    ├── summary.json
-    ├── metadata.json
+    ├── <uuid>.meta.json           # [可选] PDF 的元数据
+    ├── summary.json               # 任务执行摘要
+    ├── metadata.json              # 任务详细元数据
     ├── attachments/
-    │   └── <downloaded-files>...
+    │   ├── <file>
+    │   └── <file>.meta.json       # [可选]
     └── logs/
         └── collect.log
 ```
@@ -340,16 +348,18 @@ python -m page_extractor.cli collect --url "https://example.com/detail/123" --ta
 
 ```
 collect(url)
-  ├─ _check_direct_download()        # 非 HTML 资源直接下载返回
+  ├─ _check_direct_download()        # 非 HTML 资源直接下载
   └─ browser_session
-       ├─ PageNavigator.load()        # Smart/DOMContentLoaded/NetworkIdle
-       ├─ handle_cookie_consent()     # 常见 Cookie 弹窗自动关闭
-       ├─ _enhance_js_rendering()     # 滚动 + DOM 稳定性检测 + extra_wait
-       ├─ _detect_content_area()     # BROAD → Readability → Heuristic 降级
-       ├─ _scope_html(xpath)          # 仅在内容区域内提取
-       ├─ _extract_content()          # Readability-lxml + Trafilatura 双引擎合并
-       ├─ snapshot_element()           # PDF 快照（同一 XPath）
-       └─ AttachmentService           # 附件发现 + 浏览器下载
+       ├─ Ad/Tracker Blocking         # 广告拦截与追踪拦截 (优化)
+       ├─ PageNavigator.load()        # Smart/NetworkIdle 智能等待
+       ├─ handle_cookie_consent()     # Cookie 弹窗自动处理
+       ├─ _enhance_js_rendering()     # 提速滚动 + DOM 稳定性检测
+       ├─ _detect_content_area()     # BROAD (结构评分) → Readability → Heuristic
+       ├─ ContentProcessor            # HTML 预处理 (剥离干扰)
+       ├─ _extract_content()          # Readability-lxml + Trafilatura 双引擎
+       ├─ ContentProcessor            # Markdown 后处理 (格式规范化、去噪)
+       ├─ snapshot_element()           # PDF 快照 (基于 content_area)
+       └─ AttachmentService           # 附件发现与并发下载
 ```
 
 ## 检测器策略说明

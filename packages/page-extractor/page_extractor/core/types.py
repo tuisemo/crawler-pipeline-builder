@@ -39,7 +39,9 @@ class CollectorConfig:
     save_markdown: bool = True
     save_html: bool = False
     save_pdf: bool = False
+    save_meta_json: bool = False
     download_attachments: bool = False
+    headless: bool = True  # 是否使用无头模式
     content_area_hint: str | None = None
     extra_wait: float = 0
     attachment_extensions: frozenset[str] = field(default_factory=lambda: frozenset({

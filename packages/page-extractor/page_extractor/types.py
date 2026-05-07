@@ -22,7 +22,9 @@ class DetailCollectionRequest:
     save_markdown: bool = True
     save_html: bool = False
     save_pdf: bool = False
+    save_meta_json: bool = False
     download_attachments: bool = False
+    headless: bool = True
     content_area_hint: str | None = None
     extra_wait: float = 0
     log_level: str = "INFO"

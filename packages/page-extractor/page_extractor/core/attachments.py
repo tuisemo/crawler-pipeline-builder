@@ -173,8 +173,8 @@ class AttachmentService:
                 continue
             prepared_attachment = prepared[index]
             if prepared_attachment.save_path.suffix.lower() in ARCHIVE_EXTENSIONS:
-                process_archive(prepared_attachment.save_path, prepared_attachment.source_url, workspace.date_str)
-            else:
+                process_archive(prepared_attachment.save_path, prepared_attachment.source_url, workspace.date_str, save_meta_json=workspace.save_meta_json)
+            elif workspace.save_meta_json:
                 generate_meta_json(prepared_attachment.save_path, prepared_attachment.source_url, workspace.date_str)
             success_count += 1
         logger.info("[%s] Attachment download complete: %s/%s", task_id, success_count, len(download_tasks))
