@@ -24,7 +24,7 @@ SELECTOR_OPTIMIZATION_RESPONSE_CONTRACT = """Return one JSON object with this sh
 }
 
 Rules:
-- "optimized_selector" must be a CSS selector string, or an empty string if unavailable.
+- "optimized_selector" must be a selector string (standard CSS or XPath), or an empty string if unavailable.
 - "confidence" must be a number between 0 and 1.
 """
 

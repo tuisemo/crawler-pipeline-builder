@@ -16,10 +16,11 @@ def test_selector_prompts_require_playwright_compatible_css_selectors():
         assert "standard CSS selector" in prompt
         assert "Playwright" in prompt
         assert "querySelectorAll" in prompt
-        assert "Do NOT return Playwright-only locator expressions" in prompt
-        assert "XPath selectors" in prompt
+        assert "Do NOT return Playwright-only locator helper syntax" in prompt
+        assert "XPath expression" in prompt
         assert ":has-text(...)" in prompt
         assert "text=" in prompt
+        assert ":contains" in prompt
 
 
 def test_generation_prompts_preserve_validated_xpath_selectors():

@@ -1,7 +1,15 @@
 """Reusable prompt rules shared across crawler generation and assist tasks."""
 
-PLAYWRIGHT_CSS_SELECTOR_COMPATIBILITY_RULES = """3. Every selector MUST be a **standard CSS selector** compatible with `querySelector` / `querySelectorAll` and Playwright `locator()`.
-4. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors."""
+PLAYWRIGHT_CSS_SELECTOR_COMPATIBILITY_RULES = """3. Every selector MUST be either a **standard CSS selector** or an **XPath expression**.
+   - Playwright natively supports XPath via `page.query_selector("xpath=//...")` / `page.locator("xpath=//...")`.
+   - The runtime auto-detects XPath when the selector starts with `//` or `.//` and adds the `xpath=` prefix.
+4. Do NOT return Playwright-only locator helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`.
+5. Do NOT use jQuery/Sizzle pseudo-classes such as `:contains('...')`, `:first`, `:last`, `:eq(...)`. These are NOT standard CSS and will throw `SyntaxError` in `document.querySelector()` / `querySelectorAll()`.
+   - **Forbidden**: `.pager > a:contains('下一页')` — crashes at runtime.
+6. When you need **text-content matching**, use XPath instead of CSS. Examples:
+   - `//a[contains(text(), '下一页')]` — match anchor whose text contains a substring.
+   - `//nav[contains(@class, 'pagination')]//a[@rel='next']` — scoped XPath with attribute matching.
+   - CSS has no native text-matching pseudo-class; do NOT invent one."""
 
 STRICT_OUTPUT_DISCIPLINE_RULES = """- Return only the requested artifact.
 - Do not add surrounding commentary when the contract expects machine-consumable output.

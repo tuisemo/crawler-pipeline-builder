@@ -10,6 +10,8 @@ const IGNORE_TAGS = new Set([
     ];
     const LIST_CONTAINER_SELECTORS = ['main', 'article', 'section', 'div', 'ul', 'ol', 'table', 'tbody', 'dl'];
     const PAGINATION_CONTAINER_SELECTORS = ['nav', 'div', 'section', 'ul', 'ol', 'table', 'tbody', 'tr', 'td', 'p', 'span', 'li'];
+    const MARKER_CLEAR_AFTER_MS = 2200;
+    const CLEANUP_TIMER_KEY = '__seaAutoCleanupTimer';
     const PAGE_TEXT_RE = /^(?:\\d{1,3}|[<>]|>>|<<|›|‹|»|«|→|下一页|下页|上一页|首页|尾页|末页|next|next page|prev|previous|more|load more|加载更多)$/i;
     const NEXT_CONTROL_RE = /(?:下一页|下页|next|next page|more|load more|加载更多|[›»→>])$/i;
     const DATE_RE = /(20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?)|(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2})/;
@@ -398,14 +400,32 @@ const IGNORE_TAGS = new Set([
     const best = listCandidates[0];
     const bestPag = pagCandidates.length > 0 ? pagCandidates[0] : null;
 
-    // Mark elements
-    best.items.slice(0, 10).forEach((item, idx) => {
+    // Capture clean HTML BEFORE adding visual markers so that LLM evidence
+    // never contains ephemeral data-sea-auto attributes.
+    const cleanHtmlFragment = best.items.slice(0, 3)
+        .map(i => i.element.outerHTML)
+        .join('\\n')
+        .replace(/\\s*data-sea-auto="[^"]*"/g, '')
+        .replace(/\\s*data-bridge-highlight="[^"]*"/g, '');
+
+    // Mark elements for visual highlighting and clear them automatically after
+    // a short delay so the live page is not permanently polluted.
+    best.items.slice(0, 10).forEach((item) => {
         item.element.setAttribute('data-sea-auto', 'item');
     });
 
     if (bestPag) {
         bestPag.element.setAttribute('data-sea-auto', 'pagination');
     }
+
+    const existingCleanupTimer = window[CLEANUP_TIMER_KEY];
+    if (typeof existingCleanupTimer === 'number') {
+        window.clearTimeout(existingCleanupTimer);
+    }
+    window[CLEANUP_TIMER_KEY] = window.setTimeout(() => {
+        cleanup();
+        delete window[CLEANUP_TIMER_KEY];
+    }, MARKER_CLEAR_AFTER_MS);
 
     // Detect fields from first item
     const fields = detectFields(best.items[0].element);
@@ -440,6 +460,7 @@ const IGNORE_TAGS = new Set([
     }
 
     const itemSelector = deriveItemSelector(best);
+
     return {
         success: true,
         confidence,
@@ -450,6 +471,6 @@ const IGNORE_TAGS = new Set([
         pagination_strategy: pagStrategy,
         pagination_score: bestPag ? bestPag.score : 0,
         fields: fields.slice(0, 6),
-        html_fragment: best.items.slice(0, 3).map(i => i.element.outerHTML).join('\\n')
+        html_fragment: cleanHtmlFragment
     };
 }

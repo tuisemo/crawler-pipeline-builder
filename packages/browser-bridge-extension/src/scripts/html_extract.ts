@@ -5,16 +5,32 @@
 // variable in the target page and throw a ReferenceError at runtime.
 
 export function bridge_extract_items(selector: string, maxItems = 3) {
-  // --- self-contained helper (do NOT extract to module scope) ---
+  // --- self-contained helpers (do NOT extract to module scope) ---
   function cleanHtml(html: string) {
     return html.replace(/\s+/g, " ").replace(/>\s+</g, "><").trim();
   }
-  // --- end helper ---
+  function stripBridgeMarkers(html: string) {
+    return html.replace(/\s+data-sea-auto="[^"]*"/g, "").replace(/\s+data-bridge-highlight="[^"]*"/g, "");
+  }
+  function queryAll(sel: string): Element[] {
+    if (/^(\/\/|\.\/\/|\(\/\/|\(\/|xpath=)/.test(sel)) {
+      const xp = sel.replace(/^xpath=/, "");
+      const r = document.evaluate(xp, document, null, 7, null);
+      const out: Element[] = [];
+      for (let i = 0; i < r.snapshotLength; i++) {
+        const n = r.snapshotItem(i);
+        if (n instanceof Element) out.push(n);
+      }
+      return out;
+    }
+    return [...document.querySelectorAll(sel)];
+  }
+  // --- end helpers ---
 
   const MAX = 20 * 1024;
   try {
-    const els = [...document.querySelectorAll(selector)].slice(0, maxItems);
-    let html = els.map((el) => cleanHtml(el.outerHTML)).join("\n");
+    const els = queryAll(selector).slice(0, maxItems);
+    let html = stripBridgeMarkers(els.map((el) => cleanHtml(el.outerHTML)).join("\n"));
     const originalSize = new TextEncoder().encode(html).length;
     let truncated = false;
     if (originalSize > MAX) {
@@ -27,7 +43,7 @@ export function bridge_extract_items(selector: string, maxItems = 3) {
   }
 }
 
-export function bridge_extract_pagination_context(selector: string | null, maxItems = 3) {
+export function bridge_extract_pagination_context() {
   // --- self-contained helpers (do NOT extract to module scope) ---
   function cleanHtml(html: string) {
     return html.replace(/\s+/g, " ").replace(/>\s+</g, "><").trim();
@@ -46,12 +62,13 @@ export function bridge_extract_pagination_context(selector: string | null, maxIt
       bodyClone.querySelectorAll(s).forEach(el => el.remove());
     });
 
+    const markerAttrs = ["data-sea-auto", "data-bridge-highlight"];
     const keepAttrs = ["id", "class", "href", "src", "title", "value", "name", "type", "aria-label", "aria-current"];
     const all = bodyClone.querySelectorAll("*");
     all.forEach(el => {
       for (let i = el.attributes.length - 1; i >= 0; i--) {
         const attr = el.attributes[i].name;
-        if (!keepAttrs.includes(attr) && !attr.startsWith("data-")) {
+        if (markerAttrs.includes(attr) || (!keepAttrs.includes(attr) && !attr.startsWith("data-"))) {
           el.removeAttribute(attr);
         }
       }
@@ -86,32 +103,11 @@ export function bridge_extract_pagination_context(selector: string | null, maxIt
     return html.slice(0, 100000);
   }
 
-  function extractItems(itemSelector: string, max = 3) {
-    const MAX_SIZE = 20 * 1024;
-    try {
-      const els = [...document.querySelectorAll(itemSelector)].slice(0, max);
-      let html = els.map((el) => cleanHtml(el.outerHTML)).join("\n");
-      const originalSize = new TextEncoder().encode(html).length;
-      let truncated = false;
-      if (originalSize > MAX_SIZE) {
-        truncated = true;
-        html = html.slice(0, MAX_SIZE) + "\n<!-- TRUNCATED -->";
-      }
-      return { html, truncated, original_size: originalSize, item_count: els.length };
-    } catch (e: any) {
-      return { html: "", truncated: false, original_size: 0, item_count: 0, error: e.message };
-    }
+  function stripBridgeMarkers(html: string) {
+    return html.replace(/\s+data-sea-auto="[^"]*"/g, "").replace(/\s+data-bridge-highlight="[^"]*"/g, "");
   }
+
   // --- end helpers ---
-
-  let itemsHtml = "";
-  let itemCount = 0;
-
-  if (selector) {
-    const base = extractItems(selector, maxItems);
-    itemsHtml = base.html;
-    itemCount = base.item_count;
-  }
 
   const prunedBody = getPrunedBody();
 
@@ -120,13 +116,12 @@ export function bridge_extract_pagination_context(selector: string | null, maxIt
   for (const candidate of pagSelectors) {
     const el = document.querySelector(candidate);
     if (el) {
-      pagComponentHtml = cleanHtml(el.outerHTML).slice(0, 5000);
+      pagComponentHtml = stripBridgeMarkers(cleanHtml(el.outerHTML)).slice(0, 5000);
       break;
     }
   }
 
   const combinedHtml = [
-    itemCount > 0 ? `<!-- ITEM_SAMPLES -->\n${itemsHtml}` : "",
     pagComponentHtml ? `<!-- PAGINATION_COMPONENT -->\n${pagComponentHtml}` : "",
     `<!-- GLOBAL_PRUNED_BODY -->\n${prunedBody}`
   ].filter(Boolean).join("\n\n");
@@ -135,7 +130,7 @@ export function bridge_extract_pagination_context(selector: string | null, maxIt
     html: combinedHtml,
     pruned_body_html: prunedBody,
     pagination_component_html: pagComponentHtml,
-    item_count: itemCount,
+    item_count: 0,
     method: "pruned_body_plus_context"
   };
 }

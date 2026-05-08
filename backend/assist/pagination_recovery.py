@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -40,7 +41,9 @@ Identify the single actionable control that advances to the next page or loads m
 4. If evidence is weak, return 'none' with an empty selector and explain in 'reason'.
 5. If a PAGINATION_CONTROL_SUMMARY is provided, read the `class`, `parent_tag`, and `parent_class` fields to build the ancestor-scoped path.
 6. Account for Chinese text: 下一页 (next), 加载更多 (load more), 上一页 (previous).
-7. All selectors in output must be standard CSS selectors (no Playwright text locators, no XPath).
+7. All selectors in output must be either standard CSS selectors or XPath expressions.
+   - Prefer XPath when text-content matching is required, e.g. `//a[contains(text(), "下一页")]`.
+   - Do not use Playwright-only helper syntax such as `get_by_text(...)`, `text=`, or `:has-text(...)`.
 8. Do NOT treat view toggles, items-per-page controls, year filters, category tabs, or sorting controls as pagination.
 9. Symbolic controls such as `>`, `>>`, `›`, or `»` are valid next candidates only when pager context clearly supports that interpretation.
 """
@@ -71,7 +74,7 @@ _PARTIAL_PAGE_SELECTOR_START_RE = re.compile(r'"page_number_selectors"\s*:\s*\['
 
 def _decode_partial_json_string(value: str) -> str:
     try:
-        decoded = bytes(value, "utf-8").decode("unicode_escape")
+        decoded = json.loads(f'"{value}"')
     except Exception:
         decoded = value
     return decoded.replace("\\'", "'")
@@ -202,22 +205,59 @@ def _stable_class_tokens(class_name: str) -> list[str]:
     return tokens[:2]
 
 
+def _xpath_literal(value: str) -> str:
+    if '"' not in value:
+        return f'"{value}"'
+    if "'" not in value:
+        return f"'{value}'"
+    parts = value.split('"')
+    joined = ', \'"\', '.join(_xpath_literal(part) for part in parts)
+    return f"concat({joined})"
+
+
+def _xpath_class_token_predicate(token: str) -> str:
+    return f"contains(concat(' ', normalize-space(@class), ' '), {_xpath_literal(f' {token} ')})"
+
+
 def _build_selector_from_control_hint(control: dict[str, str]) -> str:
     tag = control.get("tag", "")
     if tag == "<unknown>":
         tag = ""
-    rel = control.get("rel", "")
-    if rel.lower() == "next":
-        return f'{tag or "a"}[rel="next"]'
-
     class_tokens = _stable_class_tokens(control.get("class", ""))
-    if class_tokens and any(re.search(r"(next|more|load)", token, re.IGNORECASE) for token in class_tokens):
-        prefix = tag or ""
-        return f'{prefix}.{".".join(class_tokens)}'
-
     parent_tag = control.get("parent_tag", "")
     parent_class_tokens = _stable_class_tokens(control.get("parent_class", ""))
-    if parent_class_tokens and any(re.search(r"(next|more|load|pager|pagination)", token, re.IGNORECASE) for token in parent_class_tokens):
+    text = control.get("text", "")
+    rel = control.get("rel", "")
+    if rel.lower() == "next":
+        child_selector = tag or "a"
+        if class_tokens:
+            child_selector += f'.{".".join(class_tokens)}'
+        child_selector += '[rel="next"]'
+        if parent_class_tokens:
+            return f'{parent_tag or ""}.{".".join(parent_class_tokens)} > {child_selector}'.lstrip()
+        if parent_tag:
+            return f"{parent_tag} > {child_selector}"
+        if class_tokens:
+            return child_selector
+        if text and _NEXT_TEXT_RE.search(text):
+            return f'//{tag or "a"}[@rel="next" and contains(normalize-space(string(.)), {_xpath_literal(text)})]'
+        return child_selector
+
+    if class_tokens and any(re.search(r"(next|more|load)", token, re.IGNORECASE) for token in class_tokens):
+        child_selector = f'{tag or ""}.{".".join(class_tokens)}'.lstrip()
+        if parent_class_tokens:
+            return f'{parent_tag or ""}.{".".join(parent_class_tokens)} > {child_selector}'.lstrip()
+        if parent_tag:
+            return f"{parent_tag} > {child_selector}"
+        if text and _NEXT_TEXT_RE.search(text):
+            class_predicates = " and ".join(_xpath_class_token_predicate(token) for token in class_tokens)
+            return (
+                f'//{tag or "a"}[{class_predicates} and '
+                f'contains(normalize-space(string(.)), {_xpath_literal(text)})]'
+            )
+        return child_selector
+
+    if parent_class_tokens and any(re.search(r"(next|more|load)", token, re.IGNORECASE) for token in parent_class_tokens):
         parent_prefix = parent_tag or ""
         child_tag = tag or "a"
         return f'{parent_prefix}.{".".join(parent_class_tokens)} > {child_tag}'.lstrip()
@@ -226,7 +266,14 @@ def _build_selector_from_control_hint(control: dict[str, str]) -> str:
     if aria_label and _NEXT_TEXT_RE.search(aria_label):
         return f'{tag or ""}[aria-label="{aria_label}"]'.lstrip()
 
-    text = control.get("text", "")
+    if parent_class_tokens and text and _NEXT_TEXT_RE.search(text):
+        parent_tag_name = parent_tag or "*"
+        child_tag = tag or "a"
+        parent_class = parent_class_tokens[0]
+        return (
+            f"//{parent_tag_name}[{_xpath_class_token_predicate(parent_class)}]"
+            f"//{child_tag}[contains(normalize-space(string(.)), {_xpath_literal(text)})]"
+        )
     if class_tokens and _NEXT_TEXT_RE.search(text):
         prefix = tag or ""
         return f'{prefix}.{".".join(class_tokens)}'
@@ -248,15 +295,20 @@ def recover_pagination_from_summary(user_prompt: str) -> dict[str, Any] | None:
     selector = _build_selector_from_control_hint(next_control)
     page_number_selectors: list[str] = []
     for control in controls:
-        if control.get("role_hint") not in {"page_number", "current_page"}:
+        if control.get("role_hint") != "page_number":
             continue
         class_tokens = _stable_class_tokens(control.get("class", ""))
         tag = control.get("tag", "")
-        if class_tokens:
-            page_number_selectors.append(f'{tag or ""}.{".".join(class_tokens)}'.lstrip())
+        parent_tag = control.get("parent_tag", "")
+        parent_class_tokens = _stable_class_tokens(control.get("parent_class", ""))
+        if class_tokens and (parent_class_tokens or parent_tag):
+            parent_selector = f'{parent_tag or ""}.{".".join(parent_class_tokens)}'.rstrip(".").lstrip()
+            page_number_selectors.append(
+                f'{parent_selector} > {tag or ""}.{".".join(class_tokens)}'.lstrip()
+            )
 
     page_number_selectors = [selector_text for selector_text in dict.fromkeys(page_number_selectors) if selector_text and selector_text != selector]
-    if not selector and not page_number_selectors:
+    if not selector:
         return None
 
     return {

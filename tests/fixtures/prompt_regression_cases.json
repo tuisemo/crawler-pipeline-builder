@@ -35,7 +35,7 @@
     "expected_success": true,
     "expected_result_subset": {
       "pagination_strategy": "click_next",
-      "next_button_selector": "a[rel=\"next\"]"
+      "next_button_selector": "a.next[rel=\"next\"]"
     }
   }
 ]

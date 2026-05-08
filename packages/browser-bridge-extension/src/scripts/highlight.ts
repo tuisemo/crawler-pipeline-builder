@@ -20,7 +20,18 @@ export function bridge_highlight_selector(selector: string, clearAfterMs: number
   style.textContent = `[${attr}] { outline: 3px solid #1677ff !important; outline-offset: 2px !important; box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.18) !important; background-color: rgba(22, 119, 255, 0.08) !important; z-index: 9999999 !important; position: relative !important; }`;
   document.head.appendChild(style);
   try {
-    const els = document.querySelectorAll(selector);
+    let els: Element[];
+    if (/^(\/\/|\.\/\/|\(\/\/|\(\/|xpath=)/.test(selector)) {
+      const xp = selector.replace(/^xpath=/, "");
+      const r = document.evaluate(xp, document, null, 7, null);
+      els = [];
+      for (let i = 0; i < r.snapshotLength; i++) {
+        const n = r.snapshotItem(i);
+        if (n instanceof Element) els.push(n);
+      }
+    } else {
+      els = [...document.querySelectorAll(selector)];
+    }
     els.forEach((el, index) => {
       el.setAttribute(attr, "true");
       if (index === 0) {

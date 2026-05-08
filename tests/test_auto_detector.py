@@ -1,4 +1,4 @@
-from backend.extraction.auto_detector import AutoDetector
+from backend.extraction.auto_detector import AutoDetector, JS_AUTO_DETECT
 
 
 class FakePageResult:
@@ -57,3 +57,9 @@ def test_auto_detector_returns_none_pagination_strategy_when_detection_fails():
     assert result.item_count == 0
     assert result.pagination_selector == ""
     assert result.pagination_strategy == "none"
+
+
+def test_auto_detector_js_replaces_prior_cleanup_timer():
+    assert "const CLEANUP_TIMER_KEY = '__seaAutoCleanupTimer';" in JS_AUTO_DETECT
+    assert "window.clearTimeout(existingCleanupTimer);" in JS_AUTO_DETECT
+    assert "delete window[CLEANUP_TIMER_KEY];" in JS_AUTO_DETECT

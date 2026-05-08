@@ -252,7 +252,8 @@ def test_run_llm_json_task_uses_heuristic_fallback_for_empty_pagination_result(m
 
     assert response.success is True
     assert response.result["pagination_strategy"] == "click_next"
-    assert response.result["next_button_selector"] == 'a[rel="next"]'
+    assert response.result["next_button_selector"] == 'a.next[rel="next"]'
+    assert response.result["page_number_selectors"] == []
     assert response.result["confidence"] == 0.56
     assert "Recovered from pagination control summary" in (response.result["reason"] or "")
 
@@ -297,7 +298,7 @@ Identify the concrete control that advances pagination.
 
     assert response.success is True
     assert response.result["pagination_strategy"] == "click_next"
-    assert response.result["next_button_selector"] == 'a[rel="next"]'
+    assert response.result["next_button_selector"] == 'a.next[rel="next"]'
 
 
 def test_run_llm_json_task_uses_parent_class_hint_for_next_arrow_summary(monkeypatch):
@@ -327,6 +328,92 @@ def test_run_llm_json_task_uses_parent_class_hint_for_next_arrow_summary(monkeyp
     assert response.success is True
     assert response.result["pagination_strategy"] == "click_next"
     assert response.result["next_button_selector"] == "li.next > a"
+
+
+def test_run_llm_json_task_scopes_next_like_class_when_parent_context_exists(monkeypatch):
+    prompt = """HTML:
+<!-- PAGINATION -->
+<ul class="pager"><li class="pager-item"><a class="next" href="/page/2/">Next</a></li></ul>
+<!-- PAGINATION_CONTROL_SUMMARY -->
+[1] | tag=a | text=Next | role_hint=next_candidate | href=/page/2/ | class=next | parent_tag=li | parent_class=pager-item
+"""
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            return LLMResponse(
+                content='{"pagination_strategy":"none","next_button_selector":"","page_number_selectors":[],"confidence":0.0,"reason":""}',
+                model="fake-model",
+                usage={"prompt_tokens": 7, "completion_tokens": 4},
+            )
+
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
+
+    response = _run_llm_json_task(
+        prompt,
+        task_name="analyze_pagination",
+        response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
+    )
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == "li.pager-item > a.next"
+
+
+def test_run_llm_json_task_uses_scoped_xpath_for_generic_pager_text_match(monkeypatch):
+    prompt = """HTML:
+<!-- PAGINATION -->
+<div class="pagination"><a href="/list?p=2">下一页</a></div>
+<!-- PAGINATION_CONTROL_SUMMARY -->
+[1] | tag=a | text=下一页 | role_hint=next_candidate | href=/list?p=2 | parent_tag=div | parent_class=pagination
+"""
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            return LLMResponse(
+                content='{"pagination_strategy":"none","next_button_selector":"","page_number_selectors":[],"confidence":0.0,"reason":""}',
+                model="fake-model",
+                usage={"prompt_tokens": 7, "completion_tokens": 4},
+            )
+
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
+
+    response = _run_llm_json_task(
+        prompt,
+        task_name="analyze_pagination",
+        response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
+    )
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == '//div[contains(concat(\' \', normalize-space(@class), \' \'), " pagination ")]//a[contains(normalize-space(string(.)), "下一页")]'
+
+
+def test_run_llm_json_task_scopes_page_number_selectors_with_parent_context(monkeypatch):
+    prompt = """HTML:
+<!-- PAGINATION -->
+<ul class="pager"><li><a class="page-num" href="/list?p=1">1</a></li><li><a class="page-num" href="/list?p=2">2</a></li><li class="next"><a href="/list?p=2">下一页</a></li></ul>
+<!-- PAGINATION_CONTROL_SUMMARY -->
+[1] | tag=a | text=1 | role_hint=page_number | href=/list?p=1 | class=page-num | parent_tag=li | parent_class=pager
+[2] | tag=a | text=2 | role_hint=page_number | href=/list?p=2 | class=page-num | parent_tag=li | parent_class=pager
+[3] | tag=a | text=下一页 | role_hint=next_candidate | href=/list?p=2 | parent_tag=li | parent_class=next
+"""
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            return LLMResponse(
+                content='{"pagination_strategy":"none","next_button_selector":"","page_number_selectors":[],"confidence":0.0,"reason":""}',
+                model="fake-model",
+                usage={"prompt_tokens": 7, "completion_tokens": 4},
+            )
+
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
+
+    response = _run_llm_json_task(
+        prompt,
+        task_name="analyze_pagination",
+        response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
+    )
+
+    assert response.success is True
+    assert response.result["page_number_selectors"] == ["li.pager > a.page-num"]
 
 
 def test_run_llm_json_task_rejects_empty_pagination_result_when_retry_still_empty(monkeypatch):
@@ -382,6 +469,28 @@ def test_run_llm_json_task_recovers_truncated_pagination_json(monkeypatch):
     assert response.result["pagination_strategy"] == "click_next"
     assert response.result["next_button_selector"] == ".next"
     assert response.result["page_number_selectors"] == ["a[href*='p=']"]
+    assert response.result["reason"] == "Recovered from truncated JSON output."
+
+
+def test_run_llm_json_task_recovers_truncated_pagination_json_with_unicode_selector(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            return LLMResponse(
+                content='{"pagination_strategy":"click_next","next_button_selector":"//a[contains(text(), \\"下一页\\")]","page_number_selectors":[',
+                model="fake-model",
+                usage={"prompt_tokens": 12, "completion_tokens": 9},
+            )
+
+    monkeypatch.setattr("backend.assist.services.get_default_client", lambda: FakeClient())
+
+    response = _run_llm_json_task(
+        "<!-- PAGINATION --><div class='pager'></div>",
+        task_name="analyze_pagination",
+        response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
+    )
+
+    assert response.success is True
+    assert response.result["next_button_selector"] == '//a[contains(text(), "下一页")]'
     assert response.result["reason"] == "Recovered from truncated JSON output."
 
 

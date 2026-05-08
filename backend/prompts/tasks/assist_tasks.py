@@ -28,7 +28,7 @@ Produce selectors that are executable, stable, and minimally ambiguous on the cu
 ## Selector Precision Rules (CRITICAL)
 You MUST produce **progressively-converging** (逐级收敛) selectors that are globally unambiguous on the page:
 
-1. **item_selector** — a CSS selector that matches ONLY the repeating list items, not any other elements.
+1. **item_selector** — a selector that matches ONLY the repeating list items, not any other elements.
    - Prefer a scoped path: `<ancestor> > <tag>.<stable-class>` (e.g. `ul.news-list > li`, `div.results-grid > article`).
    - If the item has a unique class, verify it is not shared by navigation, sidebar, or footer elements.
    - Do NOT return a bare tag like `li` or `div` that matches hundreds of unrelated elements.
@@ -37,6 +37,7 @@ You MUST produce **progressively-converging** (逐级收敛) selectors that are 
 
 2. **field selectors** — relative to each list item element (i.e. evaluated inside the item, not the whole document).
    - Use `:scope > ...` or a short relative path when possible (e.g. `:scope > a > .title`, `.card-body > h3.title`).
+   - If you use XPath for a field selector, keep it item-scoped with a relative form such as `.//a` or `.//span[contains(@class, "date")]`, not document-scoped `//...`.
    - If the class name could appear globally (e.g. `.title`, `.date`, `.name`), prefix it with the nearest stable ancestor: `div.card-body > span.date`.
    - Avoid bare generic selectors like `p`, `span`, `div` that match many things.
 
@@ -69,10 +70,10 @@ Snake_case field names. Aim for 3–6 fields per item.
 - Is `item_selector` specific to repeated records instead of page-wide layout elements?
 - Are field selectors item-scoped and not global broad selectors?
 - Would the selector still point at the intended field if evaluated inside one item element?
-- Are all selectors standard CSS selectors?"""
+- Are all selectors standard CSS selectors or XPath expressions?"""
 
 
-SELECTOR_OPTIMIZATION_PROMPT_TEMPLATE = f"""Optimize the CSS selector below to be globally unambiguous and resilient to minor DOM changes.
+SELECTOR_OPTIMIZATION_PROMPT_TEMPLATE = f"""Optimize the selector below to be globally unambiguous and resilient to minor DOM changes.
 
 Initial selector: {{initial_selector}}
 
@@ -96,8 +97,16 @@ Return a selector with better precision/stability tradeoff than the initial sele
 3. **Prefer stable attributes**: IDs (if truly unique), stable class names, `data-*` attributes, or semantic HTML tags.
 4. **Trim redundancy**: remove intermediate nodes that don't add disambiguation value.
 5. Do not over-tighten the selector into something fragile, position-dependent, or likely to match zero elements after a small DOM change.
-6. The optimized selector MUST be a standard CSS selector compatible with `querySelector` / `querySelectorAll` and Playwright `locator()`.
-7. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
+6. The optimized selector MUST be either a **standard CSS selector** or an **XPath expression**.
+   - Playwright natively supports XPath via `page.query_selector("xpath=//...")` / `page.locator("xpath=//...")`.
+   - The runtime auto-detects XPath when the selector starts with `//` or `.//` and adds the `xpath=` prefix.
+7. Do NOT return Playwright-only locator helper syntax such as `get_by_role(...)`, `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`.
+8. Do NOT use jQuery/Sizzle pseudo-classes such as `:contains('...')`, `:first`, `:last`, `:eq(...)`. These are NOT standard CSS and will throw `SyntaxError` in `document.querySelector()` / `querySelectorAll()`.
+   - **Forbidden**: `.pager > a:contains('下一页')` — crashes at runtime.
+9. When you need **text-content matching**, use XPath instead of CSS. Examples:
+   - `//a[contains(text(), '下一页')]` — match anchor whose text contains a substring.
+   - `//nav[contains(@class, 'pagination')]//a[@rel='next']` — scoped XPath with attribute matching.
+   - CSS has no native text-matching pseudo-class; do NOT invent one.
 
 ## Failure Policy
 - If the initial selector is already the best stable option, return it unchanged with explicit reason.
@@ -129,7 +138,7 @@ Task:
    - 'infinite_scroll': No button, triggers on scroll.
    - 'load_more': Explicit button to append items.
    - 'none': No pagination found.
-3. Provide a ROBUST CSS selector for the single actionable next/load-more control, not for the whole pagination container and not for the whole set of page number buttons.
+3. Provide a ROBUST selector for the single actionable next/load-more control, not for the whole pagination container and not for the whole set of page number buttons.
 4. If the HTML includes a `PAGINATION_CONTROL_SUMMARY`, use it as strong evidence to distinguish:
    - the current page indicator,
    - numbered page buttons,
@@ -142,23 +151,29 @@ Task:
 6. Only populate `page_number_selectors` with selectors for numbered page buttons. Do not put the next/load-more selector into `page_number_selectors`.
 7. If there is no distinct next/load-more control, return `pagination_strategy: "none"` or an empty `next_button_selector` rather than guessing a broad selector.
 8. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
-9. Every selector you return MUST be a standard CSS selector that can be executed directly in Playwright via
-   `page.query_selector(...)`, `page.query_selector_all(...)`, `locator(...)`, and in DOM APIs like
-   `document.querySelector(...)` / `querySelectorAll(...)`.
-10. Do NOT return Playwright-only locator expressions or helper syntax such as `get_by_role(...)`,
-   `get_by_text(...)`, `locator(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`, or XPath selectors.
-11. Prefer semantic next-button selectors such as `.next`, `.pagination-next`, `a[rel="next"]`, `[aria-label*="next" i]`, or other stable attributes before considering generic position-based selectors.
-12. If evidence for the next control is weak or contradictory, choose `pagination_strategy: "none"` rather than guessing.
-13. Do not confuse numbered page buttons, current-page indicators, previous buttons, or disabled controls with the real next/load-more action.
-14. Reject selectors that match multiple pagination anchors such as `div.kq-pager > a` when only one of those anchors is the real next-page control.
-15. Do not confuse pagination with non-pagination controls such as `Items per page`, `View grid/View list`, year filters, category tabs, sorting controls, or search refinements.
-16. Treat symbolic next controls such as `>`, `>>`, `›`, or `»` as candidates only when surrounding pager structure confirms they advance the list.
+9. Every selector you return MUST be either a **standard CSS selector** or an **XPath expression**.
+   - Playwright natively supports XPath via `page.query_selector("xpath=//...")` / `page.locator("xpath=//...")`.
+   - The runtime auto-detects XPath when the selector starts with `//` or `.//` and adds the `xpath=` prefix.
+   - CSS has no native text-matching pseudo-class; do NOT invent one.
+   - When you need text-content matching, use XPath: `//a[contains(text(), '下一页')]`.
+10. Do NOT return Playwright-only locator helper syntax such as `get_by_role(...)`,
+   `get_by_text(...)`, `nth=`, `>>`, `:has-text(...)`, `text=`.
+11. Do NOT use jQuery/Sizzle pseudo-classes such as `:contains('...')`, `:first`, `:last`, `:eq(...)`. These are NOT standard CSS and will throw `SyntaxError` in `document.querySelector()` / `querySelectorAll()`.
+   - **Forbidden**: `.pager > a:contains('下一页')` — crashes at runtime.
+   - **Correct XPath**: `//nav[contains(@class, 'kq-pager')]//a[contains(text(), '下一页')]`.
+   - **Correct CSS**: Use attribute selectors, class names, or `rel`/`aria-label` attributes: `.pager > a[aria-label*="next" i]`, `a[rel="next"]`.
+12. Prefer semantic next-button selectors such as `.next`, `.pagination-next`, `a[rel="next"]`, `[aria-label*="next" i]`, `//a[contains(text(), '下一页')]`, or other stable attributes before considering generic position-based selectors.
+13. If evidence for the next control is weak or contradictory, choose `pagination_strategy: "none"` rather than guessing.
+14. Do not confuse numbered page buttons, current-page indicators, previous buttons, or disabled controls with the real next/load-more action.
+15. Reject selectors that match multiple pagination anchors such as `div.kq-pager > a` when only one of those anchors is the real next-page control.
+16. Do not confuse pagination with non-pagination controls such as `Items per page`, `View grid/View list`, year filters, category tabs, sorting controls, or search refinements.
+17. Treat symbolic next controls such as `>`, `>>`, `›`, or `»` as candidates only when surrounding pager structure confirms they advance the list.
 
 Output format:
 ```json
 {{
   "pagination_strategy": "click_next|infinite_scroll|load_more|none",
-  "next_button_selector": "robust CSS selector for next button",
+  "next_button_selector": "robust selector for next button",
   "page_number_selectors": ["list of page number selectors"],
   "reason": "Explain why this selector and strategy were chosen",
   "confidence": 0.0-1.0
