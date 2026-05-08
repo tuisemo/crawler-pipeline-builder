@@ -62,7 +62,6 @@ _LOW_SIGNAL_REASON_RE = re.compile(
 _PARTIAL_JSON_STRING_FIELD_RE = {
     "pagination_strategy": re.compile(r'"pagination_strategy"\s*:\s*"((?:\\.|[^"\\])*)'),
     "next_button_selector": re.compile(r'"next_button_selector"\s*:\s*"((?:\\.|[^"\\])*)'),
-    "item_selector": re.compile(r'"item_selector"\s*:\s*"((?:\\.|[^"\\])*)'),
     "reason": re.compile(r'"reason"\s*:\s*"((?:\\.|[^"\\])*)'),
 }
 _PARTIAL_JSON_CONFIDENCE_RE = re.compile(r'"confidence"\s*:\s*(-?\d+(?:\.\d+)?)')
@@ -89,8 +88,9 @@ def _extract_html_section(section_name: str, html_fragment: str) -> str:
 
 def build_pagination_analysis_user_prompt(html_fragment: str) -> str:
     item_samples = _extract_html_section("ITEM_SAMPLES", html_fragment)
-    pagination_html = _extract_html_section("PAGINATION", html_fragment)
+    pagination_html = _extract_html_section("PAGINATION_COMPONENT", html_fragment) or _extract_html_section("PAGINATION", html_fragment)
     control_summary = _extract_html_section("PAGINATION_CONTROL_SUMMARY", html_fragment)
+    pruned_body = _extract_html_section("GLOBAL_PRUNED_BODY", html_fragment)
 
     evidence_sections = [
         "## Evidence Package",
@@ -111,13 +111,20 @@ def build_pagination_analysis_user_prompt(html_fragment: str) -> str:
             pagination_html,
             "",
         ])
+    if pruned_body:
+        evidence_sections.extend([
+            "### Global Pruned Body",
+            "This is a structurally simplified version of the entire page to provide global context.",
+            pruned_body,
+            "",
+        ])
     if control_summary:
         evidence_sections.extend([
             "### Pagination Control Summary",
             control_summary,
             "",
         ])
-    if not any((item_samples, pagination_html, control_summary)):
+    if not any((item_samples, pagination_html, pruned_body, control_summary)):
         evidence_sections.extend([
             "### Raw HTML Fragment",
             html_fragment,
@@ -134,7 +141,6 @@ def has_pagination_evidence(user_prompt: str) -> bool:
         or "<!-- pagination -->" in lowered
         or "下一页" in user_prompt
         or "load more" in lowered
-        or "kq-pager" in lowered
         or "pagination" in lowered
     )
 
@@ -150,7 +156,6 @@ def is_semantically_empty_pagination_result(task_name: str, normalized: dict[str
         normalized.get("pagination_strategy") == "none"
         and not str(normalized.get("next_button_selector") or "").strip()
         and (not isinstance(page_number_selectors, list) or len(page_number_selectors) == 0)
-        and not str(normalized.get("item_selector") or "").strip()
         and confidence_value <= 0.1
         and (not reason or _LOW_SIGNAL_REASON_RE.search(reason) is not None)
     )
@@ -258,7 +263,6 @@ def recover_pagination_from_summary(user_prompt: str) -> dict[str, Any] | None:
         "pagination_strategy": "load_more" if re.search(r"(加载更多|load more|more)", next_control.get("text", ""), re.IGNORECASE) else "click_next",
         "next_button_selector": selector,
         "page_number_selectors": page_number_selectors,
-        "item_selector": "",
         "confidence": 0.56 if selector else 0.42,
         "reason": "Recovered from pagination control summary because the model returned a semantically empty analysis.",
     }
@@ -272,7 +276,6 @@ def recover_partial_pagination_json(raw_output: str) -> dict[str, Any] | None:
         "pagination_strategy": "none",
         "next_button_selector": "",
         "page_number_selectors": [],
-        "item_selector": "",
         "confidence": None,
         "reason": "Recovered from truncated JSON output.",
     }

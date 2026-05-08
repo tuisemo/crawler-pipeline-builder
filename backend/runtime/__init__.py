@@ -1,2 +1,2 @@
-"""Runtime infrastructure package for browser sessions and execution helpers."""
+"""Runtime infrastructure package for active non-browser execution helpers."""
 

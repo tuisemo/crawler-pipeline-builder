@@ -10,12 +10,17 @@ export type WorkflowNodeType =
 
 export type ScriptGenerationMode = 'lite' | 'pro'
 
+export type AssistApplyMode = 'current-only' | 'related-nodes'
+
 export type ExtractionField = {
   name?: string
-  field_name?: string
   selector?: string
-  css?: string
   type?: string
+  /** @deprecated Use 'name' instead */
+  field_name?: string
+  /** @deprecated Use 'selector' instead */
+  css?: string
+  /** @deprecated No longer used in stateless mode */
   extraction_type?: string
   [key: string]: unknown
 }

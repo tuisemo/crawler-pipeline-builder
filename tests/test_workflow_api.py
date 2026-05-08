@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from server import app
-from backend.workflow.schemas import AssistLlmResponse, AssistSelectorTestResponse, AutoDetectResponse
+from backend.workflow.schemas import AssistLlmResponse
 
 client = TestClient(app)
 
@@ -531,146 +531,44 @@ def test_compile_plan_valid():
     assert any(edge["branch"] == "true" for edge in data["plan"]["edges"])
 
 
-def test_assist_auto_detect_surfaces_session_errors(monkeypatch):
-    monkeypatch.setattr(
-        "backend.api.assist_routes.auto_detect",
-        lambda _request: AutoDetectResponse(success=False, error="No active browser session found"),
-    )
-    response = client.post("/api/assist/auto-detect", json={})
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is False
-    assert "No active browser session found" in data["error"]
+def test_assist_removed_browser_mediation_routes_return_404():
+    auto_detect_response = client.post("/api/assist/auto-detect", json={})
+    extract_html_response = client.post("/api/assist/extract-html", json={"item_selector": ".item"})
+    test_selector_response = client.post("/api/assist/test-selector", json={"selector": ".item"})
+
+    assert auto_detect_response.status_code == 404
+    assert extract_html_response.status_code == 404
+    assert test_selector_response.status_code == 404
 
 
-def test_assist_extract_html_reports_total_match_count_not_sample_size(monkeypatch):
-    class FakeItem:
-        def __init__(self, html: str):
-            self._html = html
-
-        def inner_html(self):
-            return self._html
-
-    class FakePage:
-        def query_selector_all(self, _selector: str):
-            return [FakeItem(f"<div>item-{idx}</div>") for idx in range(5)]
-
-    class FakeSession:
-        id = "session-1"
-        page = FakePage()
-
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
-
-    response = client.post("/api/assist/extract-html", json={
-        "item_selector": ".item",
-        "max_items": 3,
-    })
-
-    assert response.status_code == 200
-    payload = response_data(response)
-    assert response.json()["success"] is True
-    assert payload["metadata"]["item_count"] == 5
-    assert "item-0" in payload["html_fragment"]
-    assert "item-2" in payload["html_fragment"]
-    assert "item-3" not in payload["html_fragment"]
-
-
-def test_assist_extract_html_can_include_pagination_context(monkeypatch):
-    class FakeItem:
-        def __init__(self, html: str):
-            self._html = html
-
-        def inner_html(self):
-            return self._html
-
-        def evaluate(self, _script: str):
-            return f"<div class='item'>{self._html}</div>"
-
-    class FakeControl:
-        def __init__(self, text: str, href: str = ""):
-            self._text = text
-            self._href = href
-
-        def inner_text(self):
-            return self._text
-
-        def get_attribute(self, name: str):
-            if name == "href":
-                return self._href
-            return ""
-
-    class FakePager:
-        def evaluate(self, _script: str):
-            return '<div class="kq-pager"><span class="current">1</span><a href="/list?p=2">2</a><a href="/list?p=2">下一页</a></div>'
-
-        def inner_text(self):
-            return "1 2 下一页"
-
-        def query_selector_all(self, selector: str):
-            if selector == 'a, button, [role="button"], span':
-                return [FakeControl("1"), FakeControl("2", "/list?p=2"), FakeControl("下一页", "/list?p=2")]
-            return []
-
-        def get_attribute(self, name: str):
-            if name == "class":
-                return "kq-pager"
-            if name == "id":
-                return ""
-            return ""
-
-    class FakePage:
-        def query_selector_all(self, selector: str):
-            if selector == ".item":
-                return [FakeItem(f"<div>item-{idx}</div>") for idx in range(5)]
-            if selector == ".kq-pager":
-                return [FakePager()]
-            return []
-
-    class FakeSession:
-        id = "session-1"
-        page = FakePage()
-
-    monkeypatch.setattr("backend.assist.services._ensure_session", lambda session_id, url, agent_id=None: (FakeSession(), None))
-
-    response = client.post("/api/assist/extract-html", json={
-        "item_selector": ".item",
-        "max_items": 3,
-        "include_pagination": True,
-    })
-
-    assert response.status_code == 200
-    payload = response_data(response)
-    assert response.json()["success"] is True
-    assert payload["metadata"]["item_count"] == 5
-    assert "下一页" in payload["html_fragment"]
-    assert "kq-pager" in payload["html_fragment"]
-
-
-def test_assist_test_selector_returns_highlight_metadata(monkeypatch):
-    def fake_test_selector(_request):
-        return AssistSelectorTestResponse(
+def test_assist_analyze_pagination_accepts_structured_html_evidence(monkeypatch):
+    def fake_analyze_pagination(request):
+        assert request.html_fragment == "<article>item-1</article>"
+        assert request.pruned_body_html == "<main><div class='pager'><a class='next'>下一页</a></div></main>"
+        assert request.pagination_component_html == "<div class='pager'><a class='next'>下一页</a></div>"
+        return AssistLlmResponse(
             success=True,
-            session_id="session-1",
             result={
-                "match_count": 3,
-                "highlighted_count": 3,
-                "clear_after_ms": 2200,
-                "sample_items": [{"text": "item-1"}],
+                "pagination_strategy": "click_next",
+                "next_button_selector": "a.next",
+                "page_number_selectors": [],
+                "confidence": 0.81,
+                "reason": "candidate only",
             },
         )
 
-    monkeypatch.setattr("backend.api.assist_routes.run_selector_test", fake_test_selector)
+    monkeypatch.setattr("backend.api.assist_routes.analyze_pagination", fake_analyze_pagination)
 
-    response = client.post("/api/assist/test-selector", json={
-        "selector": ".item",
-        "session_id": "session-1",
+    response = client.post("/api/assist/analyze-pagination", json={
+        "html_fragment": "<article>item-1</article>",
+        "pruned_body_html": "<main><div class='pager'><a class='next'>下一页</a></div></main>",
+        "pagination_component_html": "<div class='pager'><a class='next'>下一页</a></div>",
     })
+
     assert response.status_code == 200
     payload = response_data(response)
     assert response.json()["success"] is True
-    assert payload["session_id"] == "session-1"
-    assert payload["result"]["match_count"] == 3
-    assert payload["result"]["highlighted_count"] == 3
+    assert payload["result"]["next_button_selector"] == "a.next"
 
 
 def test_assist_analyze_pagination_surfaces_warnings_without_400(monkeypatch):
@@ -681,18 +579,17 @@ def test_assist_analyze_pagination_surfaces_warnings_without_400(monkeypatch):
                 "pagination_strategy": "click_next",
                 "next_button_selector": ".candidate-next",
                 "page_number_selectors": [],
-                "item_selector": "",
                 "confidence": 0.58,
                 "reason": "candidate only",
             },
-            warnings=["Pagination analysis produced a candidate selector, but it could not be validated against the current page session. Review the selector before applying it."],
+            warnings=["Pagination analysis produced a candidate selector. Review the selector before applying it."],
         )
 
     monkeypatch.setattr("backend.api.assist_routes.analyze_pagination", fake_analyze_pagination)
 
     response = client.post("/api/assist/analyze-pagination", json={
         "html_fragment": "<div class='pager'><a class='next'>下一页</a></div>",
-        "session_id": "s1",
+        "pruned_body_html": "<main><div class='pager'><a class='next'>下一页</a></div></main>",
     })
 
     assert response.status_code == 200

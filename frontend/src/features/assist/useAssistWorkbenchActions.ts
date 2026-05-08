@@ -1,8 +1,13 @@
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import { postAssistAction } from '../../services/workflowApi'
+import {
+  autoDetectLocally,
+  extractHtmlLocally,
+  extractPaginationContextLocally,
+  testSelectorLocally,
+} from '../runtime/extensionBridge'
 import { getErrorMessage, type WorkflowNode } from '../workflow/workflowState'
-import type { ExtractionField, WorkflowNodeData } from '../workflow/workflowContracts'
-import { buildRuntimeAgentId, type ExecutionMode } from '../runtime/executionTarget'
+import type { AssistApplyMode, ExtractionField, WorkflowNodeData } from '../workflow/workflowContracts'
 
 export type AssistActionKey =
   | 'auto-detect'
@@ -12,7 +17,6 @@ export type AssistActionKey =
   | 'test-selector'
   | null
 
-export type AssistApplyMode = 'current-only' | 'related-nodes'
 
 type AssistNotifier = {
   success: (content: string) => void
@@ -26,8 +30,6 @@ type UseAssistWorkbenchActionsArgs = {
   setNodes: Dispatch<SetStateAction<WorkflowNode[]>>
   updateSelectedNodeData: (patch: Partial<WorkflowNodeData>) => void
   notify: AssistNotifier
-  executionMode: ExecutionMode
-  agentId: string
 }
 
 function normalizeAssistError(payload: unknown, responseOk: boolean) {
@@ -57,37 +59,26 @@ export function useAssistWorkbenchActions({
   setNodes,
   updateSelectedNodeData,
   notify,
-  executionMode,
-  agentId,
 }: UseAssistWorkbenchActionsArgs) {
   const [assistBusyAction, setAssistBusyAction] = useState<AssistActionKey>(null)
   const [assistApplyMode, setAssistApplyMode] = useState<AssistApplyMode>('related-nodes')
-  const [assistSessionId, setAssistSessionId] = useState<string | null>(null)
 
   function getEntryUrl() {
-    const entry = nodes.find((node) => node.type === 'open_page')
-    const url = entry?.data.url
-    return typeof url === 'string' ? url.trim() : ''
+    const entryNode = nodes.find((node) => node.type === 'open_page')
+    const rawUrl = typeof entryNode?.data.url === 'string' ? entryNode.data.url.trim() : ''
+    return rawUrl
+  }
+
+  function requireEntryUrl() {
+    const entryUrl = getEntryUrl()
+    if (!entryUrl) {
+      throw new Error('请先配置 open_page 节点的目标 URL，扩展将基于该地址打开或复用目标标签页。')
+    }
+    return entryUrl
   }
 
   function getPrimarySelectListNode() {
     return nodes.find((node) => node.type === 'select_list') ?? null
-  }
-
-  function withAssistSession<T extends Record<string, unknown>>(payload: T): T & { session_id?: string; agent_id?: string } {
-    const result: Record<string, unknown> = { ...payload }
-    if (assistSessionId) result.session_id = assistSessionId
-    const runtimeAgentId = buildRuntimeAgentId(executionMode, agentId)
-    if (runtimeAgentId) result.agent_id = runtimeAgentId
-    return result as T & { session_id?: string; agent_id?: string }
-  }
-
-  function syncAssistSession(payload: unknown) {
-    if (!payload || typeof payload !== 'object') return
-    const record = payload as Record<string, unknown>
-    if (typeof record.session_id === 'string' && record.session_id.trim()) {
-      setAssistSessionId(record.session_id)
-    }
   }
 
   function runWithAssistLock(action: Exclude<AssistActionKey, null>, task: () => Promise<void>) {
@@ -104,19 +95,10 @@ export function useAssistWorkbenchActions({
   function handleAutoDetectSelectList() {
     runWithAssistLock('auto-detect', async () => {
       if (!selectedNode || selectedNode.type !== 'select_list') return
-      const entryUrl = getEntryUrl()
-      const { response, payload } = await postAssistAction('/api/assist/auto-detect', withAssistSession({
-        url: entryUrl || undefined,
-      }))
-      const error = normalizeAssistError(payload, response.ok)
-      if (error) throw new Error(error)
-      syncAssistSession(payload)
 
-      const record = payload as Record<string, unknown>
-      const result = (record.result && typeof record.result === 'object') ? record.result as Record<string, unknown> : {}
-      const detectedSelector = typeof result.item_selector === 'string' ? result.item_selector : ''
-      if (detectedSelector) {
-        updateSelectedNodeData({ item_selector: detectedSelector })
+      const result = await autoDetectLocally(requireEntryUrl())
+      if (result.itemSelector) {
+        updateSelectedNodeData({ item_selector: result.itemSelector })
       }
 
       const detectedFields = mapAssistFields(result.fields)
@@ -126,16 +108,14 @@ export function useAssistWorkbenchActions({
           return current.map((node) => {
             if (!patched && node.type === 'extract_field') {
               patched = true
-              return { ...node, data: { ...node.data, fields: detectedFields } }
+              return { ...node, data: { ...node.data, fields: detectedFields, html_fragment: result.htmlFragment } }
             }
             return node
           })
         })
       }
 
-      const detectedPaginationSelector = typeof result.pagination_selector === 'string' ? result.pagination_selector : ''
-      const detectedPaginationStrategy = typeof result.pagination_strategy === 'string' ? result.pagination_strategy : ''
-      if ((detectedPaginationSelector || detectedPaginationStrategy) && assistApplyMode === 'related-nodes') {
+      if ((result.paginationSelector || result.paginationStrategy) && assistApplyMode === 'related-nodes') {
         setNodes((current) => {
           let patched = false
           return current.map((node) => {
@@ -145,8 +125,8 @@ export function useAssistWorkbenchActions({
                 ...node,
                 data: {
                   ...node.data,
-                  pagination_selector: detectedPaginationSelector || node.data.pagination_selector,
-                  pagination_strategy: detectedPaginationStrategy || node.data.pagination_strategy,
+                  pagination_selector: result.paginationSelector || node.data.pagination_selector,
+                  pagination_strategy: result.paginationStrategy || node.data.pagination_strategy,
                 },
               }
             }
@@ -154,6 +134,7 @@ export function useAssistWorkbenchActions({
           })
         })
       }
+
       notify.success('自动检测结果已回填')
     })
   }
@@ -163,22 +144,16 @@ export function useAssistWorkbenchActions({
       if (!selectedNode || selectedNode.type !== 'select_list') return
       const selector = typeof selectedNode.data.item_selector === 'string' ? selectedNode.data.item_selector.trim() : ''
       if (!selector) throw new Error('请先填写列表选择器')
-      const entryUrl = getEntryUrl()
-      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
-        item_selector: selector,
-        url: entryUrl || undefined,
-      }))
-      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
-      if (extractError) throw new Error(extractError)
-      syncAssistSession(extractResult.payload)
-      const extractPayload = extractResult.payload as Record<string, unknown>
-      const htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
+      const entryUrl = requireEntryUrl()
+
+      const extractResult = await extractHtmlLocally(selector, 3, entryUrl)
+      const htmlFragment = extractResult.htmlFragment
       if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法优化选择器')
 
-      const optimizeResult = await postAssistAction('/api/assist/optimize-selector', withAssistSession({
+      const optimizeResult = await postAssistAction('/api/assist/optimize-selector', {
         initial_selector: selector,
         html_fragment: htmlFragment,
-      }))
+      })
       const optimizeError = normalizeAssistError(optimizeResult.payload, optimizeResult.response.ok)
       if (optimizeError) throw new Error(optimizeError)
 
@@ -198,28 +173,18 @@ export function useAssistWorkbenchActions({
       const selectListNode = getPrimarySelectListNode()
       const itemSelector = typeof selectListNode?.data.item_selector === 'string' ? selectListNode.data.item_selector.trim() : ''
       if (!itemSelector) throw new Error('请先配置 select_list 节点的 item_selector')
+      const entryUrl = requireEntryUrl()
 
       const existingHtml = typeof selectedNode.data.html_fragment === 'string' ? selectedNode.data.html_fragment : ''
-      let htmlFragment = existingHtml
-      if (!htmlFragment) {
-        const entryUrl = getEntryUrl()
-        const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
-          item_selector: itemSelector,
-          url: entryUrl || undefined,
-        }))
-        const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
-        if (extractError) throw new Error(extractError)
-        syncAssistSession(extractResult.payload)
-        const extractPayload = extractResult.payload as Record<string, unknown>
-        htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
-      }
+      const htmlFragment = existingHtml || (await extractHtmlLocally(itemSelector, 3, entryUrl)).htmlFragment
       if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法推断字段')
 
-      const inferResult = await postAssistAction('/api/assist/infer-fields', withAssistSession({
+      const inferResult = await postAssistAction('/api/assist/infer-fields', {
         html_fragment: htmlFragment,
-      }))
+      })
       const inferError = normalizeAssistError(inferResult.payload, inferResult.response.ok)
       if (inferError) throw new Error(inferError)
+
       const inferPayload = inferResult.payload as Record<string, unknown>
       const result = (inferPayload.result && typeof inferPayload.result === 'object') ? inferPayload.result as Record<string, unknown> : {}
       const inferredFields = mapAssistFields(result.fields)
@@ -229,6 +194,7 @@ export function useAssistWorkbenchActions({
         fields: inferredFields,
         html_fragment: htmlFragment,
       })
+
       const inferredItemSelector = typeof result.item_selector === 'string' ? result.item_selector.trim() : ''
       if (assistApplyMode === 'related-nodes' && inferredItemSelector) {
         setNodes((current) => {
@@ -249,28 +215,21 @@ export function useAssistWorkbenchActions({
   function handleAnalyzePagination() {
     runWithAssistLock('analyze-pagination', async () => {
       if (!selectedNode || selectedNode.type !== 'paginate') return
-      const selectListNode = getPrimarySelectListNode()
-      const itemSelector = typeof selectListNode?.data.item_selector === 'string' ? selectListNode.data.item_selector.trim() : ''
-      if (!itemSelector) throw new Error('请先配置 select_list 节点的 item_selector')
+      const entryUrl = requireEntryUrl()
 
-      const entryUrl = getEntryUrl()
-      const extractResult = await postAssistAction('/api/assist/extract-html', withAssistSession({
-        item_selector: itemSelector,
-        url: entryUrl || undefined,
-        include_pagination: true,
-      }))
-      const extractError = normalizeAssistError(extractResult.payload, extractResult.response.ok)
-      if (extractError) throw new Error(extractError)
-      syncAssistSession(extractResult.payload)
-      const extractPayload = extractResult.payload as Record<string, unknown>
-      const htmlFragment = typeof extractPayload.html_fragment === 'string' ? extractPayload.html_fragment : ''
-      if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法分析分页')
+      const context = await extractPaginationContextLocally(entryUrl)
+      if (!context.htmlFragment || !context.prunedBodyHtml) {
+        throw new Error('未提取到分页分析所需的页面证据。请检查：\n1. open_page URL 是否可访问\n2. 目标页面是否已完整加载\n3. 页面中是否存在可见的分页区域或翻页控件')
+      }
 
-      const analyzeResult = await postAssistAction('/api/assist/analyze-pagination', withAssistSession({
-        html_fragment: htmlFragment,
-      }))
+      const analyzeResult = await postAssistAction('/api/assist/analyze-pagination', {
+        html_fragment: context.htmlFragment,
+        pruned_body_html: context.prunedBodyHtml,
+        pagination_component_html: context.paginationComponentHtml || undefined,
+      })
       const analyzeError = normalizeAssistError(analyzeResult.payload, analyzeResult.response.ok)
       if (analyzeError) throw new Error(analyzeError)
+
       const analyzeWarnings = Array.isArray(analyzeResult.envelope.warnings)
         ? analyzeResult.envelope.warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
         : []
@@ -283,19 +242,7 @@ export function useAssistWorkbenchActions({
         pagination_strategy: paginationStrategy || selectedNode.data.pagination_strategy,
         pagination_selector: nextSelector || selectedNode.data.pagination_selector,
       })
-      const inferredItemSelector = typeof result.item_selector === 'string' ? result.item_selector.trim() : ''
-      if (assistApplyMode === 'related-nodes' && inferredItemSelector) {
-        setNodes((current) => {
-          let patched = false
-          return current.map((node) => {
-            if (!patched && node.type === 'select_list') {
-              patched = true
-              return { ...node, data: { ...node.data, item_selector: inferredItemSelector } }
-            }
-            return node
-          })
-        })
-      }
+
       if (analyzeWarnings.length > 0) {
         notify.warning(analyzeWarnings[0])
       } else {
@@ -308,28 +255,14 @@ export function useAssistWorkbenchActions({
     runWithAssistLock('test-selector', async () => {
       const normalizedSelector = selector.trim()
       if (!normalizedSelector) throw new Error(`请先填写${selectorLabel}`)
-      const entryUrl = getEntryUrl()
-      const testResult = await postAssistAction('/api/assist/test-selector', withAssistSession({
-        selector: normalizedSelector,
-        url: entryUrl || undefined,
-        clear_after_ms: 2200,
-      }))
-      const testError = normalizeAssistError(testResult.payload, testResult.response.ok)
-      if (testError) throw new Error(testError)
-      syncAssistSession(testResult.payload)
+      const entryUrl = requireEntryUrl()
 
-      const payload = testResult.payload as Record<string, unknown>
-      const result = payload.result && typeof payload.result === 'object'
-        ? payload.result as Record<string, unknown>
-        : {}
-      const matchCount = typeof result.match_count === 'number' ? result.match_count : 0
-      const highlightedCount = typeof result.highlighted_count === 'number' ? result.highlighted_count : matchCount
-      const clearAfterMs = typeof result.clear_after_ms === 'number' ? result.clear_after_ms : 2200
-      if (matchCount <= 0) {
+      const result = await testSelectorLocally(normalizedSelector, 2200, 5, entryUrl)
+      if (result.matchCount <= 0) {
         notify.warning(`${selectorLabel}测试完成：未匹配到元素，请检查选择器。`)
         return
       }
-      notify.success(`${selectorLabel}测试通过：匹配 ${matchCount} 个元素，已临时高亮 ${highlightedCount} 个元素，约 ${Math.round(clearAfterMs / 100) / 10} 秒后自动恢复。`)
+      notify.success(`${selectorLabel}测试通过：匹配 ${result.matchCount} 个元素，已临时高亮 ${result.highlightedCount} 个元素，约 ${Math.round(result.clearAfterMs / 100) / 10} 秒后自动恢复。`)
     })
   }
 

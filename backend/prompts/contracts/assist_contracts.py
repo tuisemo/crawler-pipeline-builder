@@ -33,7 +33,6 @@ PAGINATION_ANALYSIS_RESPONSE_CONTRACT = """Return one JSON object with this shap
   "pagination_strategy": "click_next|infinite_scroll|load_more|none",
   "next_button_selector": "string",
   "page_number_selectors": ["string"],
-  "item_selector": "string",
   "confidence": 0.0,
   "reason": "string"
 }

@@ -1,29 +1,25 @@
-import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography, Input } from 'antd'
+import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import {
   AppstoreOutlined,
   BarsOutlined,
   CheckCircleOutlined,
   CodeOutlined,
   CompassOutlined,
-  ExperimentOutlined,
   FileSearchOutlined,
   LayoutOutlined,
-  PlayCircleOutlined,
   RocketOutlined,
   SaveOutlined,
-  NodeIndexOutlined
+  NodeIndexOutlined,
 } from '@ant-design/icons'
 import type { ReactNode } from 'react'
+import type { ExtensionStatus } from '../../features/runtime/extensionBridge'
 import type { ScriptGenerationMode } from '../../features/workflow/workflowContracts'
-import type { ExecutionMode } from '../../features/runtime/executionTarget'
 
 export type WorkbenchAction =
   | 'validate'
   | 'prompt'
   | 'compile-plan'
   | 'generate-skeleton'
-  | 'test-node'
-  | 'test-subflow'
   | 'generate-script'
   | 'auto-layout'
 
@@ -39,10 +35,7 @@ type WorkbenchToolbarProps = {
   onRunAction: (action: WorkbenchAction) => void
   generationMode: ScriptGenerationMode
   onGenerationModeChange: (mode: ScriptGenerationMode) => void
-  executionMode: ExecutionMode
-  onExecutionModeChange: (mode: ExecutionMode) => void
-  agentId: string
-  onAgentIdChange: (id: string) => void
+  extensionStatus: ExtensionStatus | null
   layout: {
     leftPanelOpen: boolean
     rightPanelOpen: boolean
@@ -59,8 +52,6 @@ const actionConfig: Record<WorkbenchAction, { label: string; icon: ReactNode }> 
   prompt: { label: '预览 Prompt', icon: <FileSearchOutlined /> },
   'compile-plan': { label: '编排计划', icon: <AppstoreOutlined /> },
   'generate-skeleton': { label: '生成骨架', icon: <CodeOutlined /> },
-  'test-node': { label: '节点测试', icon: <ExperimentOutlined /> },
-  'test-subflow': { label: '子流测试', icon: <PlayCircleOutlined /> },
   'generate-script': { label: '生成爬虫脚本', icon: <RocketOutlined /> },
   'auto-layout': { label: '优化布局', icon: <NodeIndexOutlined /> },
 }
@@ -68,8 +59,39 @@ const actionConfig: Record<WorkbenchAction, { label: string; icon: ReactNode }> 
 const groupedActions: Array<{ title: string; actions: WorkbenchAction[]; primary?: WorkbenchAction }> = [
   { title: '设计编排', actions: ['validate', 'prompt', 'compile-plan', 'auto-layout'] },
   { title: '执行脚本', actions: ['generate-skeleton', 'generate-script'], primary: 'generate-script' },
-  { title: '运行验证', actions: ['test-node', 'test-subflow'] },
 ]
+
+function renderExtensionTag(extensionStatus: ExtensionStatus | null) {
+  const currentId = localStorage.getItem('SEA_EXTENSION_ID_OVERRIDE') || 'efiohaalhbjoiejopalokdojhdeeeadi'
+  
+  const handleConfigId = () => {
+    const nextId = window.prompt('请输入浏览器扩展 ID (在 chrome://extensions 中查看):', currentId)
+    if (nextId !== null) {
+      localStorage.setItem('SEA_EXTENSION_ID_OVERRIDE', nextId.trim())
+      window.location.reload()
+    }
+  }
+
+  if (!extensionStatus) {
+    return <Tag color="default" className="toolbar-chip">检测中…</Tag>
+  }
+  if (extensionStatus.installed && extensionStatus.ready) {
+    return (
+      <Tooltip title={`Extension ID: ${currentId}. 点击修改。`}>
+        <Tag color="success" className="toolbar-chip" style={{ cursor: 'pointer' }} onClick={handleConfigId}>
+          已就绪（本地扩展加速中）
+        </Tag>
+      </Tooltip>
+    )
+  }
+  return (
+    <Tooltip title={`当前使用的 ID: ${currentId}. 如果已安装扩展但未检测到，请点击此处修改 ID。`}>
+      <Tag color="error" className="toolbar-chip" style={{ cursor: 'pointer' }} onClick={handleConfigId}>
+        未安装扩展
+      </Tag>
+    </Tooltip>
+  )
+}
 
 export function WorkbenchToolbar({
   runningAction,
@@ -78,10 +100,7 @@ export function WorkbenchToolbar({
   onRunAction,
   generationMode,
   onGenerationModeChange,
-  executionMode,
-  onExecutionModeChange,
-  agentId,
-  onAgentIdChange,
+  extensionStatus,
   layout,
 }: WorkbenchToolbarProps) {
   return (
@@ -111,6 +130,7 @@ export function WorkbenchToolbar({
                 <Tag color="cyan" className="toolbar-chip">连线 {workflowStats.edgeCount}</Tag>
                 <Tag color="purple" className="toolbar-chip">字段 {workflowStats.fieldCount}</Tag>
                 {workflowStats.hasPagination ? <Tag color="gold" className="toolbar-chip">分页</Tag> : null}
+                {renderExtensionTag(extensionStatus)}
               </div>
               <Typography.Text type="secondary" className="toolbar-summary-label">
                 分页行为
@@ -135,32 +155,6 @@ export function WorkbenchToolbar({
                   { label: 'Pro', value: 'pro' },
                 ]}
               />
-            </div>
-
-            <div className="toolbar-control-row">
-              <Typography.Text type="secondary" className="toolbar-group-title">
-                环境
-              </Typography.Text>
-              <Space.Compact>
-                <Segmented
-                  size="small"
-                  value={executionMode}
-                  onChange={(value) => onExecutionModeChange(value as ExecutionMode)}
-                  options={[
-                    { label: 'Cloud', value: 'cloud' },
-                    { label: 'Extension', value: 'extension' },
-                  ]}
-                />
-                {executionMode === 'extension' && (
-                  <Input
-                    size="small"
-                    placeholder="Agent ID"
-                    value={agentId}
-                    onChange={(e) => onAgentIdChange(e.target.value)}
-                    style={{ width: 120 }}
-                  />
-                )}
-              </Space.Compact>
             </div>
 
             <div className="toolbar-control-row">
@@ -232,7 +226,7 @@ export function WorkbenchToolbar({
                       className={group.primary === action ? 'toolbar-action-btn toolbar-action-btn-primary' : 'toolbar-action-btn'}
                       size="small"
                       type={group.primary === action ? 'primary' : 'default'}
-                      disabled={runningAction !== null || (action === 'test-node' && !selectedNodeId)}
+                      disabled={runningAction !== null}
                       onClick={() => onRunAction(action)}
                       icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
                     >

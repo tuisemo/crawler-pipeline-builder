@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 
 from backend.core.api_response import api_response
-from backend.workflow.executor import executor
 from backend.workflow.schemas import (
     FromLegacyConfigRequest,
     FormatScriptRequest,
@@ -9,8 +8,6 @@ from backend.workflow.schemas import (
     GenerateDetailBatchRunnerRequest,
     RunScriptSandboxRequest,
     SaveScriptRequest,
-    TestNodeRequest,
-    TestSubflowRequest,
     ToPromptRequest,
     ValidateWorkflowRequest,
     CompilePlanRequest,
@@ -115,26 +112,3 @@ def save_script_endpoint(request: SaveScriptRequest):
         return api_response(save_script(request))
     except ScriptPersistenceError as e:
         return api_response(status_code=400, success=False, error_code=e.error_code, error=e.error)
-
-
-@router.post("/test-node")
-async def test_node(request: TestNodeRequest):
-    """Test a single workflow node with minimal prerequisites.
-    
-    This endpoint executes only the requested node and its necessary
-    prerequisites, without committing downstream workflow side effects.
-    Returns structured logs and node results for inspection.
-    """
-    return api_response(await executor.test_node(request))
-
-
-@router.post("/test-subflow")
-async def test_subflow(request: TestSubflowRequest):
-    """Test a workflow subflow within graph boundaries.
-    
-    This endpoint executes nodes within the specified subflow boundaries,
-    respecting execution limits (max_pages).
-    Returns structured logs, node results, and sample records.
-    Partial-run failures preserve inspectable outputs.
-    """
-    return api_response(await executor.test_subflow(request))

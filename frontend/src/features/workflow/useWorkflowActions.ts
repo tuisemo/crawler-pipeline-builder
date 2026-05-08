@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { getErrorMessage } from './workflowState'
 import type { ScriptGenerationMode, WorkflowGraph } from './workflowContracts'
-import { postWorkflowAction } from '../../services/workflowApi'
+import { postWorkflowAction, type WorkflowActionPath } from '../../services/workflowApi'
 import type { WorkbenchAction } from '../../app/components/WorkbenchToolbar'
-import { buildRuntimeAgentId, type ExecutionMode } from '../runtime/executionTarget'
 
-type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
+type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error'
 
 export type ResultState = {
   tone: ResultTone
@@ -18,40 +17,30 @@ export type ResultState = {
 
 type UseWorkflowActionsArgs = {
   canonicalGraph: WorkflowGraph
-  selectedNodeId: string
   graphKey: string
   getPromptOverride: (graphKey: string) => string
   generationMode: ScriptGenerationMode
-  executionMode: ExecutionMode
-  agentId: string
 }
 
 const actionLabels: Record<WorkbenchAction, string> = {
-  validate: 'Validate DSL',
-  prompt: 'Preview Prompt',
-  'compile-plan': 'Compile Plan',
-  'generate-skeleton': 'Generate Skeleton',
-  'test-node': 'Run Node Test',
-  'test-subflow': 'Run Subflow Test',
-  'generate-script': 'Generate Script',
-  'auto-layout': 'Auto Layout',
+  validate: '校验 DSL',
+  prompt: '生成提示词',
+  'compile-plan': '编译执行计划',
+  'generate-skeleton': '生成代码骨架',
+  'generate-script': '合成采集脚本',
+  'auto-layout': '自动布局',
 }
 
 function classifyResult(action: WorkbenchAction, responseOk: boolean, payload: unknown): ResultTone {
   const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {}
-  if (record.session_expired === true) return 'session-expired'
-  if (record.partial === true) return 'partial'
   if (responseOk && record.success !== false) return 'success'
-  if (action === 'validate' || action === 'prompt' || action === 'compile-plan') return 'validation-error'
+  if (['validate', 'prompt', 'compile-plan'].includes(action)) return 'validation-error'
   return 'runtime-error'
 }
 
 function resolveResultMessage(action: WorkbenchAction, responseOk: boolean, payload: unknown, tone: ResultTone): string {
   if (tone === 'success') {
-    return 'Workflow action completed. Inspect the structured output below.'
-  }
-  if (tone === 'partial') {
-    return 'Workflow action partially completed. Inspect logs and sample output below.'
+    return '操作已成功完成。可以在下方查看结构化输出或生成的工件。'
   }
 
   const parsedError = getErrorMessage(payload)
@@ -60,37 +49,32 @@ function resolveResultMessage(action: WorkbenchAction, responseOk: boolean, payl
   }
 
   if (!responseOk) {
-    return `${actionLabels[action]} request failed.`
+    return `请求失败：${actionLabels[action]}。请检查网络连接或后端服务状态。`
   }
-  return `${actionLabels[action]} failed. Inspect the structured output below.`
+  return `${actionLabels[action]} 执行失败。请查看下方的详细诊断信息。`
 }
 
-export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, getPromptOverride, generationMode, executionMode, agentId }: UseWorkflowActionsArgs) {
+export function useWorkflowActions({ canonicalGraph, graphKey, getPromptOverride, generationMode }: UseWorkflowActionsArgs) {
   const [resultState, setResultState] = useState<ResultState>({
     tone: 'idle',
-    title: 'Idle',
-    message: 'Select an action from the toolbar to show validation, prompt preview, node test, or subflow output here.',
+    title: '就绪',
+    message: '从工具栏选择一个动作（如：合成脚本）来在此处查看 AI 生成的结果。',
   })
   const [runningAction, setRunningAction] = useState<WorkbenchAction | null>(null)
 
-  const selectedOrEntryNodeId = useMemo(
-    () => selectedNodeId || canonicalGraph.nodes[0]?.id || '',
-    [canonicalGraph.nodes, selectedNodeId],
-  )
-
   async function runWorkflowAction(action: WorkbenchAction) {
-    if ((action === 'test-node' || action === 'test-subflow') && runningAction) return
+    if (action === 'auto-layout') return // Handled in App.tsx
 
     const previousPayload = resultState.payload
     setRunningAction(action)
     setResultState({
       tone: 'loading',
-      title: `${actionLabels[action]} running`,
+      title: `${actionLabels[action]} 运行中`,
       message: previousPayload
-        ? `Loading new result; previous output remains below.${action === 'generate-script' ? ` Current mode: ${generationMode}.` : ''}`
+        ? `正在加载新结果；旧结果保留在下方。${action === 'generate-script' ? ` 生成模式：${generationMode}。` : ''}`
         : action === 'generate-script'
-          ? `Loading workflow result... Current mode: ${generationMode}.`
-          : 'Loading workflow result...',
+          ? `正在合成采集脚本（模式：${generationMode}）...`
+          : `正在执行 ${actionLabels[action]}...`,
       payload: previousPayload,
       action,
       graphKey,
@@ -98,33 +82,20 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
 
     try {
       const promptOverride = action === 'generate-script' ? getPromptOverride(graphKey) : ''
-      const basePayload = action === 'test-node'
-        ? { graph: canonicalGraph, node_id: selectedOrEntryNodeId }
-        : action === 'test-subflow'
-          ? { graph: canonicalGraph, boundary: { start_node_id: selectedNodeId || undefined } }
-          : action === 'generate-script' && promptOverride
-            ? { graph: canonicalGraph, prompt_override: promptOverride, generation_mode: generationMode }
-            : action === 'generate-script'
-              ? { graph: canonicalGraph, generation_mode: generationMode }
-            : { graph: canonicalGraph }
-            
-      const runtimeAgentId = buildRuntimeAgentId(executionMode, agentId)
-      const requestBody = (action === 'test-node' || action === 'test-subflow') && runtimeAgentId
-        ? { ...basePayload, agent_id: runtimeAgentId }
-        : basePayload
-      const path = action === 'validate'
-        ? '/api/workflows/validate'
-        : action === 'prompt'
-          ? '/api/workflows/to-prompt'
-          : action === 'compile-plan'
-            ? '/api/workflows/compile-plan'
-          : action === 'generate-skeleton'
-            ? '/api/workflows/generate-skeleton'
-          : action === 'test-node'
-            ? '/api/workflows/test-node'
-            : action === 'generate-script'
-              ? '/api/workflows/generate-crawler'
-              : '/api/workflows/test-subflow'
+      const requestBody = action === 'generate-script'
+        ? { graph: canonicalGraph, prompt_override: promptOverride || undefined, generation_mode: generationMode }
+        : { graph: canonicalGraph }
+
+      const pathMap: Record<Exclude<WorkbenchAction, 'auto-layout'>, WorkflowActionPath> = {
+        validate: '/api/workflows/validate',
+        prompt: '/api/workflows/to-prompt',
+        'compile-plan': '/api/workflows/compile-plan',
+        'generate-skeleton': '/api/workflows/generate-skeleton',
+        'generate-script': '/api/workflows/generate-crawler',
+      }
+
+      const path = pathMap[action as Exclude<WorkbenchAction, 'auto-layout'>]
+
       const { response, payload } = await postWorkflowAction(path, requestBody)
       const tone = classifyResult(action, response.ok, payload)
       setResultState({
@@ -138,8 +109,8 @@ export function useWorkflowActions({ canonicalGraph, selectedNodeId, graphKey, g
     } catch (error) {
       setResultState({
         tone: 'runtime-error',
-        title: `${actionLabels[action]} failed`,
-        message: error instanceof Error ? error.message : 'Workflow action failed.',
+        title: `${actionLabels[action]} 失败`,
+        message: error instanceof Error ? error.message : '执行过程中发生未知错误。',
         payload: previousPayload,
         action,
         graphKey,

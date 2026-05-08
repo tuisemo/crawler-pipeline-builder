@@ -10,7 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def test_settings_reads_environment_over_project_env(monkeypatch):
     monkeypatch.setenv("BACKEND_PORT", "8111")
     monkeypatch.setenv("BROWSER_HEADLESS", "true")
-    monkeypatch.setenv("BROWSER_SESSION_TTL_SECONDS", "123")
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("API_BASE_URL", "https://llm.example.test/v1")
     monkeypatch.setenv("API_TOKEN", "test-token")
@@ -23,7 +22,6 @@ def test_settings_reads_environment_over_project_env(monkeypatch):
 
     assert settings.backend_port == 8111
     assert settings.browser_headless is True
-    assert settings.browser_session_ttl_seconds == 123
     assert settings.llm_provider == "openai"
     assert settings.api_base_url == "https://llm.example.test/v1"
     assert settings.api_token == "test-token"

@@ -1,13 +1,12 @@
 # Crawler Workflow
 
-`crawler-workflow` 是一个基于 DSL 的浏览器爬虫工作流系统。它将 FastAPI 后端、Playwright 浏览器会话与 React 可视化工作台组合在一起，用于完成工作流编排、有界执行测试，以及 AI 辅助脚本生成。
+`crawler-workflow` 是一个基于 DSL 的浏览器爬虫工作流系统。它将 FastAPI 后端、React 可视化工作台与本地 Browser Bridge 扩展组合在一起，用于完成工作流编排、AI 辅助分析，以及列表/详情采集脚本生成。
 
 ## 当前范围
 
 - 工作流 DSL 校验与图编辑
-- 有界的 `test-node` / `test-subflow` 执行
 - Prompt 预览、骨架脚本生成、完整爬虫脚本生成
-- 选择器检测、字段推断、分页分析、数据清洗等 AI 辅助动作
+- 通过前端直连浏览器扩展完成的选择器检测、字段推断前置取证、分页分析前置取证
 - 前端工作台中的脚本与提示词编辑工作区
 - 独立的详情页页面采集工具 `page-extractor`（供批处理脚本或手工 CLI 调用）
 
@@ -59,11 +58,11 @@ crawler-workflow/
 │   ├── api/                   # FastAPI 路由层
 │   ├── assist/                # assist 任务编排与 JSON 协议
 │   ├── core/                  # settings / logging / api_response
-│   ├── extraction/            # DOM 检测、HTML 提取、选择器测试
+│   ├── extraction/            # 纯算法/规则层的 DOM 检测与 HTML 处理工具
 │   ├── llm/                   # LLM client 实现
 │   ├── prompts/               # prompt 共享规则、契约、任务与组装器
-│   ├── runtime/               # 浏览器会话、异步桥接、记录输出
-│   └── workflow/              # workflow schema、编译、执行、脚本生成
+│   ├── runtime/               # 脚本输出与 legacy 隔离模块
+│   └── workflow/              # workflow schema、编译、脚本生成
 ├── page_extractor/            # 独立详情页采集工具与 CLI 运行时
 ├── frontend/                  # React 工作台
 │   └── src/
@@ -93,4 +92,5 @@ crawler-workflow/
 ## 备注
 
 - `GET /` 当前返回简单的 API 说明信息，主要的编排界面在 React 工作台中。
+- 工作台阶段已不再依赖后端浏览器会话中介；浏览器取证由前端直连本地扩展完成。
 - 临时截图、调试输出、一次性规划笔记不应保留在仓库根目录。

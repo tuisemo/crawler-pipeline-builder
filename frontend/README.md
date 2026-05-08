@@ -72,8 +72,9 @@ Workflow actions POST to these endpoints:
 |--------|----------|---------|
 | Validate DSL | `POST /api/workflows/validate` | `{ graph }` |
 | Preview Prompt | `POST /api/workflows/to-prompt` | `{ graph }` |
-| Run Node Test | `POST /api/workflows/test-node` | `{ graph, node_id, max_items, max_steps }` |
-| Run Subflow Test | `POST /api/workflows/test-subflow` | `{ graph, boundary }` |
+| Compile Plan | `POST /api/workflows/compile-plan` | `{ graph }` |
+| Generate Skeleton | `POST /api/workflows/generate-skeleton` | `{ graph }` |
+| Generate Script | `POST /api/workflows/generate-crawler` | `{ graph, prompt_override?, generation_mode }` |
 | Import Legacy | `POST /api/workflows/from-legacy-config` | `{ url, item_selector, fields, ... }` |
 
 ## Testing

@@ -9,9 +9,6 @@ from html import unescape
 from typing import Any
 
 from backend.core.app_logging import audit_event
-from backend.extraction.auto_detector import AutoDetector
-from backend.extraction.html_extractor import HtmlExtractor
-from backend.extraction.selector_tester import SelectorTester
 from backend.llm import (
     get_default_client,
 )
@@ -34,7 +31,6 @@ from backend.assist.json_protocol import (
     _extract_json_payload,
 )
 from backend.assist.pagination_recovery import (
-    _NEXT_TEXT_RE,
     PAGINATION_ANALYSIS_SYSTEM_RULES,
     build_pagination_analysis_user_prompt,
     has_pagination_evidence,
@@ -42,36 +38,10 @@ from backend.assist.pagination_recovery import (
     recover_pagination_from_summary,
     recover_partial_pagination_json,
 )
-from backend.runtime.browser_session import get_active_session, page_session_mgr
-from backend.runtime.ext_session_mgr import ext_session_mgr
 from backend.workflow.schemas import (
     AssistLlmRequest,
     AssistLlmResponse,
-    AssistHtmlExtractRequest,
-    AssistHtmlExtractResponse,
-    AssistSelectorTestRequest,
-    AssistSelectorTestResponse,
-    AutoDetectRequest,
-    AutoDetectResponse,
 )
-
-PLAYWRIGHT_ONLY_SELECTOR_MARKERS = (
-    "locator(",
-    "get_by_role(",
-    "get_by_text(",
-    "text=",
-    "nth=",
-    ">>",
-    ":has-text(",
-)
-
-
-def _is_extension_session(session: Any) -> bool:
-    return hasattr(session, "clear_highlight") and (
-        hasattr(session, "auto_detect")
-        or hasattr(session, "extract_html")
-        or hasattr(session, "test_selector")
-    )
 
 
 def _confidence_bucket(value: object) -> str:
@@ -127,104 +97,6 @@ def _extract_html_section(section_name: str, html_fragment: str) -> str:
     )
     match = pattern.search(html_fragment or "")
     return match.group(1).strip() if match else ""
-
-
-def _normalize_runtime_selector(selector: str) -> str:
-    normalized = (selector or "").strip()
-    if not normalized:
-        return ""
-    lowered = normalized.lower()
-    if lowered.startswith(("xpath=", "css=")):
-        return normalized
-    if normalized.startswith(("//", ".//", "(//", "(/")):
-        return f"xpath={normalized}"
-    return normalized
-
-
-def _is_query_compatible_selector(selector: str) -> bool:
-    lowered = selector.lower()
-    return not any(marker in lowered for marker in PLAYWRIGHT_ONLY_SELECTOR_MARKERS)
-
-
-def _get_live_session_for_selector_validation(session_id: str | None):
-    session = page_session_mgr.get(session_id) if session_id else get_active_session()
-    if session is not None and session.is_alive():
-        return session
-    return None
-
-
-def _selector_matches_session_page(session, selector: str) -> tuple[bool, str]:
-    normalized = _normalize_runtime_selector(selector)
-    if not normalized:
-        return False, normalized
-    if not _is_query_compatible_selector(normalized):
-        return False, normalized
-    try:
-        return len(session.page.query_selector_all(normalized)) > 0, normalized
-    except Exception:
-        return False, normalized
-
-
-def _element_looks_like_next_control(element: Any) -> bool | None:
-    inspected = False
-    try:
-        rel = str(element.get_attribute("rel") or "").strip().lower()
-        inspected = True
-        if rel == "next":
-            return True
-    except Exception:
-        pass
-
-    for attr_name in ("aria-label", "title", "class"):
-        try:
-            attr_value = str(element.get_attribute(attr_name) or "").strip()
-            inspected = True
-        except Exception:
-            attr_value = ""
-        if not attr_value:
-            continue
-        if _NEXT_TEXT_RE.search(attr_value):
-            return True
-        if attr_name == "class" and re.search(r"(?:^|\b)(next|more|load-more|load_more)(?:\b|$)", attr_value, re.IGNORECASE):
-            return True
-
-    try:
-        text = re.sub(r"\s+", " ", str(element.inner_text() or "")).strip()
-        inspected = True
-    except Exception:
-        text = ""
-    if text and _NEXT_TEXT_RE.search(text):
-        return True
-    if inspected:
-        return False
-    return None
-
-
-def _validate_actionable_pagination_selector(session: Any, strategy: str, selector: str) -> tuple[bool, str, str | None]:
-    normalized = _normalize_runtime_selector(selector)
-    if not normalized:
-        return False, normalized, "Selector is empty after normalization."
-    if not _is_query_compatible_selector(normalized):
-        return False, normalized, "Selector is not compatible with direct DOM or Playwright query execution."
-
-    try:
-        matches = session.page.query_selector_all(normalized)
-    except Exception:
-        return False, normalized, "Selector execution failed against the current page session."
-
-    match_count = len(matches)
-    if match_count == 0:
-        return False, normalized, "Selector did not match any pagination control on the current page session."
-
-    normalized_strategy = (strategy or "").strip().lower()
-    if normalized_strategy in {"click_next", "load_more"}:
-        if match_count > 1:
-            return False, normalized, f"Selector matched {match_count} elements; next/load-more control selectors must resolve to a single actionable element."
-        next_signal = _element_looks_like_next_control(matches[0])
-        if next_signal is False:
-            return False, normalized, "Selector matched one element, but it does not look like a concrete next/load-more control."
-
-    return True, normalized, None
 
 
 def _extract_item_samples(html_fragment: str) -> list[str]:
@@ -420,7 +292,6 @@ def _normalize_assist_json_result(task_name: str, parsed: dict[str, Any]) -> dic
         normalized["next_button_selector"] = normalized.get("next_button_selector") if isinstance(normalized.get("next_button_selector"), str) else ""
         page_selectors = normalized.get("page_number_selectors")
         normalized["page_number_selectors"] = page_selectors if isinstance(page_selectors, list) else []
-        normalized["item_selector"] = normalized.get("item_selector") if isinstance(normalized.get("item_selector"), str) else ""
     confidence = normalized.get("confidence")
     if not isinstance(confidence, (int, float)):
         normalized["confidence"] = None
@@ -487,313 +358,6 @@ def _attempt_repair_json_payload(client: Any, raw_output: str, response_contract
     if repair_response.error:
         return None, repair_response
     return _extract_json_payload(repair_response.content or ""), repair_response
-
-
-def _ensure_session(session_id: str | None, url: str | None, agent_id: str | None = None):
-    extension_agent_id = agent_id[4:] if agent_id and agent_id.startswith("ext:") else None
-    session = None
-    navigated_during_create = False
-
-    if session_id:
-        if extension_agent_id:
-            session = ext_session_mgr.get(session_id)
-        else:
-            session = page_session_mgr.get(session_id)
-        if session is not None and session.is_alive():
-            pass
-        else:
-            if session and extension_agent_id:
-                ext_session_mgr.close(session_id)
-            elif session:
-                page_session_mgr.close(session_id)
-            session = None
-
-    if session is None:
-        if extension_agent_id:
-            try:
-                session = ext_session_mgr.create(extension_agent_id, url)
-                navigated_during_create = bool(url)
-            except RuntimeError as e:
-                return None, str(e)
-        elif url and not session_id:
-            session = page_session_mgr.create()
-        else:
-            session = get_active_session()
-            if session is not None and not session.is_alive():
-                page_session_mgr.close(session.id)
-                session = None
-
-            if session is None:
-                session = page_session_mgr.create()
-
-    if url:
-        try:
-            if not navigated_during_create:
-                session.navigate(url, timeout=30000)
-        except Exception as e:
-            return None, f"Failed to navigate: {str(e)}"
-            
-    return session, None
-
-
-def auto_detect(request: AutoDetectRequest) -> AutoDetectResponse:
-    audit_event(
-        "assist_auto_detect_started",
-        session_id=request.session_id,
-        url=request.url,
-    )
-    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
-    if error:
-        audit_event(
-            "assist_auto_detect_failed",
-            session_id=request.session_id,
-            url=request.url,
-            error=error,
-        )
-        return AutoDetectResponse(success=False, error=error)
-
-    if _is_extension_session(session):
-        session.clear_highlight()
-        raw = session.auto_detect()
-        audit_event(
-            "assist_auto_detect_completed",
-            session_id=session.id,
-            url=request.url,
-            result=raw,
-        )
-        return AutoDetectResponse(
-            success=True,
-            session_id=session.id,
-            result={
-                "item_selector": raw.get("item_selector", ""),
-                "item_count": raw.get("item_count", 0),
-                "item_signature": raw.get("item_signature", ""),
-                "pagination_selector": raw.get("pagination_selector", ""),
-                "pagination_strategy": raw.get("pagination_strategy", "none"),
-                "pagination_score": raw.get("pagination_score", 0),
-                "confidence": raw.get("confidence", 0.0),
-                "fields": raw.get("fields", []),
-                "html_fragment": raw.get("html_fragment", ""),
-            },
-        )
-
-    SelectorTester.clear_selector_highlight(session.page)
-    detector = AutoDetector()
-    result = detector.detect(session.page)
-    audit_event(
-        "assist_auto_detect_completed",
-        session_id=session.id,
-        url=request.url,
-        result={
-            "item_selector": result.item_selector,
-            "item_count": result.item_count,
-            "item_signature": result.item_signature,
-            "pagination_selector": result.pagination_selector,
-            "pagination_strategy": result.pagination_strategy,
-            "pagination_score": result.pagination_score,
-            "confidence": result.confidence,
-            "field_count": len(result.fields),
-            "html_fragment": result.html_fragment,
-        },
-    )
-    return AutoDetectResponse(
-        success=True,
-        session_id=session.id,
-        result={
-            "item_selector": result.item_selector,
-            "item_count": result.item_count,
-            "item_signature": result.item_signature,
-            "pagination_selector": result.pagination_selector,
-            "pagination_strategy": result.pagination_strategy,
-            "pagination_score": result.pagination_score,
-            "confidence": result.confidence,
-            "fields": [
-                {
-                    "name": field.name,
-                    "selector": field.selector,
-                    "type": field.extraction_type,
-                    "confidence": field.confidence,
-                }
-                for field in result.fields
-            ],
-            "html_fragment": result.html_fragment,
-        },
-    )
-
-
-def run_selector_test(request: AssistSelectorTestRequest) -> AssistSelectorTestResponse:
-    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
-    if error:
-        audit_event(
-            "assist_test_selector_failed",
-            session_id=request.session_id,
-            url=request.url,
-            selector=request.selector,
-            error=error,
-        )
-        return AssistSelectorTestResponse(success=False, error=error)
-
-    if _is_extension_session(session):
-        session.clear_highlight()
-        ext_result = session.test_selector(
-            request.selector,
-            max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
-        )
-        if ext_result.get("error"):
-            error = str(ext_result.get("error"))
-            audit_event(
-                "assist_test_selector_failed",
-                session_id=session.id,
-                url=request.url,
-                selector=request.selector,
-                error=error,
-            )
-            return AssistSelectorTestResponse(success=False, session_id=session.id, error=error)
-        highlighted_count = 0
-        if int(ext_result.get("count", 0)) > 0:
-            highlighted_count = session.highlight_selector(
-                request.selector,
-                clear_after_ms=request.clear_after_ms,
-            )
-        payload = {
-            "match_count": int(ext_result.get("count", 0)),
-            "highlighted_count": highlighted_count,
-            "clear_after_ms": request.clear_after_ms,
-            "sample_items": ext_result.get("elements", []),
-        }
-    else:
-        SelectorTester.clear_selector_highlight(session.page)
-        result = SelectorTester.test_selector(
-            session.page,
-            request.selector,
-            max_samples=request.max_samples if isinstance(request.max_samples, int) and request.max_samples > 0 else 5,
-        )
-        if result.error:
-            audit_event(
-                "assist_test_selector_failed",
-                session_id=session.id,
-                url=request.url,
-                selector=request.selector,
-                error=result.error,
-            )
-            return AssistSelectorTestResponse(success=False, session_id=session.id, error=result.error)
-
-        highlighted_count = 0
-        if result.match_count > 0:
-            highlighted_count = SelectorTester.highlight_selector(
-                session.page,
-                request.selector,
-                clear_after_ms=request.clear_after_ms,
-            )
-
-        payload = {
-            "match_count": result.match_count,
-            "highlighted_count": highlighted_count,
-            "clear_after_ms": request.clear_after_ms,
-            "sample_items": result.sample_items,
-        }
-    audit_event(
-        "assist_test_selector_completed",
-        session_id=session.id,
-        url=request.url,
-        selector=request.selector,
-        result=payload,
-    )
-    return AssistSelectorTestResponse(
-        success=True,
-        session_id=session.id,
-        result=payload,
-    )
-
-
-def extract_html_fragment(request: AssistHtmlExtractRequest) -> AssistHtmlExtractResponse:
-    session, error = _ensure_session(request.session_id, request.url, getattr(request, "agent_id", None))
-    if error:
-        audit_event(
-            "assist_extract_html_failed",
-            session_id=request.session_id,
-            url=request.url,
-            item_selector=request.item_selector,
-            include_pagination=request.include_pagination,
-            max_items=request.max_items,
-            error=error,
-        )
-        return AssistHtmlExtractResponse(success=False, error=error)
-
-    if _is_extension_session(session):
-        session.clear_highlight()
-        ext_result = session.extract_html(
-            request.item_selector,
-            max_items=request.max_items,
-            include_pagination=request.include_pagination,
-        )
-        html_fragment = str(ext_result.get("html", ""))
-        metadata = {
-            "truncated": bool(ext_result.get("truncated", False)),
-            "original_size": int(ext_result.get("original_size", len(html_fragment.encode("utf-8")))),
-            "truncated_size": int(ext_result.get("truncated_size", len(html_fragment.encode("utf-8")))),
-            "item_count": int(ext_result.get("item_count", 0)),
-        }
-        audit_event(
-            "assist_extract_html_completed",
-            session_id=session.id,
-            url=request.url,
-            item_selector=request.item_selector,
-            include_pagination=request.include_pagination,
-            max_items=request.max_items,
-            html_fragment=html_fragment,
-            metadata=metadata,
-        )
-        return AssistHtmlExtractResponse(
-            success=True,
-            session_id=session.id,
-            html_fragment=html_fragment,
-            metadata=metadata,
-        )
-
-    SelectorTester.clear_selector_highlight(session.page)
-    extractor = HtmlExtractor()
-    if request.include_pagination:
-        result = extractor.extract_pagination_context(
-            session.page,
-            request.item_selector,
-            max_items=request.max_items,
-        )
-    else:
-        result = extractor.extract_item_container(
-            session.page,
-            request.item_selector,
-            max_items=request.max_items,
-        )
-    audit_event(
-        "assist_extract_html_completed",
-        session_id=session.id,
-        url=request.url,
-        item_selector=request.item_selector,
-        include_pagination=request.include_pagination,
-        max_items=request.max_items,
-        html_fragment=result.html,
-        metadata={
-            "truncated": result.truncated,
-            "original_size": result.original_size,
-            "truncated_size": result.truncated_size,
-            "item_count": result.item_count,
-            "has_item_samples": "<!-- ITEM_SAMPLES -->" in result.html,
-            "has_pagination_html": "<!-- PAGINATION -->" in result.html,
-            "has_pagination_summary": "<!-- PAGINATION_CONTROL_SUMMARY -->" in result.html,
-        },
-    )
-    return AssistHtmlExtractResponse(
-        success=True,
-        session_id=session.id,
-        html_fragment=result.html,
-        metadata={
-            "truncated": result.truncated,
-            "original_size": result.original_size,
-            "truncated_size": result.truncated_size,
-            "item_count": result.item_count,
-        },
-    )
 
 
 def _run_llm_json_task(
@@ -1011,63 +575,34 @@ def optimize_selector(request: AssistLlmRequest) -> AssistLlmResponse:
     return _run_llm_json_task(prompt, task_name="optimize_selector", response_contract=SELECTOR_OPTIMIZATION_RESPONSE_CONTRACT)
 
 
+def _build_pagination_evidence_fragment(request: AssistLlmRequest) -> str:
+    html_fragment = request.html_fragment or ""
+    has_structured_markers = any(marker in html_fragment for marker in (
+        "<!-- ITEM_SAMPLES -->",
+        "<!-- PAGINATION_COMPONENT -->",
+        "<!-- GLOBAL_PRUNED_BODY -->",
+    ))
+    if has_structured_markers:
+        return html_fragment
+
+    sections: list[str] = []
+    if html_fragment.strip():
+        sections.append(f"<!-- ITEM_SAMPLES -->\n{html_fragment.strip()}")
+    if isinstance(request.pagination_component_html, str) and request.pagination_component_html.strip():
+        sections.append(f"<!-- PAGINATION_COMPONENT -->\n{request.pagination_component_html.strip()}")
+    if isinstance(request.pruned_body_html, str) and request.pruned_body_html.strip():
+        sections.append(f"<!-- GLOBAL_PRUNED_BODY -->\n{request.pruned_body_html.strip()}")
+    return "\n\n".join(sections).strip() or html_fragment
+
+
 def analyze_pagination(request: AssistLlmRequest) -> AssistLlmResponse:
     # Pass only HTML evidence in user prompt; move analysis rules to system suffix.
-    evidence_prompt = build_pagination_analysis_user_prompt(request.html_fragment)
-    response = _run_llm_json_task(
+    evidence_fragment = _build_pagination_evidence_fragment(request)
+    evidence_prompt = build_pagination_analysis_user_prompt(evidence_fragment)
+    return _run_llm_json_task(
         evidence_prompt,
         task_name="analyze_pagination",
         response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
         system_suffix=PAGINATION_ANALYSIS_SYSTEM_RULES,
         max_tokens=4000,
-    )
-    if not response.success or not isinstance(response.result, dict):
-        return response
-
-    next_selector = response.result.get("next_button_selector")
-    if not isinstance(next_selector, str) or not next_selector.strip():
-        return response
-
-    session = _get_live_session_for_selector_validation(request.session_id)
-    if session is None:
-        return response
-
-    strategy = str(response.result.get("pagination_strategy") or "")
-    matched, normalized_selector, validation_reason = _validate_actionable_pagination_selector(session, strategy, next_selector)
-    if matched:
-        response.result["next_button_selector"] = normalized_selector
-        if normalized_selector != next_selector:
-            reason = str(response.result.get("reason") or "").strip()
-            suffix = "Normalized raw XPath to Playwright query syntax before validating it against the current page."
-            response.result["reason"] = f"{reason} {suffix}".strip()
-            response.reason = response.result["reason"]
-        return response
-
-    fallback = recover_pagination_from_summary(evidence_prompt)
-    if fallback:
-        fallback_selector = str(fallback.get("next_button_selector") or "").strip()
-        fallback_strategy = str(fallback.get("pagination_strategy") or strategy)
-        fallback_matched, normalized_fallback, fallback_reason = _validate_actionable_pagination_selector(session, fallback_strategy, fallback_selector)
-        if fallback_matched:
-            fallback["next_button_selector"] = normalized_fallback
-            fallback_reason = str(fallback.get("reason") or "").strip()
-            fallback["reason"] = (
-                f"{fallback_reason} Replaced the model selector because it was not precise enough for the current page session."
-            ).strip()
-            response.result = fallback
-            response.reason = fallback.get("reason")
-            response.confidence = float(fallback.get("confidence")) if isinstance(fallback.get("confidence"), (int, float)) else None
-            return response
-
-    return AssistLlmResponse(
-        success=True,
-        result=response.result,
-        confidence=response.confidence,
-        reason=response.reason,
-        raw=response.raw,
-        model=response.model,
-        usage=response.usage,
-        warnings=[
-            f"Pagination analysis produced a candidate selector, but it could not be validated as a single actionable control on the current page session. {validation_reason or 'Review the selector before applying it.'}"
-        ],
     )

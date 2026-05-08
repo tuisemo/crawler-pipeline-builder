@@ -2,6 +2,11 @@
 
 ## 1. 文档定位
 
+> 状态说明（2026-05-08 之后）：
+> 本文部分章节仍保留旧执行器与后端浏览器会话描述，作为历史实现记录参考。
+> 当前活跃架构以“前端直连 Browser Bridge 扩展 + 后端纯计算/LLM 接口”为准；
+> `test-node` / `test-subflow`、后端 relay/session 中介链路已经退出主应用路径。
+
 本文面向技术开发人员，目标是把当前工程的真实实现、模块职责、主链路时序、对外集成落点与扩展边界梳理清楚，帮助研发快速回答三个问题：
 
 1. 这个工程现在到底做到了什么
@@ -23,7 +28,7 @@
 
 ### 2.1 当前系统的一句话架构
 
-当前工程是一个“React 工作台 + FastAPI 服务 + Playwright 浏览器执行 + LLM 生成链 + 独立详情 CLI 子包”的混合式采集工作流系统。
+当前工程是一个“React 工作台 + FastAPI 服务 + 本地 Browser Bridge 扩展 + LLM 生成链 + 独立详情 CLI 子包”的采集工作流系统。
 
 ### 2.2 全局架构图
 
@@ -178,8 +183,6 @@ flowchart LR
 | `compile-plan` | 生成确定性执行计划 |
 | `generate-skeleton` | 生成确定性骨架脚本 |
 | `generate-script` | 生成完整列表采集脚本 |
-| `test-node` | 节点级验证 |
-| `test-subflow` | 子流级验证 |
 | `auto-layout` | 仅前端自动布局 |
 
 ### 5.5 结果区已是“产物工作区”
@@ -220,8 +223,6 @@ flowchart LR
 | `/run-script-sandbox` | 手动执行脚本沙箱 |
 | `/format-script` | 格式化脚本 |
 | `/save-script` | 保存脚本到项目目录 |
-| `/test-node` | 节点执行验证 |
-| `/test-subflow` | 子流执行验证 |
 
 ### 6.2 Assist API
 
@@ -231,9 +232,6 @@ flowchart LR
 
 | 路径 | 作用 |
 | --- | --- |
-| `/auto-detect` | 自动识别列表、字段、分页候选 |
-| `/extract-html` | 提取 HTML 证据 |
-| `/test-selector` | 测试并高亮选择器 |
 | `/infer-fields` | LLM 字段推断 |
 | `/optimize-selector` | LLM 选择器优化 |
 | `/analyze-pagination` | LLM 分页分析 |
@@ -544,14 +542,17 @@ flowchart LR
 - 各类上限
 - 图遍历状态
 
-### 12.3 `test-node` 与 `test-subflow`
+### 12.3 工作台验证能力的现状
 
-两种测试能力的真实差异：
+工作台当前已不再通过后端 `test-node` / `test-subflow` 执行图运行验证。
+
+当前保留的验证能力主要是：
 
 | 能力 | 技术目的 |
 | --- | --- |
-| `test-node` | 最小前置路径 + 当前节点调试 |
-| `test-subflow` | 有界执行一段子流程，返回节点结果与记录样本 |
+| 选择器测试 | 通过本地扩展直接在当前活动标签页验证选择器与高亮 |
+| HTML 证据提取 | 为字段推断、选择器优化、分页分析提供页面证据 |
+| 分页分析 | 由前端提取证据，后端仅做纯 LLM 分析 |
 
 ### 12.4 节点语义总表
 

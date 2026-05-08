@@ -36,7 +36,7 @@ import { usePromptWorkspace } from '../features/prompt-workspace/usePromptWorksp
 import { useAssistWorkbenchActions } from '../features/assist/useAssistWorkbenchActions'
 import { useWorkbenchLayout } from './useWorkbenchLayout'
 import { useWorkflowActions } from '../features/workflow/useWorkflowActions'
-import type { ExecutionMode } from '../features/runtime/executionTarget'
+import { detectExtension, type ExtensionStatus } from '../features/runtime/extensionBridge'
 import {
   buildWorkflowGraphKey,
 } from '../features/prompt-workspace/promptDrafts'
@@ -67,21 +67,20 @@ export default function App() {
 
   const [canvasFitToken, setCanvasFitToken] = useState(0)
   const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => {
-    const storedMode = localStorage.getItem('executionMode')
-    return storedMode === 'extension' ? 'extension' : 'cloud'
-  })
-  const [agentId, setAgentId] = useState<string>(
-    () => localStorage.getItem('agentId') || 'test_agent'
-  )
 
+  const [extensionStatus, setExtensionStatus] = useState<ExtensionStatus | null>(null)
   useEffect(() => {
-    localStorage.setItem('executionMode', executionMode)
-  }, [executionMode])
-
-  useEffect(() => {
-    localStorage.setItem('agentId', agentId)
-  }, [agentId])
+    let cancelled = false
+    async function poll() {
+      const status = await detectExtension()
+      if (!cancelled) {
+        setExtensionStatus(status)
+      }
+    }
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
   const {
     leftPanelOpen,
     rightPanelOpen,
@@ -122,8 +121,6 @@ export default function App() {
     setNodes,
     updateSelectedNodeData,
     notify: message,
-    executionMode,
-    agentId,
   })
   const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
     nodes.map((n) => `${n.id}-${n.type}`).join('|'),
@@ -142,12 +139,9 @@ export default function App() {
 
   const { resultState, runningAction, runWorkflowAction } = useWorkflowActions({
     canonicalGraph,
-    selectedNodeId,
     graphKey,
     getPromptOverride,
     generationMode,
-    executionMode,
-    agentId,
   })
 
   const conditionOutgoingEdges = useMemo(() => {
@@ -364,10 +358,7 @@ export default function App() {
           onRunAction={handleRunWorkflowAction}
           generationMode={generationMode}
           onGenerationModeChange={setGenerationMode}
-          executionMode={executionMode}
-          onExecutionModeChange={setExecutionMode}
-          agentId={agentId}
-          onAgentIdChange={setAgentId}
+          extensionStatus={extensionStatus}
           layout={{
             leftPanelOpen,
             rightPanelOpen,

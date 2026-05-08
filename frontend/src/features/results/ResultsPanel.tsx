@@ -1,10 +1,11 @@
 import { Alert, Card, Result, Spin, Tabs, Tag, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { ResultDetails } from './ResultDetails'
-import type { PromptWorkspace, ResultDetailsView } from './ResultDetails'
+import type { PromptWorkspaceProps } from './components/PromptWorkspace'
+import type { ResultDetailsView } from './ResultDetails'
 import type { WorkbenchAction } from '../../app/components/WorkbenchToolbar'
 
-type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error' | 'partial' | 'session-expired'
+type ResultTone = 'idle' | 'loading' | 'success' | 'validation-error' | 'runtime-error'
 
 type ResultState = {
   tone: ResultTone
@@ -17,7 +18,7 @@ type ResultState = {
 type ResultsPanelProps = {
   resultState: ResultState
   runningAction: string | null
-  promptWorkspace: PromptWorkspace | null
+  promptWorkspace: PromptWorkspaceProps | null
   selectedNodeId: string
   visibilityToken?: number
 }
@@ -28,8 +29,6 @@ const toneConfig: Record<ResultTone, { alertType: 'success' | 'info' | 'warning'
   success:       { alertType: 'success', resultStatus: 'success', label: '已完成' },
   'validation-error': { alertType: 'warning', resultStatus: 'warning', label: '需修正' },
   'runtime-error':     { alertType: 'error', resultStatus: 'error', label: '运行失败' },
-  partial:       { alertType: 'info', resultStatus: 'warning', label: '部分完成' },
-  'session-expired':   { alertType: 'error', resultStatus: '403', label: '会话失效' },
 }
 
 type ArtifactTabKey = Exclude<ResultDetailsView, 'all'>
@@ -39,8 +38,6 @@ const actionLabels: Partial<Record<WorkbenchAction, string>> = {
   prompt: '预览 Prompt',
   'compile-plan': '编排计划',
   'generate-skeleton': '生成骨架',
-  'test-node': '节点测试',
-  'test-subflow': '子流测试',
   'generate-script': '生成爬虫脚本',
   'auto-layout': '优化布局',
 }
@@ -55,11 +52,6 @@ function resolvePreferredArtifactTab(
   }
   if (action === 'prompt') {
     if (availability.prompt) return 'prompt'
-    if (availability.diagnostics) return 'diagnostics'
-  }
-  if (action === 'test-node' || action === 'test-subflow') {
-    if (availability.records) return 'records'
-    if (availability.logs) return 'logs'
     if (availability.diagnostics) return 'diagnostics'
   }
   if (action === 'validate' || action === 'compile-plan') {
@@ -221,7 +213,6 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
                   payload={resultState.payload}
                   promptWorkspace={promptWorkspace}
                   view={item.key}
-                  focusMode={scriptFocusMode && item.key === 'script'}
                   visibilityToken={detailVisibilityToken}
                 />
               ),

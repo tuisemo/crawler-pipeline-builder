@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sea Bridge</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        width: 320px;
+        padding: 18px;
+        font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        font-size: 13px;
+        color: #1a1a2e;
+        background: #f8f9fc;
+      }
+
+      /* ── Header ─────────────────────────── */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #e8ecf0;
+      }
+      .header-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #1677ff 0%, #4f9cf7 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+      .header-text h1 { font-size: 14px; font-weight: 600; line-height: 1.3; }
+      .header-text p { font-size: 11px; color: #8892a4; line-height: 1.3; }
+
+      /* ── Status bar ─────────────────────── */
+      .status-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin-bottom: 14px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .status-bar.disconnected { background: #fff1f0; color: #cf1322; }
+      .status-bar.connecting   { background: #fffbe6; color: #ad6800; }
+      .status-bar.connected    { background: #f6ffed; color: #389e0d; }
+      .status-dot {
+        width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      }
+      .disconnected .status-dot { background: #ff4d4f; }
+      .connecting .status-dot   { background: #faad14; animation: pulse 1s infinite; }
+      .connected .status-dot    { background: #52c41a; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .tips {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .tip-card {
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid #e8ecf0;
+      }
+      .tip-card h2 {
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .tip-card p {
+        font-size: 12px;
+        color: #5a6577;
+        line-height: 1.5;
+      }
+
+      /* ── Footer ─────────────────────────── */
+      .footer {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid #e8ecf0;
+        font-size: 11px;
+        color: #aab2bf;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-icon">🔗</div>
+      <div class="header-text">
+        <h1>Browser Bridge</h1>
+        <p>前端直连浏览器页面的本地桥接层</p>
+      </div>
+    </div>
+
+    <div id="status" class="status-bar disconnected">
+      <span class="status-dot"></span>
+      <span id="statusText">未连接</span>
+    </div>
+
+    <div class="tips">
+      <div class="tip-card">
+        <h2>使用方式</h2>
+        <p>在工作台页面保持目标网页为当前活动标签页，选择器测试、HTML 提取和分页分析都会直接在该页面执行。</p>
+      </div>
+      <div class="tip-card">
+        <h2>当前活动页</h2>
+        <p id="pageHint">检测中…</p>
+      </div>
+    </div>
+
+    <div class="footer">Universal Browser Bridge v1.0</div>
+
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

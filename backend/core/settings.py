@@ -93,7 +93,6 @@ class CrawlerWorkflowSettings:
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     browser_headless: bool = False
-    browser_session_ttl_seconds: int = 600
     llm_provider: str = "openai"
     api_base_url: str = ""
     api_token: str = ""
@@ -103,8 +102,6 @@ class CrawlerWorkflowSettings:
     script_sandbox_enabled: bool = True
     script_sandbox_timeout_seconds: int = 60
     default_max_pages: int = 10
-    default_output_mode: str = "memory"
-    default_output_dir: str = "output"
 
     @classmethod
     def from_env(cls) -> "CrawlerWorkflowSettings":
@@ -124,12 +121,6 @@ class CrawlerWorkflowSettings:
             backend_host=_read_value(config, "BACKEND_HOST", "127.0.0.1", "CRAWLER_WORKFLOW_BACKEND_HOST"),
             backend_port=_read_int(config, "BACKEND_PORT", 8000, "CRAWLER_WORKFLOW_BACKEND_PORT"),
             browser_headless=_read_bool(config, "BROWSER_HEADLESS", False, "CRAWLER_WORKFLOW_BROWSER_HEADLESS"),
-            browser_session_ttl_seconds=_read_int(
-                config,
-                "BROWSER_SESSION_TTL_SECONDS",
-                600,
-                "CRAWLER_WORKFLOW_BROWSER_SESSION_TTL_SECONDS",
-            ),
             llm_provider=provider,
             api_base_url=api_base_url,
             api_token=_read_value(config, "API_TOKEN", ""),
@@ -139,8 +130,6 @@ class CrawlerWorkflowSettings:
             script_sandbox_enabled=_read_bool(config, "SCRIPT_SANDBOX_ENABLED", True),
             script_sandbox_timeout_seconds=_read_int(config, "SCRIPT_SANDBOX_TIMEOUT_SECONDS", 60),
             default_max_pages=_read_int(config, "DEFAULT_MAX_PAGES", 10),
-            default_output_mode=_read_value(config, "DEFAULT_OUTPUT_MODE", "memory"),
-            default_output_dir=_read_value(config, "DEFAULT_OUTPUT_DIR", "output"),
         )
 
 

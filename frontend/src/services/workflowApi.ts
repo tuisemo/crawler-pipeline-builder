@@ -4,8 +4,6 @@ import type { WorkflowGraph } from '../features/workflow/workflowContracts'
 export type WorkflowActionPath =
   | '/api/workflows/validate'
   | '/api/workflows/to-prompt'
-  | '/api/workflows/test-node'
-  | '/api/workflows/test-subflow'
   | '/api/workflows/compile-plan'
   | '/api/workflows/generate-skeleton'
   | '/api/workflows/generate-crawler'
@@ -15,9 +13,6 @@ export type WorkflowActionPath =
   | '/api/workflows/save-script'
 
 export type AssistActionPath =
-  | '/api/assist/auto-detect'
-  | '/api/assist/extract-html'
-  | '/api/assist/test-selector'
   | '/api/assist/infer-fields'
   | '/api/assist/optimize-selector'
   | '/api/assist/analyze-pagination'
