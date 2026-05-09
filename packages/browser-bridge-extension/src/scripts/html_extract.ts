@@ -10,7 +10,9 @@ export function bridge_extract_items(selector: string, maxItems = 3) {
     return html.replace(/\s+/g, " ").replace(/>\s+</g, "><").trim();
   }
   function stripBridgeMarkers(html: string) {
-    return html.replace(/\s+data-sea-auto="[^"]*"/g, "").replace(/\s+data-bridge-highlight="[^"]*"/g, "");
+    return html
+      .replace(/\s+data-auto-detect-role="[^"]*"/g, "")
+      .replace(/\s+data-bridge-highlight="[^"]*"/g, "");
   }
   function queryAll(sel: string): Element[] {
     if (/^(\/\/|\.\/\/|\(\/\/|\(\/|xpath=)/.test(sel)) {
@@ -19,11 +21,11 @@ export function bridge_extract_items(selector: string, maxItems = 3) {
       const out: Element[] = [];
       for (let i = 0; i < r.snapshotLength; i++) {
         const n = r.snapshotItem(i);
-        if (n instanceof Element) out.push(n);
+        if (n instanceof Element) out.push(n)
       }
-      return out;
+      return out
     }
-    return [...document.querySelectorAll(sel)];
+    return [...document.querySelectorAll(sel)]
   }
   // --- end helpers ---
 
@@ -62,13 +64,16 @@ export function bridge_extract_pagination_context() {
       bodyClone.querySelectorAll(s).forEach(el => el.remove());
     });
 
-    const markerAttrs = ["data-sea-auto", "data-bridge-highlight"];
     const keepAttrs = ["id", "class", "href", "src", "title", "value", "name", "type", "aria-label", "aria-current"];
     const all = bodyClone.querySelectorAll("*");
     all.forEach(el => {
       for (let i = el.attributes.length - 1; i >= 0; i--) {
         const attr = el.attributes[i].name;
-        if (markerAttrs.includes(attr) || (!keepAttrs.includes(attr) && !attr.startsWith("data-"))) {
+        if (
+          attr === "data-auto-detect-role"
+          || attr === "data-bridge-highlight"
+          || (!keepAttrs.includes(attr) && !attr.startsWith("data-"))
+        ) {
           el.removeAttribute(attr);
         }
       }
@@ -104,7 +109,9 @@ export function bridge_extract_pagination_context() {
   }
 
   function stripBridgeMarkers(html: string) {
-    return html.replace(/\s+data-sea-auto="[^"]*"/g, "").replace(/\s+data-bridge-highlight="[^"]*"/g, "");
+    return html
+      .replace(/\s+data-auto-detect-role="[^"]*"/g, "")
+      .replace(/\s+data-bridge-highlight="[^"]*"/g, "");
   }
 
   // --- end helpers ---

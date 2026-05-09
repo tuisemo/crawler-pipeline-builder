@@ -4,8 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "extract-js": "python extract_js.py",
-    "build": "vite build"
+    "prepare:key": "node ./scripts/ensure-key.mjs",
+    "build": "npm run prepare:key && vite build",
+    "package:unpacked": "node ./scripts/package.mjs unpacked",
+    "package:zip": "node ./scripts/package.mjs zip",
+    "build:unpacked": "npm run build && npm run package:unpacked",
+    "build:zip": "npm run build:unpacked && npm run package:zip"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.29",

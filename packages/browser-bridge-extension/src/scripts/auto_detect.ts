@@ -11,28 +11,43 @@ const IGNORE_TAGS = new Set([
     const LIST_CONTAINER_SELECTORS = ['main', 'article', 'section', 'div', 'ul', 'ol', 'table', 'tbody', 'dl'];
     const PAGINATION_CONTAINER_SELECTORS = ['nav', 'div', 'section', 'ul', 'ol', 'table', 'tbody', 'tr', 'td', 'p', 'span', 'li'];
     const MARKER_CLEAR_AFTER_MS = 2200;
-    const CLEANUP_TIMER_KEY = '__seaAutoCleanupTimer';
+    const VISUAL_MARKER_ATTR = 'data-auto-detect-role';
+    const VISUAL_MARKER_STYLE_ID = 'auto-detect-highlight-style';
+    const CLEANUP_TIMER_KEY = '__autoDetectHighlightCleanupTimer';
     const PAGE_TEXT_RE = /^(?:\\d{1,3}|[<>]|>>|<<|›|‹|»|«|→|下一页|下页|上一页|首页|尾页|末页|next|next page|prev|previous|more|load more|加载更多)$/i;
     const NEXT_CONTROL_RE = /(?:下一页|下页|next|next page|more|load more|加载更多|[›»→>])$/i;
     const DATE_RE = /(20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?)|(\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2})/;
 
+    function stripVisualMarkers(html) {
+        return html
+            .replace(new RegExp(`\\s*${VISUAL_MARKER_ATTR}="[^"]*"`, 'g'), '')
+            .replace(/\\s*data-bridge-highlight="[^"]*"/g, '');
+    }
+
+    function clearCleanupTimer(timerKey) {
+        const existingCleanupTimer = window[timerKey];
+        if (typeof existingCleanupTimer === 'number') {
+            window.clearTimeout(existingCleanupTimer);
+        }
+        delete window[timerKey];
+    }
+
     function cleanup() {
-        document.querySelectorAll('[data-sea-auto]').forEach(el => {
-            el.style.outline = '';
-            el.style.backgroundColor = '';
-            el.removeAttribute('data-sea-auto');
+        clearCleanupTimer(CLEANUP_TIMER_KEY);
+        document.querySelectorAll(`[${VISUAL_MARKER_ATTR}]`).forEach(el => {
+            el.removeAttribute(VISUAL_MARKER_ATTR);
         });
-        const marker = document.getElementById('sea-auto-style');
+        const marker = document.getElementById(VISUAL_MARKER_STYLE_ID);
         if (marker) marker.remove();
     }
     cleanup();
 
     const style = document.createElement('style');
-    style.id = 'sea-auto-style';
+    style.id = VISUAL_MARKER_STYLE_ID;
     style.textContent = `
-        [data-sea-auto="item"] { outline: 2px dashed #45b7d1 !important; }
-        [data-sea-auto="pagination"] { outline: 2px dashed #f7dc6f !important; }
-        [data-sea-auto="field"] { outline: 2px dotted #96ceb4 !important; }
+        [${VISUAL_MARKER_ATTR}="item"] { outline: 2px dashed #45b7d1 !important; }
+        [${VISUAL_MARKER_ATTR}="pagination"] { outline: 2px dashed #f7dc6f !important; }
+        [${VISUAL_MARKER_ATTR}="field"] { outline: 2px dotted #96ceb4 !important; }
     `;
     document.head.appendChild(style);
 
@@ -401,30 +416,26 @@ const IGNORE_TAGS = new Set([
     const bestPag = pagCandidates.length > 0 ? pagCandidates[0] : null;
 
     // Capture clean HTML BEFORE adding visual markers so that LLM evidence
-    // never contains ephemeral data-sea-auto attributes.
+    // never contains ephemeral auto-detect attributes.
     const cleanHtmlFragment = best.items.slice(0, 3)
         .map(i => i.element.outerHTML)
         .join('\\n')
-        .replace(/\\s*data-sea-auto="[^"]*"/g, '')
-        .replace(/\\s*data-bridge-highlight="[^"]*"/g, '');
+        .replace(/\\s+/g, ' ')
+        .trim();
+    const sanitizedHtmlFragment = stripVisualMarkers(cleanHtmlFragment);
 
     // Mark elements for visual highlighting and clear them automatically after
     // a short delay so the live page is not permanently polluted.
     best.items.slice(0, 10).forEach((item) => {
-        item.element.setAttribute('data-sea-auto', 'item');
+        item.element.setAttribute(VISUAL_MARKER_ATTR, 'item');
     });
 
     if (bestPag) {
-        bestPag.element.setAttribute('data-sea-auto', 'pagination');
+        bestPag.element.setAttribute(VISUAL_MARKER_ATTR, 'pagination');
     }
 
-    const existingCleanupTimer = window[CLEANUP_TIMER_KEY];
-    if (typeof existingCleanupTimer === 'number') {
-        window.clearTimeout(existingCleanupTimer);
-    }
     window[CLEANUP_TIMER_KEY] = window.setTimeout(() => {
         cleanup();
-        delete window[CLEANUP_TIMER_KEY];
     }, MARKER_CLEAR_AFTER_MS);
 
     // Detect fields from first item
@@ -471,6 +482,6 @@ const IGNORE_TAGS = new Set([
         pagination_strategy: pagStrategy,
         pagination_score: bestPag ? bestPag.score : 0,
         fields: fields.slice(0, 6),
-        html_fragment: cleanHtmlFragment
+        html_fragment: sanitizedHtmlFragment
     };
 }

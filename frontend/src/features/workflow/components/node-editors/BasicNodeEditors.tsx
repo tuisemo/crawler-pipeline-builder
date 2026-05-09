@@ -24,6 +24,20 @@ type NodeEditorProps = {
   updateSelectedNodeData: (patch: Partial<WorkflowNodeData>) => void
 }
 
+type ConditionEdgeBranch = 'true' | 'false' | 'default'
+
+type ConditionEdgePatch = {
+  branch?: ConditionEdgeBranch
+  label?: string
+  order?: number
+}
+
+type WorkflowContextSummary = {
+  hasOpenPageNode: boolean
+  hasSelectListNode: boolean
+  hasTerminalNode: boolean
+}
+
 type AssistNodeEditorProps = NodeEditorProps & {
   assistBusyAction: string | null
   onTestSelector: (selector: string, selectorLabel: string) => void
@@ -196,7 +210,7 @@ export function ConditionEditor({
     label?: string
     order?: number
   }>
-  updateConditionEdge: (edgeId: string, patch: any) => void
+  updateConditionEdge: (edgeId: string, patch: ConditionEdgePatch) => void
 }) {
   return (
     <>
@@ -245,8 +259,9 @@ export function ConditionEditor({
                 value={String(edge.branch ?? 'default')}
                 options={CONDITION_BRANCH_OPTIONS}
                 onChange={(value) => {
-                  const branchLabel = value === 'true' ? 'TRUE' : value === 'false' ? 'FALSE' : 'DEFAULT'
-                  updateConditionEdge(edge.id, { branch: value as any, label: branchLabel })
+                  const branch = value === 'true' || value === 'false' ? value : 'default'
+                  const branchLabel = branch === 'true' ? 'TRUE' : branch === 'false' ? 'FALSE' : 'DEFAULT'
+                  updateConditionEdge(edge.id, { branch, label: branchLabel })
                 }}
               />
               <Input
@@ -285,7 +300,7 @@ export function EmitRecordEditor({
   clampNumberInput,
   workflowContext,
 }: NodeEditorProps & {
-  workflowContext: any
+  workflowContext: WorkflowContextSummary
 }) {
   const emitDedupeKeys = Array.isArray(selectedNode.data.dedupe_keys)
     ? selectedNode.data.dedupe_keys.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)

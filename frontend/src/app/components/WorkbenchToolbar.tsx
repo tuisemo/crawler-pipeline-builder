@@ -62,31 +62,21 @@ const groupedActions: Array<{ title: string; actions: WorkbenchAction[]; primary
 ]
 
 function renderExtensionTag(extensionStatus: ExtensionStatus | null) {
-  const currentId = localStorage.getItem('SEA_EXTENSION_ID_OVERRIDE') || 'efiohaalhbjoiejopalokdojhdeeeadi'
-  
-  const handleConfigId = () => {
-    const nextId = window.prompt('请输入浏览器扩展 ID (在 chrome://extensions 中查看):', currentId)
-    if (nextId !== null) {
-      localStorage.setItem('SEA_EXTENSION_ID_OVERRIDE', nextId.trim())
-      window.location.reload()
-    }
-  }
-
   if (!extensionStatus) {
     return <Tag color="default" className="toolbar-chip">检测中…</Tag>
   }
   if (extensionStatus.installed && extensionStatus.ready) {
     return (
-      <Tooltip title={`Extension ID: ${currentId}. 点击修改。`}>
-        <Tag color="success" className="toolbar-chip" style={{ cursor: 'pointer' }} onClick={handleConfigId}>
+      <Tooltip title="Browser Bridge 已通过页面注入桥接接入当前工作台。">
+        <Tag color="success" className="toolbar-chip">
           已就绪（本地扩展加速中）
         </Tag>
       </Tooltip>
     )
   }
   return (
-    <Tooltip title={`当前使用的 ID: ${currentId}. 如果已安装扩展但未检测到，请点击此处修改 ID。`}>
-      <Tag color="error" className="toolbar-chip" style={{ cursor: 'pointer' }} onClick={handleConfigId}>
+    <Tooltip title="未检测到工作台页面桥接。请确认已重新加载 Browser Bridge 扩展，并刷新当前工作台页面。">
+      <Tag color="error" className="toolbar-chip">
         未安装扩展
       </Tag>
     </Tooltip>

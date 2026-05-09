@@ -122,11 +122,7 @@ export default function App() {
     updateSelectedNodeData,
     notify: message,
   })
-  const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [
-    nodes.map((n) => `${n.id}-${n.type}`).join('|'),
-    JSON.stringify(nodes.map((n) => n.data)),
-    edges,
-  ])
+  const canonicalGraph = useMemo(() => toCanonicalGraph(nodes, edges), [nodes, edges])
   const graphKey = useMemo(() => buildWorkflowGraphKey(canonicalGraph), [canonicalGraph])
   const workflowStats = useMemo(() => {
     return {
@@ -135,7 +131,7 @@ export default function App() {
       fieldCount: nodes.reduce((count, node) => count + (node.type === 'extract_field' ? node.data.fields?.length ?? 0 : 0), 0),
       hasPagination: nodes.some((node) => node.type === 'paginate'),
     }
-  }, [edges.length, nodes.map(n => n.type).join('|'), JSON.stringify(nodes.map(n => n.data))])
+  }, [nodes, edges])
 
   const { resultState, runningAction, runWorkflowAction } = useWorkflowActions({
     canonicalGraph,
@@ -155,17 +151,17 @@ export default function App() {
         label: typeof edge.label === 'string' ? edge.label : undefined,
         order: edge.order,
       }))
-  }, [edges, selectedNode?.id, selectedNode?.type])
+  }, [edges, selectedNode])
 
   const workflowContext = useMemo(() => ({
     hasOpenPageNode: nodes.some((node) => node.type === 'open_page'),
     hasSelectListNode: nodes.some((node) => node.type === 'select_list'),
     hasTerminalNode: nodes.some((node) => node.type === 'end'),
-  }), [nodes.map(n => n.type).join('|')])
+  }), [nodes])
 
   const sourceNodeTypeById = useMemo(
     () => Object.fromEntries(nodes.map((node) => [node.id, node.type])) as Record<string, WorkflowNodeType>,
-    [nodes.map(n => `${n.id}-${n.type}`).join('|')],
+    [nodes],
   )
 
   useEffect(() => {
@@ -446,7 +442,7 @@ export default function App() {
         mask={false}
         keyboard
         forceRender
-        height="84vh"
+        size="84vh"
         title={(
           <div className="workspace-drawer-title">
             <Typography.Text strong>结果与 DSL 工作区</Typography.Text>
@@ -467,14 +463,14 @@ export default function App() {
         styles={{
           body: { padding: 0, display: 'flex', minHeight: 0 },
           header: { padding: '14px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)' },
-          content: { overflow: 'hidden' },
+          section: { overflow: 'hidden' },
         }}
       >
         <Tabs
           activeKey={activeDockTab}
           onChange={(key) => selectDockTab(key as DockTabKey)}
           className="workspace-drawer-tabs"
-          destroyInactiveTabPane={false}
+          destroyOnHidden={false}
           animated={false}
           items={[
             {

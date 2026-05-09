@@ -7,8 +7,9 @@ import {
   RedoOutlined,
   SaveOutlined,
 } from '@ant-design/icons'
-import { useState, useEffect } from 'react'
-import { StatTags, EditorShell, copyText } from './ResultCommon'
+import { useState } from 'react'
+import { StatTags, EditorShell } from './ResultCommon'
+import { copyText } from './resultHelpers'
 
 export type ScriptWorkspaceProps = {
   script: string
@@ -44,19 +45,14 @@ export function ScriptWorkspace({
   onRestore,
   visibilityToken,
 }: ScriptWorkspaceProps) {
-  const [scriptDraft, setScriptDraft] = useState(originalScript)
+  const [scriptDraft, setScriptDraft] = useState(() => originalScript)
   const [scriptEditable, setScriptEditable] = useState(false)
   const [scriptWrapMode, setScriptWrapMode] = useState<'off' | 'on'>('off')
-  const [savePath, setSavePath] = useState(`generated/${filename}`)
+  const [savePath, setSavePath] = useState(() => `generated/${filename}`)
   const [overwriteTarget, setOverwriteTarget] = useState(false)
   const [notice, setNotice] = useState('')
   const [noticeTone, setNoticeTone] = useState<'success' | 'warning' | 'error' | 'info'>('info')
   const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    setScriptDraft(originalScript)
-    setSavePath(`generated/${filename}`)
-  }, [originalScript, filename])
 
   const stats = summarizeText(scriptDraft)
   const isDirty = scriptDraft !== originalScript
@@ -120,6 +116,9 @@ export function ScriptWorkspace({
         </Button>
         <Button size="small" icon={<RedoOutlined />} onClick={() => {
           onRestore()
+          setScriptDraft(originalScript)
+          setSavePath(`generated/${filename}`)
+          setOverwriteTarget(false)
           setNotice('已恢复到最近一次生成结果。')
           setNoticeTone('info')
         }}>

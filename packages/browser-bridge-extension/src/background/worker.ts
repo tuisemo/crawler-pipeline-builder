@@ -4,6 +4,7 @@ import { TabQueue } from './tab_queue'
 const tabQueue = new TabQueue()
 let managedTabId: number | null = null
 let managedTargetUrl = ''
+let managedTabOwnedByBridge = false
 
 type ExtensionAction =
   | 'ping'
@@ -13,8 +14,10 @@ type ExtensionAction =
   | 'extractHtml'
   | 'extractPaginationContext'
 
+const BRIDGE_RPC_TYPE = 'BROWSER_BRIDGE_RPC'
+
 type ExtensionRequest = {
-  type: 'SEA_RPC'
+  type: typeof BRIDGE_RPC_TYPE
   action: ExtensionAction
   payload?: Record<string, unknown>
 }
@@ -116,13 +119,16 @@ async function resolveTargetTabId(targetUrl?: string, senderTabId?: number): Pro
           console.log(`[Bridge] Reusing existing managed tab: ${managedTabId}`);
           await ensureVisible(managedTabId);
           return managedTabId;
-        } else {
+        } else if (managedTabOwnedByBridge) {
           console.log(`[Bridge] Managed tab URL mismatch (${currentClean} vs ${targetClean}), updating...`);
           await chrome.tabs.update(managedTabId, { url: normalizedTargetUrl, active: true });
           await waitTabLoad(managedTabId);
           await ensureVisible(managedTabId);
           managedTargetUrl = normalizedTargetUrl;
           return managedTabId;
+        } else {
+          managedTabId = null;
+          managedTargetUrl = "";
         }
       }
     } catch {
@@ -142,6 +148,7 @@ async function resolveTargetTabId(targetUrl?: string, senderTabId?: number): Pro
     console.log(`[Bridge] Found reusable tab: ${reusableTab.id}`);
     managedTabId = reusableTab.id;
     managedTargetUrl = normalizedTargetUrl;
+    managedTabOwnedByBridge = false;
     if (reusableTab.status !== "complete") {
       await waitTabLoad(reusableTab.id);
     }
@@ -157,6 +164,7 @@ async function resolveTargetTabId(targetUrl?: string, senderTabId?: number): Pro
   }
   managedTabId = createdTab.id;
   managedTargetUrl = normalizedTargetUrl;
+  managedTabOwnedByBridge = true;
   await waitTabLoad(createdTab.id);
   await ensureVisible(createdTab.id);
   return createdTab.id;
@@ -194,7 +202,7 @@ async function handleRequest(
   senderTabId?: number,
 ): Promise<ExtensionResponse<unknown>> {
   try {
-    if (message.type !== 'SEA_RPC') {
+    if (message.type !== BRIDGE_RPC_TYPE) {
       return fail('extension_unreachable', 'Unsupported message type')
     }
 
@@ -320,8 +328,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (managedTabId === tabId) {
     managedTabId = null
     managedTargetUrl = ''
+    managedTabOwnedByBridge = false
   }
 })
 
 chrome.runtime.onMessage.addListener(respond)
-chrome.runtime.onMessageExternal.addListener(respond)

@@ -3,6 +3,7 @@ const statusText = document.getElementById('statusText') as HTMLSpanElement
 const pageHint = document.getElementById('pageHint') as HTMLParagraphElement
 
 type StatusLevel = 'disconnected' | 'connecting' | 'connected'
+const BRIDGE_RPC_TYPE = 'BROWSER_BRIDGE_RPC'
 
 function renderStatus(level: StatusLevel, detail: string) {
   statusBar.className = `status-bar ${level}`
@@ -14,7 +15,7 @@ async function init() {
 
   try {
     const response = await chrome.runtime.sendMessage({
-      type: 'SEA_RPC',
+      type: BRIDGE_RPC_TYPE,
       action: 'ping',
     })
     if (response?.ok && response.data?.ready) {

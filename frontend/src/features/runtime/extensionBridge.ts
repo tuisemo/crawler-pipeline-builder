@@ -1,9 +1,3 @@
-const DEFAULT_EXTENSION_ID = 'opeiogkblhbkpdpfdhpgfljanhkgmenl'
-
-function getExtensionId(): string {
-  return localStorage.getItem('SEA_EXTENSION_ID_OVERRIDE') || DEFAULT_EXTENSION_ID
-}
-
 type ExtensionAction =
   | 'ping'
   | 'autoDetect'
@@ -11,12 +5,6 @@ type ExtensionAction =
   | 'highlightSelector'
   | 'extractHtml'
   | 'extractPaginationContext'
-
-type ExtensionRequest = {
-  type: 'SEA_RPC'
-  action: ExtensionAction
-  payload?: Record<string, unknown>
-}
 
 type ExtensionErrorCode =
   | 'extension_not_installed'
@@ -30,20 +18,18 @@ type ExtensionResponse<T> =
   | { ok: true; data: T }
   | { ok: false; error: { code: ExtensionErrorCode; message: string } }
 
-interface ChromeRuntime {
-  sendMessage: (
-    extensionId: string,
-    message: ExtensionRequest,
-    callback: (response: ExtensionResponse<unknown> | undefined) => void,
-  ) => void
-  lastError: { message?: string } | undefined
+type PageBridgeRequest = {
+  source: 'BROWSER_BRIDGE_PAGE'
+  requestId: string
+  action: ExtensionAction
+  payload?: Record<string, unknown>
 }
 
-interface ChromeGlobal {
-  runtime?: ChromeRuntime
+type PageBridgeResponse = {
+  source: 'BROWSER_BRIDGE_EXTENSION'
+  requestId: string
+  response: ExtensionResponse<unknown>
 }
-
-declare const chrome: ChromeGlobal | undefined
 
 export type ExtensionStatus = {
   installed: boolean
@@ -110,16 +96,13 @@ const UNAVAILABLE: ExtensionStatus = {
   version: '',
 }
 
-function getRuntime(): ChromeRuntime | null {
-  if (typeof chrome === 'undefined' || !chrome?.runtime?.sendMessage) {
-    return null
-  }
-  return chrome.runtime
+function canUsePageBridge(): boolean {
+  return typeof window !== 'undefined' && typeof window.postMessage === 'function'
 }
 
 function normalizeBridgeError(code: ExtensionErrorCode, fallback: string): ExtensionBridgeError {
   const messageByCode: Record<ExtensionErrorCode, string> = {
-    extension_not_installed: '未检测到 Browser Bridge 扩展，请先在 Chrome/Chromium 中加载本地扩展并配置正确的 ID。',
+    extension_not_installed: '未检测到 Browser Bridge 扩展，请先在 Chrome/Chromium 中加载本地扩展。',
     extension_unreachable: 'Browser Bridge 扩展暂时不可用，请刷新扩展或重新打开当前工作台页面。',
     no_active_tab: '未找到匹配的目标标签页。请检查：\n1. open_page 节点的目标 URL 是否正确\n2. 目标页面是否已在浏览器中打开',
     script_execution_failed: fallback || '扩展脚本执行失败，请检查当前页面是否已完成加载，或尝试刷新页面。',
@@ -129,44 +112,60 @@ function normalizeBridgeError(code: ExtensionErrorCode, fallback: string): Exten
   return new ExtensionBridgeError(code, messageByCode[code])
 }
 
+function isBridgeResponse(value: unknown): value is PageBridgeResponse {
+  return Boolean(value)
+    && typeof value === 'object'
+    && (value as PageBridgeResponse).source === 'BROWSER_BRIDGE_EXTENSION'
+    && typeof (value as PageBridgeResponse).requestId === 'string'
+    && typeof (value as PageBridgeResponse).response === 'object'
+}
+
 function sendExtensionRequest<T>(
   action: ExtensionAction,
   payload?: Record<string, unknown>,
   timeoutMs = 2500,
 ): Promise<T> {
-  const runtime = getRuntime()
-  if (!runtime) {
+  if (!canUsePageBridge()) {
     return Promise.reject(normalizeBridgeError('extension_not_installed', ''))
   }
 
   return new Promise((resolve, reject) => {
+    const requestId = `bridge-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const timer = setTimeout(() => {
+      window.removeEventListener('message', onMessage)
       reject(normalizeBridgeError('timeout', ''))
     }, timeoutMs)
 
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || !isBridgeResponse(event.data) || event.data.requestId !== requestId) {
+        return
+      }
+
+      clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
+
+      const { response } = event.data
+      if (!response.ok) {
+        reject(normalizeBridgeError(response.error.code, response.error.message))
+        return
+      }
+      resolve(response.data as T)
+    }
+
+    window.addEventListener('message', onMessage)
+
+    const request: PageBridgeRequest = {
+      source: 'BROWSER_BRIDGE_PAGE',
+      requestId,
+      action,
+      payload,
+    }
+
     try {
-      runtime.sendMessage(
-        getExtensionId(),
-        { type: 'SEA_RPC', action, payload },
-        (response) => {
-          clearTimeout(timer)
-          if (runtime.lastError) {
-            reject(normalizeBridgeError('extension_unreachable', runtime.lastError.message || ''))
-            return
-          }
-          if (!response) {
-            reject(normalizeBridgeError('extension_unreachable', ''))
-            return
-          }
-          if (!response.ok) {
-            reject(normalizeBridgeError(response.error.code, response.error.message))
-            return
-          }
-          resolve(response.data as T)
-        },
-      )
+      window.postMessage(request, window.location.origin)
     } catch (error) {
       clearTimeout(timer)
+      window.removeEventListener('message', onMessage)
       reject(normalizeBridgeError('extension_unreachable', error instanceof Error ? error.message : ''))
     }
   })

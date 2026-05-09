@@ -1,5 +1,5 @@
 import { Alert, Card, Result, Spin, Tabs, Tag, Typography } from 'antd'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ResultDetails } from './ResultDetails'
 import type { PromptWorkspaceProps } from './components/PromptWorkspace'
 import type { ResultDetailsView } from './ResultDetails'
@@ -32,6 +32,14 @@ const toneConfig: Record<ResultTone, { alertType: 'success' | 'info' | 'warning'
 }
 
 type ArtifactTabKey = Exclude<ResultDetailsView, 'all'>
+type ArtifactAvailability = Record<ArtifactTabKey, boolean>
+const ARTIFACT_TAB_VISIBILITY_INDEX: Record<ArtifactTabKey, number> = {
+  script: 1,
+  prompt: 2,
+  records: 3,
+  logs: 4,
+  diagnostics: 5,
+}
 
 const actionLabels: Partial<Record<WorkbenchAction, string>> = {
   validate: '校验 DSL',
@@ -42,9 +50,23 @@ const actionLabels: Partial<Record<WorkbenchAction, string>> = {
   'auto-layout': '优化布局',
 }
 
+function buildPayloadSignature(value: unknown): string {
+  if (typeof value === 'string') {
+    return `${value.length}:${value.slice(0, 80)}:${value.slice(-80)}`
+  }
+  if (Array.isArray(value)) {
+    return `array:${value.length}:${JSON.stringify(value.slice(0, 2))}`
+  }
+  if (value && typeof value === 'object') {
+    const json = JSON.stringify(value)
+    return `${json.length}:${json.slice(0, 120)}:${json.slice(-120)}`
+  }
+  return String(value ?? '')
+}
+
 function resolvePreferredArtifactTab(
   action: WorkbenchAction | undefined,
-  availability: Record<ArtifactTabKey, boolean>,
+  availability: ArtifactAvailability,
 ): ArtifactTabKey {
   if (action === 'generate-script' || action === 'generate-skeleton') {
     if (availability.script) return 'script'
@@ -60,45 +82,33 @@ function resolvePreferredArtifactTab(
   return (Object.entries(availability).find(([, enabled]) => enabled)?.[0] as ArtifactTabKey | undefined) ?? 'diagnostics'
 }
 
-export function ResultsPanel({ resultState, runningAction, promptWorkspace, selectedNodeId, visibilityToken }: ResultsPanelProps) {
-  const cfg = toneConfig[resultState.tone]
-  const payloadRecord = resultState.payload && typeof resultState.payload === 'object'
-    ? resultState.payload as Record<string, unknown>
-    : {}
-  const hasScriptPayload = typeof payloadRecord.script === 'string' && payloadRecord.script.trim().length > 0
-  const hasPromptPayload = (
-    typeof payloadRecord.prompt === 'string' && payloadRecord.prompt.trim().length > 0
-  ) || (
-    typeof promptWorkspace?.value === 'string' && promptWorkspace.value.trim().length > 0
-  )
-  const hasRecordsPayload = Array.isArray(payloadRecord.records) && payloadRecord.records.length > 0
-    || Array.isArray(payloadRecord.records_sample) && payloadRecord.records_sample.length > 0
-  const hasLogsPayload = (
-    Array.isArray(payloadRecord.logs) && payloadRecord.logs.length > 0
-  ) || (
-    Array.isArray(payloadRecord.node_results) && payloadRecord.node_results.length > 0
-  )
-  const hasPayload = Boolean(resultState.payload)
-  const artifactAvailability = useMemo<Record<ArtifactTabKey, boolean>>(() => ({
-    script: hasScriptPayload,
-    prompt: hasPromptPayload,
-    records: hasRecordsPayload,
-    logs: hasLogsPayload,
-    diagnostics: hasPayload,
-  }), [hasLogsPayload, hasPayload, hasPromptPayload, hasRecordsPayload, hasScriptPayload])
-  const [activeArtifactTab, setActiveArtifactTab] = useState<ArtifactTabKey>(() => (
-    resolvePreferredArtifactTab(resultState.action, artifactAvailability)
-  ))
-  const [detailVisibilityToken, setDetailVisibilityToken] = useState(0)
+type ArtifactTabsViewProps = {
+  cfg: typeof toneConfig[ResultTone]
+  resultState: ResultState
+  promptWorkspace: PromptWorkspaceProps | null
+  selectedNodeId: string
+  visibilityToken?: number
+  artifactAvailability: ArtifactAvailability
+  enabledArtifactCount: number
+  actionLabel: string
+  hasScriptPayload: boolean
+  defaultArtifactTab: ArtifactTabKey
+}
 
-  useEffect(() => {
-    setActiveArtifactTab(resolvePreferredArtifactTab(resultState.action, artifactAvailability))
-  }, [artifactAvailability, resultState.action, resultState.payload, resultState.tone])
-
-  useEffect(() => {
-    setDetailVisibilityToken((current) => current + 1)
-  }, [activeArtifactTab, visibilityToken])
-
+function ArtifactTabsView({
+  cfg,
+  resultState,
+  promptWorkspace,
+  selectedNodeId,
+  visibilityToken,
+  artifactAvailability,
+  enabledArtifactCount,
+  actionLabel,
+  hasScriptPayload,
+  defaultArtifactTab,
+}: ArtifactTabsViewProps) {
+  const [activeArtifactTab, setActiveArtifactTab] = useState<ArtifactTabKey>(defaultArtifactTab)
+  const detailVisibilityToken = (visibilityToken ?? 0) * 10 + ARTIFACT_TAB_VISIBILITY_INDEX[activeArtifactTab]
   const artifactTabItems: Array<{ key: ArtifactTabKey; label: string; disabled: boolean }> = [
     { key: 'script', label: '脚本', disabled: !artifactAvailability.script },
     { key: 'prompt', label: '提示词', disabled: !artifactAvailability.prompt },
@@ -106,8 +116,6 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
     { key: 'logs', label: '日志', disabled: !artifactAvailability.logs },
     { key: 'diagnostics', label: '诊断', disabled: !artifactAvailability.diagnostics },
   ]
-  const enabledArtifactCount = artifactTabItems.filter((item) => !item.disabled).length
-  const actionLabel = resultState.action ? actionLabels[resultState.action] ?? resultState.action : '等待操作'
   const scriptFocusMode = (
     activeArtifactTab === 'script'
     && hasScriptPayload
@@ -115,23 +123,7 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
   )
 
   return (
-    <Card
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>执行结果</Typography.Text>
-          <Tag
-            color={cfg.alertType === 'success' ? 'green' : cfg.alertType === 'error' ? 'red' : cfg.alertType === 'warning' ? 'orange' : cfg.alertType === 'info' ? 'blue' : 'default'}
-            style={{ margin: 0, border: 'none', boxShadow: 'var(--sd-shadow-border-light)' }}
-          >
-            {cfg.label}
-          </Tag>
-        </div>
-      }
-      extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>实时工作区</Typography.Text>}
-      styles={{ body: { padding: '12px 16px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
-      className="results-area ant-results-card"
-      variant="outlined"
-    >
+    <>
       {!scriptFocusMode ? (
         <div className="workspace-context-strip">
           <Typography.Text className="workspace-context-chip">
@@ -158,6 +150,116 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
         </div>
       )}
 
+      {cfg.alertType && !(cfg.alertType === 'success' && hasScriptPayload) && !scriptFocusMode && (
+        <Alert
+          className="results-status-alert"
+          type={cfg.alertType}
+          title={resultState.title}
+          description={resultState.message}
+          showIcon
+          style={{ marginBottom: 12, borderRadius: 'var(--sd-radius-lg)', border: 'none', boxShadow: 'var(--sd-shadow-border)' }}
+        />
+      )}
+      {cfg.alertType === 'success' && hasScriptPayload && !scriptFocusMode && (
+        <div className="result-compact-status">
+          <Typography.Text strong>{resultState.title}</Typography.Text>
+          <Tag color="green">success</Tag>
+          <Typography.Text type="secondary">{resultState.message}</Typography.Text>
+        </div>
+      )}
+      <Tabs
+        className="result-artifact-tabs"
+        activeKey={activeArtifactTab}
+        onChange={(nextKey) => setActiveArtifactTab(nextKey as ArtifactTabKey)}
+        destroyOnHidden={false}
+        animated={false}
+        items={artifactTabItems.map((item) => ({
+          key: item.key,
+          label: item.label,
+          disabled: item.disabled,
+          children: (
+            <ResultDetails
+              payload={resultState.payload}
+              promptWorkspace={promptWorkspace}
+              view={item.key}
+              visibilityToken={detailVisibilityToken}
+            />
+          ),
+        }))}
+      />
+    </>
+  )
+}
+
+export function ResultsPanel({ resultState, runningAction, promptWorkspace, selectedNodeId, visibilityToken }: ResultsPanelProps) {
+  const cfg = toneConfig[resultState.tone]
+  const payloadRecord = resultState.payload && typeof resultState.payload === 'object'
+    ? resultState.payload as Record<string, unknown>
+    : {}
+  const hasScriptPayload = typeof payloadRecord.script === 'string' && payloadRecord.script.trim().length > 0
+  const hasPromptPayload = (
+    typeof payloadRecord.prompt === 'string' && payloadRecord.prompt.trim().length > 0
+  ) || (
+    typeof promptWorkspace?.value === 'string' && promptWorkspace.value.trim().length > 0
+  )
+  const hasRecordsPayload = Array.isArray(payloadRecord.records) && payloadRecord.records.length > 0
+    || Array.isArray(payloadRecord.records_sample) && payloadRecord.records_sample.length > 0
+  const hasLogsPayload = (
+    Array.isArray(payloadRecord.logs) && payloadRecord.logs.length > 0
+  ) || (
+    Array.isArray(payloadRecord.node_results) && payloadRecord.node_results.length > 0
+  )
+  const hasPayload = Boolean(resultState.payload)
+  const artifactAvailability = useMemo<ArtifactAvailability>(() => ({
+    script: hasScriptPayload,
+    prompt: hasPromptPayload,
+    records: hasRecordsPayload,
+    logs: hasLogsPayload,
+    diagnostics: hasPayload,
+  }), [hasLogsPayload, hasPayload, hasPromptPayload, hasRecordsPayload, hasScriptPayload])
+  const defaultArtifactTab = useMemo(
+    () => resolvePreferredArtifactTab(resultState.action, artifactAvailability),
+    [artifactAvailability, resultState.action],
+  )
+  const artifactTabItems: Array<{ key: ArtifactTabKey; label: string; disabled: boolean }> = [
+    { key: 'script', label: '脚本', disabled: !artifactAvailability.script },
+    { key: 'prompt', label: '提示词', disabled: !artifactAvailability.prompt },
+    { key: 'records', label: '记录', disabled: !artifactAvailability.records },
+    { key: 'logs', label: '日志', disabled: !artifactAvailability.logs },
+    { key: 'diagnostics', label: '诊断', disabled: !artifactAvailability.diagnostics },
+  ]
+  const enabledArtifactCount = artifactTabItems.filter((item) => !item.disabled).length
+  const actionLabel = resultState.action ? actionLabels[resultState.action] ?? resultState.action : '等待操作'
+  const artifactSessionKey = [
+    resultState.action ?? 'idle',
+    resultState.tone,
+    defaultArtifactTab,
+    `script:${buildPayloadSignature(payloadRecord.script)}`,
+    `detail-batch:${buildPayloadSignature(payloadRecord['detail-batch-runner'])}`,
+    `prompt:${buildPayloadSignature(payloadRecord.prompt)}`,
+    `records:${buildPayloadSignature(payloadRecord.records ?? payloadRecord.records_sample)}`,
+    `logs:${buildPayloadSignature(payloadRecord.logs ?? payloadRecord.node_results)}`,
+    hasPayload ? 'payload:1' : 'payload:0',
+  ].join('|')
+
+  return (
+    <Card
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>执行结果</Typography.Text>
+          <Tag
+            color={cfg.alertType === 'success' ? 'green' : cfg.alertType === 'error' ? 'red' : cfg.alertType === 'warning' ? 'orange' : cfg.alertType === 'info' ? 'blue' : 'default'}
+            style={{ margin: 0, border: 'none', boxShadow: 'var(--sd-shadow-border-light)' }}
+          >
+            {cfg.label}
+          </Tag>
+        </div>
+      }
+      extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>实时工作区</Typography.Text>}
+      styles={{ body: { padding: '12px 16px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
+      className="results-area ant-results-card"
+      variant="outlined"
+    >
       {resultState.tone === 'idle' && (
         <Result
           status="info"
@@ -180,45 +282,19 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
       )}
 
       {(resultState.tone !== 'idle' && resultState.tone !== 'loading') && (
-        <>
-          {cfg.alertType && !(cfg.alertType === 'success' && hasScriptPayload) && !scriptFocusMode && (
-            <Alert
-              className="results-status-alert"
-              type={cfg.alertType}
-              title={resultState.title}
-              description={resultState.message}
-              showIcon
-              style={{ marginBottom: 12, borderRadius: 'var(--sd-radius-lg)', border: 'none', boxShadow: 'var(--sd-shadow-border)' }}
-            />
-          )}
-          {cfg.alertType === 'success' && hasScriptPayload && !scriptFocusMode && (
-            <div className="result-compact-status">
-              <Typography.Text strong>{resultState.title}</Typography.Text>
-              <Tag color="green">success</Tag>
-              <Typography.Text type="secondary">{resultState.message}</Typography.Text>
-            </div>
-          )}
-          <Tabs
-            className="result-artifact-tabs"
-            activeKey={activeArtifactTab}
-            onChange={(nextKey) => setActiveArtifactTab(nextKey as ArtifactTabKey)}
-            destroyInactiveTabPane={false}
-            animated={false}
-            items={artifactTabItems.map((item) => ({
-              key: item.key,
-              label: item.label,
-              disabled: item.disabled,
-              children: (
-                <ResultDetails
-                  payload={resultState.payload}
-                  promptWorkspace={promptWorkspace}
-                  view={item.key}
-                  visibilityToken={detailVisibilityToken}
-                />
-              ),
-            }))}
-          />
-        </>
+        <ArtifactTabsView
+          key={artifactSessionKey}
+          cfg={cfg}
+          resultState={resultState}
+          promptWorkspace={promptWorkspace}
+          selectedNodeId={selectedNodeId}
+          visibilityToken={visibilityToken}
+          artifactAvailability={artifactAvailability}
+          enabledArtifactCount={enabledArtifactCount}
+          actionLabel={actionLabel}
+          hasScriptPayload={hasScriptPayload}
+          defaultArtifactTab={defaultArtifactTab}
+        />
       )}
     </Card>
   )

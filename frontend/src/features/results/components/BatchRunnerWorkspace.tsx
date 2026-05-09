@@ -1,7 +1,8 @@
 import { Button, Checkbox, Descriptions, Input, Segmented, Space, Typography } from 'antd'
 import { CopyOutlined, DownloadOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
-import { useState, useEffect } from 'react'
-import { EditorShell, copyText } from './ResultCommon'
+import { useState } from 'react'
+import { EditorShell } from './ResultCommon'
+import { copyText } from './resultHelpers'
 
 export type DetailBatchRunnerForm = {
   databasePath: string
@@ -53,17 +54,12 @@ export function BatchRunnerWorkspace({
   onSave,
   visibilityToken,
 }: BatchRunnerWorkspaceProps) {
-  const [draft, setDraft] = useState(originalScript)
+  const [draft, setDraft] = useState(() => originalScript)
   const [editable, setEditable] = useState(false)
   const [wrapMode, setWrapMode] = useState<'off' | 'on'>('off')
-  const [savePath, setSavePath] = useState(`generated/${filename}`)
+  const [savePath, setSavePath] = useState(() => `generated/${filename}`)
   const [overwrite, setOverwrite] = useState(false)
   const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    setDraft(originalScript)
-    setSavePath(`generated/${filename}`)
-  }, [originalScript, filename])
 
   const handleCopy = async () => {
     await copyText(draft)
@@ -161,7 +157,11 @@ export function BatchRunnerWorkspace({
         />
         <Segmented
           value={form.generationMode}
-          onChange={(value) => onUpdateForm({ generationMode: value as any })}
+          onChange={(value) =>
+            onUpdateForm({
+              generationMode: value === 'llm_skeleton_enhancement' ? 'llm_skeleton_enhancement' : 'skeleton_enhancement',
+            })
+          }
           options={[
             { label: 'Deterministic', value: 'skeleton_enhancement' },
             { label: 'LLM Enhance', value: 'llm_skeleton_enhancement' },

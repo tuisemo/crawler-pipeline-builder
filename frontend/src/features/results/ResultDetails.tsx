@@ -5,11 +5,11 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { extractEffectivePrompt } from '../prompt-workspace/promptDrafts'
 import { postWorkflowAction } from '../../services/workflowApi'
 
-import { copyText } from './components/ResultCommon'
+import { copyText } from './components/resultHelpers'
 import { PromptWorkspace as PromptWorkspaceEditor, PromptPreview, type PromptWorkspaceProps } from './components/PromptWorkspace'
 import { ScriptWorkspace } from './components/ScriptWorkspace'
 import { BatchRunnerWorkspace, type DetailBatchRunnerForm } from './components/BatchRunnerWorkspace'
@@ -25,11 +25,67 @@ type ResultDetailsProps = {
   visibilityToken?: number
 }
 
+type CollapseItem = {
+  key: string
+  label: ReactNode
+  children: ReactNode
+  extra?: ReactNode
+}
+
+type JsonRecord = Record<string, unknown>
+
+type DetailBatchRunnerResult = {
+  script: string
+  filename: string
+  warnings: string[]
+}
+
 const LEVEL_COLORS: Record<string, string> = {
   info: 'blue',
   warning: 'orange',
   error: 'red',
   debug: 'default',
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function asString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function asRecordArray(value: unknown): JsonRecord[] {
+  return Array.isArray(value) ? value.filter(isRecord) : []
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function toDetailBatchRunnerResult(value: unknown): DetailBatchRunnerResult | null {
+  if (!isRecord(value)) return null
+  return {
+    script: asString(value.script),
+    filename: asString(value.filename, 'run_detail_batch.py'),
+    warnings: asStringArray(value.warnings),
+  }
+}
+
+function extractScriptFromPayload(payload: unknown): string {
+  if (!isRecord(payload)) return ''
+  return asString(payload.script)
+}
+
+function makeArtifactInstanceKey(filename: string, content: string): string {
+  return `${filename}:${content.length}:${content.slice(0, 80)}`
+}
+
+function summarizeText(text: string) {
+  return {
+    lines: text.split('\n').length,
+    chars: text.length,
+  }
 }
 
 function inferDetailBatchRunnerDefaults(script: string): DetailBatchRunnerForm {
@@ -60,9 +116,13 @@ export function ResultDetails({
   const [formatBusy, setFormatBusy] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [sandboxBusy, setSandboxBusy] = useState(false)
+  const payloadRecord = isRecord(payload) ? payload : {}
 
   const [detailBatchForm, setDetailBatchForm] = useState<DetailBatchRunnerForm>(() =>
-    inferDetailBatchRunnerDefaults(typeof (payload as any)?.script === 'string' ? (payload as any).script : '')
+    inferDetailBatchRunnerDefaults(extractScriptFromPayload(payload))
+  )
+  const [detailBatchResult, setDetailBatchResult] = useState<DetailBatchRunnerResult | null>(() =>
+    toDetailBatchRunnerResult(payloadRecord['detail-batch-runner'])
   )
   const [detailBatchBusy, setDetailBatchBusy] = useState(false)
   const [detailBatchFormatBusy, setDetailBatchFormatBusy] = useState(false)
@@ -76,16 +136,17 @@ export function ResultDetails({
     setTimeout(() => setCopiedKey(''), 1800)
   }
 
-  const p = (payload as any) ?? {}
-  const normalizedScript = typeof p.script === 'string' ? p.script : ''
-  const filename = typeof p.filename === 'string' ? p.filename : 'crawler.py'
-  const detailBatchResult = p['detail-batch-runner'] ?? null
+  const p = payloadRecord
+  const normalizedScript = asString(p.script)
+  const filename = asString(p.filename, 'crawler.py')
+  const promptWorkspaceStats = promptWorkspace ? summarizeText(promptWorkspace.value) : null
 
   const handleFormatScript = async (content: string) => {
     setFormatBusy(true)
     try {
       const res = await postWorkflowAction('/api/workflows/format-script', { script: content })
-      return (res.payload as any).script
+      if (!isRecord(res.payload)) return null
+      return asString(res.payload.script) || null
     } catch (err) {
       console.error(err)
       return null
@@ -120,13 +181,13 @@ export function ResultDetails({
         list_script: normalizedScript,
         ...detailBatchForm,
       })
-      console.log('Generated Detail Batch Runner:', res.payload)
+      setDetailBatchResult(toDetailBatchRunnerResult(res.payload))
     } finally {
       setDetailBatchBusy(false)
     }
   }
 
-  const collapseItems: any[] = []
+  const collapseItems: CollapseItem[] = []
 
   if (normalizedScript) {
     collapseItems.push({
@@ -134,9 +195,10 @@ export function ResultDetails({
       label: <Typography.Text strong>爬虫脚本</Typography.Text>,
       children: (
         <ScriptWorkspace
+          key={makeArtifactInstanceKey(filename, normalizedScript)}
           script={normalizedScript}
           filename={filename}
-          model={p.model}
+          model={asString(p.model) || undefined}
           formatBusy={formatBusy}
           saveBusy={saveBusy}
           sandboxBusy={sandboxBusy}
@@ -154,6 +216,7 @@ export function ResultDetails({
       label: <Typography.Text strong>详情批处理脚本</Typography.Text>,
       children: (
         <BatchRunnerWorkspace
+          key={makeArtifactInstanceKey(detailBatchResult?.filename ?? 'run_detail_batch.py', detailBatchResult?.script ?? '')}
           script={detailBatchResult?.script ?? ''}
           filename={detailBatchResult?.filename ?? 'run_detail_batch.py'}
           form={detailBatchForm}
@@ -168,7 +231,8 @@ export function ResultDetails({
             setDetailBatchFormatBusy(true)
             try {
               const res = await postWorkflowAction('/api/workflows/format-script', { script: c })
-              return (res.payload as any).script
+              if (!isRecord(res.payload)) return null
+              return asString(res.payload.script) || null
             } finally { setDetailBatchFormatBusy(false) }
           }}
           onSave={async (path, c, ov) => {
@@ -186,7 +250,7 @@ export function ResultDetails({
     collapseItems.push({
       key: 'prompt-workspace',
       label: <Typography.Text strong>提示词工作区</Typography.Text>,
-      children: <PromptWorkspaceEditor workspace={promptWorkspace} stats={{ lines: 0, chars: 0 }} visibilityToken={visibilityToken} />,
+      children: <PromptWorkspaceEditor workspace={promptWorkspace} stats={promptWorkspaceStats ?? { lines: 0, chars: 0 }} visibilityToken={visibilityToken} />,
     })
   }
 
@@ -202,15 +266,23 @@ export function ResultDetails({
   // ... (meta, trace, sandbox, logs, node-results, records sections - simplified for brevity or kept)
   // I will keep the logs and records as they are fairly compact now
 
-  const logs = Array.isArray(p.logs) ? p.logs : []
-  if (logs.length > 0) {
+  const logs = asRecordArray(p.logs)
+  const nodeResults = asRecordArray(p.node_results)
+  const logRows = logs.length > 0 ? logs : nodeResults
+  const logSectionLabel = logs.length > 0 ? '运行日志' : '节点结果'
+  if (logRows.length > 0) {
     collapseItems.push({
       key: 'logs',
-      label: <Typography.Text strong>运行日志 ({logs.length})</Typography.Text>,
+      label: <Typography.Text strong>{logSectionLabel} ({logRows.length})</Typography.Text>,
       children: (
         <Table
           size="small"
-          dataSource={logs.map((l: any, i: number) => ({ key: i, ...l }))}
+          dataSource={logRows.map((log, index) => ({
+            key: index,
+            level: asString(log.level, 'debug'),
+            node_id: asString(log.node_id),
+            message: asString(log.message || log.summary || log.status),
+          }))}
           columns={[
             { title: '级别', dataIndex: 'level', width: 80, render: (v: string) => <Tag color={LEVEL_COLORS[v]}>{v}</Tag> },
             { title: '节点', dataIndex: 'node_id', width: 120, render: (v: string) => v ? <Typography.Text code>{v}</Typography.Text> : '—' },
@@ -222,16 +294,18 @@ export function ResultDetails({
     })
   }
 
-  const records = Array.isArray(p.records) ? p.records : []
-  if (records.length > 0) {
+  const records = asRecordArray(p.records)
+  const recordSamples = asRecordArray(p.records_sample)
+  const recordRows = records.length > 0 ? records : recordSamples
+  if (recordRows.length > 0) {
     collapseItems.push({
       key: 'records',
-      label: <Typography.Text strong>样例记录 ({records.length})</Typography.Text>,
+      label: <Typography.Text strong>样例记录 ({recordRows.length})</Typography.Text>,
       children: (
         <Table
           size="small"
-          dataSource={records.map((r: any, i: number) => ({ key: i, ...r }))}
-          columns={Object.keys(records[0] || {}).slice(0, 6).map(k => ({ title: k, dataIndex: k, ellipsis: true }))}
+          dataSource={recordRows.map((record, index) => ({ key: index, ...record }))}
+          columns={Object.keys(recordRows[0] || {}).slice(0, 6).map(k => ({ title: k, dataIndex: k, ellipsis: true }))}
           pagination={{ pageSize: 5 }}
         />
       ),

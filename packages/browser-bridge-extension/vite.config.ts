@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, 'src/popup/popup.html'),
         worker: resolve(__dirname, 'src/background/worker.ts'),
+        content: resolve(__dirname, 'src/content/bridge.ts'),
       },
       output: {
         entryFileNames: '[name].js',

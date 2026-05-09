@@ -1,7 +1,8 @@
 import { Button, Space, Typography } from 'antd'
 import { CopyOutlined, RedoOutlined, SaveOutlined } from '@ant-design/icons'
 import { useState } from 'react'
-import { StatTags, EditorShell, copyText, formatSavedAt } from './ResultCommon'
+import { StatTags, EditorShell } from './ResultCommon'
+import { copyText, formatSavedAt } from './resultHelpers'
 
 export type PromptWorkspaceProps = {
   graphKey: string
