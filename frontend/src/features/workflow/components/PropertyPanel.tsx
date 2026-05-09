@@ -47,7 +47,7 @@ type PropertyPanelProps = {
   setAssistApplyMode: (mode: AssistApplyMode) => void
   onAutoDetectSelectList: () => void
   onOptimizeListSelector: () => void
-  onInferExtractFields: () => void
+  onInferExtractFields: (userIntent?: string) => void
   onAnalyzePagination: () => void
   onTestSelector: (selector: string, selectorLabel: string) => void
   assistBusyAction: string | null

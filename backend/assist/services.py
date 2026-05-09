@@ -314,7 +314,6 @@ def _attempt_semantic_retry(
             f"{previous_output}"
         ),
         temperature=0.05,
-        max_tokens=4000,
         response_format={"type": "json_object"},
         request_name=f"assist_{task_name}_semantic_retry",
     )
@@ -332,7 +331,6 @@ def _attempt_repair_json_payload(client: Any, raw_output: str, response_contract
         system=f"{JSON_REPAIR_SYSTEM_PROMPT}\n\n{response_contract}",
         user=_build_json_repair_prompt(response_contract, raw_output),
         temperature=0,
-        max_tokens=1200,
         response_format={"type": "json_object"},
         request_name="assist_json_repair",
     )
@@ -346,7 +344,6 @@ def _run_llm_json_task(
     task_name: str,
     response_contract: str,
     system_suffix: str = "",
-    max_tokens: int = 1500,
 ) -> AssistLlmResponse:
     quality = {
         "json_valid_first_pass": False,
@@ -394,7 +391,6 @@ def _run_llm_json_task(
             system=_build_json_task_system_prompt(response_contract, system_suffix=system_suffix),
             user=user_prompt,
             temperature=0.1,
-            max_tokens=max_tokens,
             response_format={"type": "json_object"},
             request_name=f"assist_{task_name}",
         )
@@ -544,7 +540,8 @@ def _run_llm_json_task(
 def infer_fields(request: AssistLlmRequest) -> AssistLlmResponse:
     # Truncate HTML to 6000 chars to prevent prompt token explosion on large pages.
     html = (request.html_fragment or "")[:6000]
-    prompt = build_field_inference_prompt(html)
+    user_intent = request.user_intent if isinstance(request.user_intent, str) else None
+    prompt = build_field_inference_prompt(html, user_intent=user_intent)
     return _run_llm_json_task(prompt, task_name="infer_fields", response_contract=FIELD_INFERENCE_RESPONSE_CONTRACT)
 
 
@@ -564,5 +561,4 @@ def analyze_pagination(request: AssistLlmRequest) -> AssistLlmResponse:
         task_name="analyze_pagination",
         response_contract=PAGINATION_ANALYSIS_RESPONSE_CONTRACT,
         system_suffix=PAGINATION_ANALYSIS_SYSTEM_RULES,
-        max_tokens=4000,
     )

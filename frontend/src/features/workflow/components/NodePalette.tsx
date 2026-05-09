@@ -67,12 +67,6 @@ export function NodePalette({ items, onAddNode }: NodePaletteProps) {
           </div>
         ))}
       </Flex>
-      <Card size="small" style={{ margin: '12px 12px', background: 'var(--sd-color-surface-muted)', border: 'none', borderRadius: 'var(--sd-radius-lg)', boxShadow: 'var(--sd-shadow-border)' }}>
-        <Typography.Text strong style={{ fontSize: 12, color: 'var(--sd-color-ink)' }}>适用范围</Typography.Text>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 0', lineHeight: 1.4 }}>
-          当前工作台聚焦列表抓取、字段抽取与受控浏览器验证链路。
-        </Typography.Paragraph>
-      </Card>
     </Card>
   )
 }

@@ -79,36 +79,72 @@ def _extract_balanced_json_object(raw: str) -> str | None:
     return None
 
 
+def _clean_json_string(text: str) -> str:
+    """Apply common fixes to malformed JSON strings before parsing."""
+    cleaned = text.strip()
+    # Remove trailing commas before } or ]
+    cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+    # Remove single-line // comments (not inside strings)
+    cleaned = re.sub(r'(?<!["\w])//.*?$', "", cleaned, flags=re.MULTILINE)
+    # Remove block comments
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
+
+
 def _extract_json_payload(raw: str) -> dict[str, Any] | None:
     if not raw:
         return None
 
     stripped = raw.strip()
-    for candidate in (stripped, *_JSON_BLOCK_RE.findall(stripped)):
-        try:
-            parsed = json.loads(candidate.strip())
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            continue
 
+    # Phase 1: Try direct parse and markdown code blocks (original logic).
+    for candidate in (stripped, *_JSON_BLOCK_RE.findall(stripped)):
+        for attempt_text in (candidate.strip(), _clean_json_string(candidate)):
+            try:
+                parsed = json.loads(attempt_text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+
+    # Phase 2: Regex-based object extraction with cleaning.
     object_match = _JSON_OBJECT_RE.search(stripped)
     if object_match:
-        try:
-            parsed = json.loads(object_match.group(0))
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
+        for attempt_text in (object_match.group(0), _clean_json_string(object_match.group(0))):
+            try:
+                parsed = json.loads(attempt_text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
 
+    # Phase 3: Balanced brace extraction with cleaning.
     balanced_object = _extract_balanced_json_object(stripped)
     if balanced_object:
+        for attempt_text in (balanced_object, _clean_json_string(balanced_object)):
+            try:
+                parsed = json.loads(attempt_text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+
+    # Phase 4: If the model returned a JSON array, wrap it in an object.
+    try:
+        parsed = json.loads(_clean_json_string(stripped))
+        if isinstance(parsed, list):
+            return {"items": parsed}
+    except json.JSONDecodeError:
+        pass
+
+    # Phase 5: Try extracting a JSON array from markdown fences.
+    for candidate in _JSON_BLOCK_RE.findall(stripped):
         try:
-            parsed = json.loads(balanced_object)
-            if isinstance(parsed, dict):
-                return parsed
+            parsed = json.loads(_clean_json_string(candidate))
+            if isinstance(parsed, list):
+                return {"items": parsed}
         except json.JSONDecodeError:
-            return None
+            continue
 
     return None
 

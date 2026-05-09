@@ -18,6 +18,31 @@ HTML:
 Produce selectors that are executable, stable, and minimally ambiguous on the current page evidence.
 {JSON_OUTPUT_LOCK}
 
+## Output Format (MUST follow exactly)
+Return ONE JSON object with this exact shape:
+{{
+  "item_selector": "CSS selector for repeating list items",
+  "fields": [
+    {{"name": "field_name", "selector": "item-scoped CSS or XPath", "type": "text", "confidence": 0.9}}
+  ],
+  "confidence": 0.85,
+  "reason": "Brief explanation of selector choices"
+}}
+
+Rules:
+- "fields" must always be an array, even when empty.
+- Each field entry must be a JSON object with "name", "selector", "type", and "confidence" keys.
+- "confidence" values must be numbers between 0 and 1.
+- Do NOT wrap the JSON in markdown fences (no ```json ... ```).
+- Do NOT include any prose, explanation, or commentary outside the JSON object.
+
+## Example
+Given HTML:
+<ul class="news-list"><li class="news-item"><h3><a href="/news/1" class="title">Headline A</a></h3><span class="date">2024-01-15</span><p class="summary">Brief text...</p></li><li class="news-item"><h3><a href="/news/2" class="title">Headline B</a></h3><span class="date">2024-01-16</span><p class="summary">Another text...</p></li></ul>
+
+Expected output:
+{{"item_selector":"ul.news-list > li.news-item","fields":[{{"name":"title","selector":":scope h3 a.title","type":"text","confidence":0.95}},{{"name":"link","selector":":scope h3 a.title","type":"attr:href","confidence":0.93}},{{"name":"publish_date","selector":":scope span.date","type":"text","confidence":0.9}},{{"name":"summary","selector":":scope p.summary","type":"text","confidence":0.85}}],"confidence":0.88,"reason":"Repeated li.news-item inside ul.news-list with stable class-based field selectors."}}
+
 ## Evidence Handling
 {EVIDENCE_FIRST_POLICY}
 1. Repeating DOM structures that clearly represent records
@@ -26,7 +51,7 @@ Produce selectors that are executable, stable, and minimally ambiguous on the cu
 4. Generic tags only as a last resort
 
 ## Selector Precision Rules (CRITICAL)
-You MUST produce **progressively-converging** (逐级收敛) selectors that are globally unambiguous on the page:
+You MUST produce **progressively-converging** selectors that are globally unambiguous on the page:
 
 1. **item_selector** — a selector that matches ONLY the repeating list items, not any other elements.
    - Prefer a scoped path: `<ancestor> > <tag>.<stable-class>` (e.g. `ul.news-list > li`, `div.results-grid > article`).
@@ -50,6 +75,13 @@ You MUST produce **progressively-converging** (逐级收敛) selectors that are 
 - If the page evidence only supports 2 strong fields, return 2 strong fields instead of padding to 6.
 - When title and date appear inline inside the same repeated block, keep the record boundary stable first, then choose the narrowest relative selector for each field.
 
+## User Intent
+If a "User Intent" section is provided in the evidence, it contains the user's specific requirements for this extraction task. You MUST:
+- Prioritize the fields and focus areas the user requested.
+- Skip fields the user explicitly does not want.
+- Adjust selectors to match the user's described data targets.
+- Still follow all selector quality rules even when fulfilling user intent.
+
 ## Failure Policy
 {LOW_CONFIDENCE_FALLBACK_POLICY}
 - Do not fabricate fields that have no visual or structural support in the HTML.
@@ -64,7 +96,7 @@ For each repeating item, extract ALL meaningful fields present:
 - `source` — author, category, or source tag if present (text)
 - Any other domain-specific fields visible in the HTML
 
-Snake_case field names. Aim for 3–6 fields per item.
+Snake_case field names. Aim for 3-6 fields per item.
 
 ## Self-check
 - Is `item_selector` specific to repeated records instead of page-wide layout elements?
@@ -95,7 +127,7 @@ Return a selector with better precision/stability tradeoff than the initial sele
    - Good: `section.news-container > ul > li.news-item`
    - Bad: `.news-item` (naked class, may appear elsewhere)
 3. **Prefer stable attributes**: IDs (if truly unique), stable class names, `data-*` attributes, or semantic HTML tags.
-4. **Trim redundancy**: remove intermediate nodes that don't add disambiguation value.
+4. **Trim redundancy**: remove intermediate nodes that do not add disambiguation value.
 5. Do not over-tighten the selector into something fragile, position-dependent, or likely to match zero elements after a small DOM change.
 6. The optimized selector MUST be either a **standard CSS selector** or an **XPath expression**.
    - Playwright natively supports XPath via `page.query_selector("xpath=//...")` / `page.locator("xpath=//...")`.
@@ -132,7 +164,7 @@ Identify the concrete, single control that advances pagination and return a dura
 4. Generic heuristics only if the earlier evidence is missing
 
 Task:
-1. Identify the pagination container and the specific "Next Page" (下一页) or "Load More" (加载更多) element.
+1. Identify the pagination container and the specific "Next Page" or "Load More" element.
 2. Determine the exact pagination strategy:
    - 'click_next': Standard pagination with a "Next" button/link.
    - 'infinite_scroll': No button, triggers on scroll.
@@ -150,7 +182,7 @@ Task:
    - the entire pagination container.
 6. Only populate `page_number_selectors` with selectors for numbered page buttons. Do not put the next/load-more selector into `page_number_selectors`.
 7. If there is no distinct next/load-more control, return `pagination_strategy: "none"` or an empty `next_button_selector` rather than guessing a broad selector.
-8. Account for multi-language text variations (Next/Load More, 下一页/加载更多).
+8. Account for multi-language text variations (Next/Load More, etc.).
 9. Every selector you return MUST be either a **standard CSS selector** or an **XPath expression**.
    - Playwright natively supports XPath via `page.query_selector("xpath=//...")` / `page.locator("xpath=//...")`.
    - The runtime auto-detects XPath when the selector starts with `//` or `.//` and adds the `xpath=` prefix.
@@ -179,4 +211,3 @@ Output format:
   "confidence": 0.0-1.0
 }}
 ```"""
-

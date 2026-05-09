@@ -53,7 +53,6 @@ def test_run_llm_json_task_uses_json_object_mode_and_normalizes_fields(monkeypat
     }
     assert captured["kwargs"] == {
         "temperature": 0.1,
-        "max_tokens": 1500,
         "response_format": {"type": "json_object"},
         "request_name": "assist_infer_fields",
     }
@@ -97,7 +96,6 @@ def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):
     assert captured["task_name"] == "analyze_pagination"
     assert captured["response_contract"] == PAGINATION_ANALYSIS_RESPONSE_CONTRACT
     assert captured["kwargs"]["system_suffix"]
-    assert captured["kwargs"]["max_tokens"] == 4000
     assert "## Selection Goal" in str(captured["kwargs"]["system_suffix"])
     assert "### Item Samples" in str(captured["user_prompt"])
     assert "### Pagination HTML Candidate" in str(captured["user_prompt"])

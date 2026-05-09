@@ -167,7 +167,7 @@ export function useAssistWorkbenchActions({
     })
   }
 
-  function handleInferExtractFields() {
+  function handleInferExtractFields(userIntent?: string) {
     runWithAssistLock('infer-fields', async () => {
       if (!selectedNode || selectedNode.type !== 'extract_field') return
       const selectListNode = getPrimarySelectListNode()
@@ -179,9 +179,14 @@ export function useAssistWorkbenchActions({
       const htmlFragment = existingHtml || (await extractHtmlLocally(itemSelector, 3, entryUrl)).htmlFragment
       if (!htmlFragment) throw new Error('未提取到 HTML 片段，无法推断字段')
 
-      const inferResult = await postAssistAction('/api/assist/infer-fields', {
+      const requestBody: Record<string, unknown> = {
         html_fragment: htmlFragment,
-      })
+      }
+      if (userIntent && userIntent.trim()) {
+        requestBody.user_intent = userIntent.trim()
+      }
+
+      const inferResult = await postAssistAction('/api/assist/infer-fields', requestBody)
       const inferError = normalizeAssistError(inferResult.payload, inferResult.response.ok)
       if (inferError) throw new Error(inferError)
 

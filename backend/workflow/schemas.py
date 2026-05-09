@@ -373,6 +373,7 @@ class AssistLlmRequest(BaseModel):
     pruned_body_html: Optional[str] = None
     pagination_component_html: Optional[str] = None
     initial_selector: Optional[str] = None
+    user_intent: Optional[str] = None
 
 
 class AssistLlmResponse(BaseModel):

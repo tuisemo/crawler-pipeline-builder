@@ -1,5 +1,6 @@
 import { Button, Card, Input, Select, Space, Typography } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { useState } from 'react'
 import type { WorkflowNode } from '../../workflowState'
 import type { ExtractionField } from '../../workflowContracts'
 
@@ -27,7 +28,7 @@ type ExtractFieldEditorProps = {
   updateExtractField: (index: number, patch: Partial<ExtractionField>) => void
   addExtractField: () => void
   removeExtractField: (index: number) => void
-  onInferExtractFields: () => void
+  onInferExtractFields: (userIntent?: string) => void
   onTestSelector: (selector: string, selectorLabel: string) => void
 }
 
@@ -42,13 +43,26 @@ export function ExtractFieldEditor({
   onInferExtractFields,
   onTestSelector,
 }: ExtractFieldEditorProps) {
+  const [userIntent, setUserIntent] = useState('')
+
   return (
     <>
       <Space wrap size={8} style={{ width: '100%', marginBottom: 4 }}>
-        <Button size="small" loading={assistBusyAction === 'infer-fields'} onClick={onInferExtractFields}>
+        <Button size="small" loading={assistBusyAction === 'infer-fields'} onClick={() => onInferExtractFields(userIntent || undefined)}>
           AI 推断字段
         </Button>
       </Space>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 11, margin: '0 0 6px' }}>
+        可选：输入额外需求，指导 AI 推断方向（如「只抽取标题和日期」「忽略广告区块」）。
+      </Typography.Paragraph>
+      <Input.TextArea
+        placeholder="例如：我只想抽取文章标题和发布日期，不需要摘要和图片链接"
+        value={userIntent}
+        autoSize={{ minRows: 1, maxRows: 3 }}
+        style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
+        allowClear
+        onChange={(e) => setUserIntent(e.target.value)}
+      />
       <Typography.Text strong style={{ fontSize: 13, color: '#0f172a', display: 'block', marginBottom: 4 }}>
         字段抽取
       </Typography.Text>
