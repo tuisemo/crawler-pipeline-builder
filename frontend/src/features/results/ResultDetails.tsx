@@ -13,6 +13,7 @@ import { copyText } from './components/resultHelpers'
 import { PromptWorkspace as PromptWorkspaceEditor, PromptPreview, type PromptWorkspaceProps } from './components/PromptWorkspace'
 import { ScriptWorkspace } from './components/ScriptWorkspace'
 import { BatchRunnerWorkspace, type DetailBatchRunnerForm } from './components/BatchRunnerWorkspace'
+import { EditorShell } from './components/ResultCommon'
 
 export type ResultDetailsView = 'all' | 'script' | 'prompt' | 'records' | 'logs' | 'diagnostics'
 
@@ -68,7 +69,7 @@ function toDetailBatchRunnerResult(value: unknown): DetailBatchRunnerResult | nu
   return {
     script: asString(value.script),
     filename: asString(value.filename, 'run_detail_batch.py'),
-    warnings: asStringArray(value.warnings),
+    warnings: asStringArray(isRecord(value.validation) ? value.validation.warnings : value.warnings),
   }
 }
 
@@ -144,9 +145,9 @@ export function ResultDetails({
   const handleFormatScript = async (content: string) => {
     setFormatBusy(true)
     try {
-      const res = await postWorkflowAction('/api/workflows/format-script', { script: content })
+      const res = await postWorkflowAction('/api/workflows/format-script', { content })
       if (!isRecord(res.payload)) return null
-      return asString(res.payload.script) || null
+      return asString(res.payload.formatted_content) || null
     } catch (err) {
       console.error(err)
       return null
@@ -158,7 +159,7 @@ export function ResultDetails({
   const handleSaveScript = async (path: string, content: string, overwrite: boolean) => {
     setSaveBusy(true)
     try {
-      await postWorkflowAction('/api/workflows/save-script', { path, script: content, overwrite })
+      await postWorkflowAction('/api/workflows/save-script', { relative_path: path, content, overwrite })
     } finally {
       setSaveBusy(false)
     }
@@ -178,8 +179,29 @@ export function ResultDetails({
     setDetailBatchBusy(true)
     try {
       const res = await postWorkflowAction('/api/workflows/generate-detail-batch-runner', {
-        list_script: normalizedScript,
-        ...detailBatchForm,
+        database: {
+          type: 'sqlite',
+          path: detailBatchForm.databasePath,
+          list_table_name: detailBatchForm.listTableName,
+          record_id_field: detailBatchForm.recordIdField,
+          detail_url_field: detailBatchForm.detailUrlField,
+        },
+        detail_task: {
+          table_name: detailBatchForm.taskTableName,
+          max_attempts: parseInt(detailBatchForm.maxAttempts, 10) || 3,
+        },
+        detail_cli: {
+          executable: detailBatchForm.cliExecutable,
+          output_root: detailBatchForm.outputRoot,
+        },
+        execution_policy: {
+          default_concurrency: parseInt(detailBatchForm.concurrency, 10) || 4,
+          default_batch_size: parseInt(detailBatchForm.batchSize, 10) || 20,
+          subprocess_timeout_seconds: parseInt(detailBatchForm.timeout, 10) || 180,
+        },
+        generation_policy: {
+          mode: detailBatchForm.generationMode,
+        },
       })
       setDetailBatchResult(toDetailBatchRunnerResult(res.payload))
     } finally {
@@ -230,14 +252,14 @@ export function ResultDetails({
           onFormat={async (c) => {
             setDetailBatchFormatBusy(true)
             try {
-              const res = await postWorkflowAction('/api/workflows/format-script', { script: c })
+              const res = await postWorkflowAction('/api/workflows/format-script', { content: c })
               if (!isRecord(res.payload)) return null
-              return asString(res.payload.script) || null
+              return asString(res.payload.formatted_content) || null
             } finally { setDetailBatchFormatBusy(false) }
           }}
           onSave={async (path, c, ov) => {
             setDetailBatchSaveBusy(true)
-            try { await postWorkflowAction('/api/workflows/save-script', { path, script: c, overwrite: ov }) }
+            try { await postWorkflowAction('/api/workflows/save-script', { relative_path: path, content: c, overwrite: ov }) }
             finally { setDetailBatchSaveBusy(false) }
           }}
           visibilityToken={visibilityToken}
@@ -323,28 +345,29 @@ export function ResultDetails({
           if (view === 'logs') return ['logs'].includes(item.key)
           return false
         })}
-        defaultActiveKey={collapseItems.map(i => i.key)}
+        defaultActiveKey={['script']}
         size="small"
         style={{ borderRadius: 10, overflow: 'hidden' }}
       />
       
       {view === 'diagnostics' && (
-        <Collapse
-          style={{ marginTop: 12 }}
-          items={[{
-            key: 'raw',
-            label: '原始 JSON',
-            extra: (
-              <Button size="small" onClick={(e) => {
-                e.stopPropagation()
-                void handleCopy('raw', JSON.stringify(payload, null, 2))
-              }}>
-                {copiedKey === 'raw' ? '已复制' : '复制'}
-              </Button>
-            ),
-            children: <pre style={{ fontSize: 11, background: '#f8fafc', padding: 12, borderRadius: 8 }}>{JSON.stringify(payload, null, 2)}</pre>
-          }]}
-        />
+        <div style={{ marginTop: 12, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Typography.Text strong>原始 JSON 响应</Typography.Text>
+            <Button size="small" onClick={() => void handleCopy('raw', JSON.stringify(payload, null, 2))}>
+              {copiedKey === 'raw' ? '已复制' : '复制 JSON'}
+            </Button>
+          </div>
+          <div style={{ flex: 1, minHeight: 400, border: '1px solid var(--sd-color-border-soft)', borderRadius: 8, overflow: 'hidden' }}>
+            <EditorShell
+              value={JSON.stringify(payload, null, 2)}
+              language="json"
+              height="100%"
+              readOnly={true}
+              visibilityToken={visibilityToken}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

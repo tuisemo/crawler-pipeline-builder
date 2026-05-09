@@ -53,19 +53,26 @@
    ```bash
    cd d:\WY-DATASETS\sea-data\packages\browser-bridge-extension
    ```
-2. 执行脚本生成和构建：
+2. 安装依赖并生成解压版扩展：
    ```bash
-   uv run python generate_scripts.py
    npm install
-   npm run build
+   npm run build:unpacked
+   ```
+   > 首次构建时会自动生成本地私钥并写入 `manifest.key`，以稳定扩展 ID。
+3. 如需生成商店上传包：
+   ```bash
+   npm run build:zip
    ```
 
 ### 3.2 在 Chrome 中加载扩展
 
 1. 打开 Chrome 扩展页面 `chrome://extensions/`。
 2. 开启 **“开发者模式”**。
-3. 点击 **“加载已解压的扩展程序”**，选择 `d:\WY-DATASETS\sea-data\packages\browser-bridge-extension` 文件夹。
+3. 点击 **“加载已解压的扩展程序”**，选择 `d:\WY-DATASETS\sea-data\packages\browser-bridge-extension\release\unpacked` 文件夹。
 4. 加载成功后，您将看到 **"Browser Bridge for Crawler"** 扩展。
+5. 重新刷新工作台页面，使扩展的 content script 注入到当前工作台。
+
+> `release/browser-bridge-extension.zip` 用于 Chrome Web Store / Edge Add-ons 上传；如需 Chromium 可直接分发安装的离线包，还需额外引入 `.crx` 签名流程。
 
 ### 3.3 加载后验证
 

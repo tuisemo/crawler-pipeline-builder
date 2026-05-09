@@ -7,7 +7,6 @@ from typing import Any
 from backend.core.app_logging import audit_event
 from backend.llm import get_default_client
 from backend.prompts.tasks.detail_batch_runner_system import DETAIL_BATCH_RUNNER_SYSTEM_PROMPT
-from backend.workflow.detail_batch_codegen import generate_detail_batch_runner_skeleton
 from backend.workflow.detail_batch_prompting import build_detail_batch_runner_prompt
 from backend.workflow.detail_batch_validation import validate_generated_detail_batch_runner
 from backend.workflow.schemas import (

@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from backend.workflow.schemas import FieldSchema, ValidateWorkflowRequest, WorkflowGraph, WorkflowNode
+from backend.workflow.schemas import (
+    LegacyFieldAliasError,
+    ValidateWorkflowRequest,
+    WorkflowGraph,
+    WorkflowNode,
+    normalize_field_payload,
+)
 
 
 @dataclass
@@ -43,22 +49,27 @@ def _find_duplicates(values) -> list[str]:
 
 def _validate_field_schema(raw_field: object, index: int) -> None:
     try:
-        field = FieldSchema.model_validate(raw_field)
+        normalized = normalize_field_payload(raw_field)
+    except LegacyFieldAliasError as e:
+        raise WorkflowValidationError(
+            error_code="extract_field_legacy_aliases_not_supported",
+            error=str(e),
+        ) from e
     except Exception as e:
         raise WorkflowValidationError(
             error_code="extract_field_invalid_field",
             error=f"extract_field field[{index}] validation failed: {e}.",
         ) from e
 
-    if not field.resolved_name():
+    if not normalized.get("name"):
         raise WorkflowValidationError(
             error_code="extract_field_requires_field_name",
-            error=f"extract_field field[{index}] requires a non-empty name or field_name.",
+            error=f"extract_field field[{index}] requires a non-empty name.",
         )
-    if not field.resolved_selector():
+    if not normalized.get("selector"):
         raise WorkflowValidationError(
             error_code="extract_field_requires_field_selector",
-            error=f"extract_field field[{index}] requires a non-empty selector or css.",
+            error=f"extract_field field[{index}] requires a non-empty selector.",
         )
 
 

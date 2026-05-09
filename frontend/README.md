@@ -1,4 +1,4 @@
-# Frontend - React Workbench
+# Scraper Flow Studio — Frontend React Workbench
 
 Visual DSL workflow designer powered by React, ReactFlow, and Monaco Editor.
 

@@ -6,6 +6,9 @@ import json
 import re
 from typing import Any
 
+from backend.assist.utils import extract_html_section, stable_class_tokens
+from backend.workflow.schemas import AssistLlmRequest
+
 
 PAGINATION_ANALYSIS_SYSTEM_RULES = """## Selection Goal
 Identify the single actionable control that advances to the next page or loads more content.
@@ -80,20 +83,57 @@ def _decode_partial_json_string(value: str) -> str:
     return decoded.replace("\\'", "'")
 
 
-def _extract_html_section(section_name: str, html_fragment: str) -> str:
-    pattern = re.compile(
-        rf"<!--\s*{re.escape(section_name)}\s*-->\s*([\s\S]*?)(?:<!--\s*[A-Z_]+\s*-->|$)",
-        re.IGNORECASE,
-    )
-    match = pattern.search(html_fragment or "")
-    return match.group(1).strip() if match else ""
+def _find_unquoted_array_end(raw_array_tail: str) -> int:
+    in_string = False
+    escaped = False
+    for index, char in enumerate(raw_array_tail):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if char == "]" and not in_string:
+            return index
+    return -1
+
+
+def build_pagination_evidence_fragment(request: AssistLlmRequest) -> str:
+    html_fragment = request.html_fragment or ""
+    has_item_samples = "<!-- ITEM_SAMPLES -->" in html_fragment
+    has_pagination_html = "<!-- PAGINATION_COMPONENT -->" in html_fragment or "<!-- PAGINATION -->" in html_fragment
+    has_pruned_body = "<!-- GLOBAL_PRUNED_BODY -->" in html_fragment
+    has_structured_markers = any((has_item_samples, has_pagination_html, has_pruned_body))
+    if has_structured_markers:
+        sections = [html_fragment.strip()] if html_fragment.strip() else []
+        if not has_pagination_html and isinstance(request.pagination_component_html, str) and request.pagination_component_html.strip():
+            sections.append(f"<!-- PAGINATION_COMPONENT -->\n{request.pagination_component_html.strip()}")
+        if not has_pruned_body and isinstance(request.pruned_body_html, str) and request.pruned_body_html.strip():
+            sections.append(f"<!-- GLOBAL_PRUNED_BODY -->\n{request.pruned_body_html.strip()}")
+        return "\n\n".join(section for section in sections if section).strip() or html_fragment
+
+    sections: list[str] = []
+    if html_fragment.strip():
+        sections.append(f"<!-- ITEM_SAMPLES -->\n{html_fragment.strip()}")
+    if isinstance(request.pagination_component_html, str) and request.pagination_component_html.strip():
+        sections.append(f"<!-- PAGINATION_COMPONENT -->\n{request.pagination_component_html.strip()}")
+    if isinstance(request.pruned_body_html, str) and request.pruned_body_html.strip():
+        sections.append(f"<!-- GLOBAL_PRUNED_BODY -->\n{request.pruned_body_html.strip()}")
+    return "\n\n".join(sections).strip() or html_fragment
+
+
+def build_pagination_evidence_prompt(request: AssistLlmRequest) -> str:
+    return build_pagination_analysis_user_prompt(build_pagination_evidence_fragment(request))
 
 
 def build_pagination_analysis_user_prompt(html_fragment: str) -> str:
-    item_samples = _extract_html_section("ITEM_SAMPLES", html_fragment)
-    pagination_html = _extract_html_section("PAGINATION_COMPONENT", html_fragment) or _extract_html_section("PAGINATION", html_fragment)
-    control_summary = _extract_html_section("PAGINATION_CONTROL_SUMMARY", html_fragment)
-    pruned_body = _extract_html_section("GLOBAL_PRUNED_BODY", html_fragment)
+    item_samples = extract_html_section("ITEM_SAMPLES", html_fragment)
+    pagination_html = extract_html_section("PAGINATION_COMPONENT", html_fragment) or extract_html_section("PAGINATION", html_fragment)
+    control_summary = extract_html_section("PAGINATION_CONTROL_SUMMARY", html_fragment)
+    pruned_body = extract_html_section("GLOBAL_PRUNED_BODY", html_fragment)
 
     evidence_sections = [
         "## Evidence Package",
@@ -142,9 +182,11 @@ def has_pagination_evidence(user_prompt: str) -> bool:
     return (
         "pagination_control_summary" in lowered
         or "<!-- pagination -->" in lowered
+        or "<!-- pagination_component -->" in lowered
+        or "### pagination html candidate" in lowered
+        or "### pagination control summary" in lowered
         or "下一页" in user_prompt
         or "load more" in lowered
-        or "pagination" in lowered
     )
 
 
@@ -194,17 +236,6 @@ def _parse_pagination_summary_lines(user_prompt: str) -> list[dict[str, str]]:
     return lines
 
 
-def _stable_class_tokens(class_name: str) -> list[str]:
-    tokens = []
-    for token in re.split(r"\s+", class_name.strip()):
-        cleaned = token.strip()
-        if not cleaned or any(ch.isdigit() for ch in cleaned) or len(cleaned) > 40:
-            continue
-        if re.match(r"^[a-zA-Z_-][a-zA-Z0-9_-]*$", cleaned):
-            tokens.append(cleaned)
-    return tokens[:2]
-
-
 def _xpath_literal(value: str) -> str:
     if '"' not in value:
         return f'"{value}"'
@@ -223,9 +254,9 @@ def _build_selector_from_control_hint(control: dict[str, str]) -> str:
     tag = control.get("tag", "")
     if tag == "<unknown>":
         tag = ""
-    class_tokens = _stable_class_tokens(control.get("class", ""))
+    class_tokens = stable_class_tokens(control.get("class", ""))
     parent_tag = control.get("parent_tag", "")
-    parent_class_tokens = _stable_class_tokens(control.get("parent_class", ""))
+    parent_class_tokens = stable_class_tokens(control.get("parent_class", ""))
     text = control.get("text", "")
     rel = control.get("rel", "")
     if rel.lower() == "next":
@@ -297,10 +328,10 @@ def recover_pagination_from_summary(user_prompt: str) -> dict[str, Any] | None:
     for control in controls:
         if control.get("role_hint") != "page_number":
             continue
-        class_tokens = _stable_class_tokens(control.get("class", ""))
+        class_tokens = stable_class_tokens(control.get("class", ""))
         tag = control.get("tag", "")
         parent_tag = control.get("parent_tag", "")
-        parent_class_tokens = _stable_class_tokens(control.get("parent_class", ""))
+        parent_class_tokens = stable_class_tokens(control.get("parent_class", ""))
         if class_tokens and (parent_class_tokens or parent_tag):
             parent_selector = f'{parent_tag or ""}.{".".join(parent_class_tokens)}'.rstrip(".").lstrip()
             page_number_selectors.append(
@@ -354,7 +385,9 @@ def recover_partial_pagination_json(raw_output: str) -> dict[str, Any] | None:
     page_match = _PARTIAL_PAGE_SELECTOR_START_RE.search(raw_output)
     if page_match:
         raw_array_tail = raw_output[page_match.end():]
-        page_values = [_decode_partial_json_string(match.group(1)) for match in _PARTIAL_QUOTED_STRING_RE.finditer(raw_array_tail)]
+        array_end = _find_unquoted_array_end(raw_array_tail)
+        raw_array_content = raw_array_tail if array_end < 0 else raw_array_tail[:array_end]
+        page_values = [_decode_partial_json_string(match.group(1)) for match in _PARTIAL_QUOTED_STRING_RE.finditer(raw_array_content)]
         if page_values:
             recovered["page_number_selectors"] = page_values
             found_signal = True

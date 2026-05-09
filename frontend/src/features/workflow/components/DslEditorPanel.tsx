@@ -1,4 +1,4 @@
-import { Alert, Card, Tag, Typography } from 'antd'
+import { Tag, Typography } from 'antd'
 import Editor from '@monaco-editor/react'
 import { useEffect, useRef } from 'react'
 import type { DslStatus } from '../workflowState'
@@ -29,8 +29,6 @@ export function DslEditorPanel({
   dslFeedback,
   dslText,
   onChange,
-  showHeader = true,
-  contextSummary,
   visibilityToken,
 }: DslEditorPanelProps) {
   const status = statusMap[dslStatus]
@@ -44,51 +42,7 @@ export function DslEditorPanel({
   }, [visibilityToken])
 
   return (
-    <Card
-      className="dsl-editor ant-dsl-editor-card"
-      style={{ height: '100%', minHeight: 0 }}
-      title={showHeader ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>DSL Editor</Typography.Text>
-          <Tag color={status.color === 'success' ? 'blue' : status.color === 'error' ? 'red' : 'orange'}>
-            {status.label}
-          </Tag>
-        </div>
-      ) : undefined}
-      extra={showHeader ? (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {dslStatus === 'synced' ? '画布与 DSL 已保持同步' : '保留上次有效图形'}
-        </Typography.Text>
-      ) : undefined}
-      styles={{ body: { padding: '0 16px 16px', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 } }}
-      variant="outlined"
-    >
-      {contextSummary ? (
-        <div className="workspace-context-strip">
-          <Typography.Text className="workspace-context-chip">
-            当前节点 {contextSummary.selectedNodeId || '未选择'}
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            {contextSummary.nodeCount} 节点 / {contextSummary.edgeCount} 连线
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            {contextSummary.fieldCount} 个字段
-          </Typography.Text>
-        </div>
-      ) : null}
-
-      <Alert
-        title={<span style={{ color: 'var(--sd-color-ink)', fontWeight: 500 }}>{dslFeedback}</span>}
-        type={status.color}
-        showIcon
-        style={{
-          marginBottom: 12,
-          borderRadius: 'var(--sd-radius-lg)',
-          border: 'none',
-          boxShadow: 'var(--sd-shadow-border)',
-          flexShrink: 0,
-        }}
-      />
+    <div className="dsl-editor-minimal" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       <div className="monaco-shell dsl-monaco-shell" style={{ flex: 1, minHeight: 0 }}>
         <Editor
           height="100%"
@@ -113,6 +67,14 @@ export function DslEditorPanel({
           onChange={(value) => onChange(value ?? '')}
         />
       </div>
-    </Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 2px', flexShrink: 0 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          {dslFeedback}
+        </Typography.Text>
+        <Tag color={status.color === 'success' ? 'blue' : status.color === 'error' ? 'red' : 'orange'} style={{ margin: 0, fontSize: 10, borderRadius: 4 }}>
+          {status.label}
+        </Tag>
+      </div>
+    </div>
   )
 }

@@ -444,25 +444,26 @@ export default function App() {
         forceRender
         size="84vh"
         title={(
-          <div className="workspace-drawer-title">
-            <Typography.Text strong>结果与 DSL 工作区</Typography.Text>
-            <Typography.Text type="secondary" className="workspace-drawer-subtitle">
-              聚合复杂输出、日志与 DSL 编辑内容
-            </Typography.Text>
+          <div className="workspace-drawer-title-simple">
+            <Typography.Text strong style={{ fontSize: 15 }}>工作区</Typography.Text>
           </div>
         )}
         extra={(
           <div className="workspace-drawer-extra">
-            <Tag className="workspace-drawer-extra-tag">{activeWorkspaceLabel}</Tag>
-            <Tag className="workspace-drawer-extra-tag">{selectedNodeId || '未选择节点'}</Tag>
+            <Tag color="default" style={{ borderRadius: 6, margin: 0, border: 'none', background: 'rgba(15, 23, 42, 0.05)' }}>
+              {activeWorkspaceLabel}
+            </Tag>
+            <Tag color="blue" style={{ borderRadius: 6, margin: 0, border: 'none', background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb' }}>
+              {selectedNodeId ? `节点: ${selectedNodeId}` : '未选择节点'}
+            </Tag>
           </div>
         )}
         onClose={closeBottomDock}
         afterOpenChange={handleDockOpenChange}
         rootClassName="workspace-drawer"
         styles={{
-          body: { padding: 0, display: 'flex', minHeight: 0 },
-          header: { padding: '14px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)' },
+          body: { padding: '0 16px 12px', display: 'flex', minHeight: 0 },
+          header: { padding: '10px 18px', borderBottom: '1px solid rgba(148, 163, 184, 0.12)' },
           section: { overflow: 'hidden' },
         }}
       >
@@ -487,7 +488,6 @@ export default function App() {
                     resultState={resultState}
                     runningAction={runningAction}
                     promptWorkspace={promptWorkspace}
-                    selectedNodeId={selectedNodeId}
                     visibilityToken={activeDockTab === 'results' ? workspaceVisibilityToken : undefined}
                   />
                 </div>

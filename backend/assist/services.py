@@ -1,8 +1,6 @@
 """Assist services for AI-guided workflow authoring."""
 
 from __future__ import annotations
-
-import json
 import logging
 import re
 from html import unescape
@@ -32,7 +30,7 @@ from backend.assist.json_protocol import (
 )
 from backend.assist.pagination_recovery import (
     PAGINATION_ANALYSIS_SYSTEM_RULES,
-    build_pagination_analysis_user_prompt,
+    build_pagination_evidence_prompt,
     has_pagination_evidence,
     is_semantically_empty_pagination_result,
     recover_pagination_from_summary,
@@ -42,6 +40,7 @@ from backend.workflow.schemas import (
     AssistLlmRequest,
     AssistLlmResponse,
 )
+from backend.assist.utils import extract_html_section, stable_class_tokens
 
 
 def _confidence_bucket(value: object) -> str:
@@ -90,17 +89,8 @@ def _emit_assist_prompt_quality_metric(
     )
 
 
-def _extract_html_section(section_name: str, html_fragment: str) -> str:
-    pattern = re.compile(
-        rf"<!--\s*{re.escape(section_name)}\s*-->\s*([\s\S]*?)(?:<!--\s*[A-Z_]+\s*-->|$)",
-        re.IGNORECASE,
-    )
-    match = pattern.search(html_fragment or "")
-    return match.group(1).strip() if match else ""
-
-
 def _extract_item_samples(html_fragment: str) -> list[str]:
-    item_samples = _extract_html_section("ITEM_SAMPLES", html_fragment) or html_fragment or ""
+    item_samples = extract_html_section("ITEM_SAMPLES", html_fragment) or html_fragment or ""
     return [line.strip() for line in item_samples.splitlines() if line.strip().startswith("<")]
 
 
@@ -119,7 +109,7 @@ def _extract_shared_item_selector_from_samples(samples: list[str]) -> str:
         if not class_match:
             class_sets.append([])
             continue
-        class_sets.append(_stable_class_tokens(class_match.group(1)))
+        class_sets.append(stable_class_tokens(class_match.group(1)))
     shared = class_sets[0]
     for token_list in class_sets[1:]:
         token_set = set(token_list)
@@ -132,7 +122,7 @@ def _extract_shared_item_selector_from_samples(samples: list[str]) -> str:
 
 
 def _selector_from_tag_and_class(tag: str, class_name: str) -> str:
-    classes = _stable_class_tokens(class_name)
+    classes = stable_class_tokens(class_name)
     if classes:
         return f'{tag}.{".".join(classes)}'
     return tag
@@ -291,7 +281,9 @@ def _normalize_assist_json_result(task_name: str, parsed: dict[str, Any]) -> dic
         normalized["pagination_strategy"] = strategy if isinstance(strategy, str) else "none"
         normalized["next_button_selector"] = normalized.get("next_button_selector") if isinstance(normalized.get("next_button_selector"), str) else ""
         page_selectors = normalized.get("page_number_selectors")
-        normalized["page_number_selectors"] = page_selectors if isinstance(page_selectors, list) else []
+        normalized["page_number_selectors"] = [
+            selector for selector in page_selectors if isinstance(selector, str) and selector.strip()
+        ] if isinstance(page_selectors, list) else []
     confidence = normalized.get("confidence")
     if not isinstance(confidence, (int, float)):
         normalized["confidence"] = None
@@ -301,17 +293,6 @@ def _normalize_assist_json_result(task_name: str, parsed: dict[str, Any]) -> dic
         normalized["reason"] = None
 
     return normalized
-
-
-def _stable_class_tokens(class_name: str) -> list[str]:
-    tokens = []
-    for token in re.split(r"\s+", class_name.strip()):
-        cleaned = token.strip()
-        if not cleaned or any(ch.isdigit() for ch in cleaned) or len(cleaned) > 40:
-            continue
-        if re.match(r"^[a-zA-Z_-][a-zA-Z0-9_-]*$", cleaned):
-            tokens.append(cleaned)
-    return tokens[:2]
 
 
 def _attempt_semantic_retry(
@@ -575,30 +556,9 @@ def optimize_selector(request: AssistLlmRequest) -> AssistLlmResponse:
     return _run_llm_json_task(prompt, task_name="optimize_selector", response_contract=SELECTOR_OPTIMIZATION_RESPONSE_CONTRACT)
 
 
-def _build_pagination_evidence_fragment(request: AssistLlmRequest) -> str:
-    html_fragment = request.html_fragment or ""
-    has_structured_markers = any(marker in html_fragment for marker in (
-        "<!-- ITEM_SAMPLES -->",
-        "<!-- PAGINATION_COMPONENT -->",
-        "<!-- GLOBAL_PRUNED_BODY -->",
-    ))
-    if has_structured_markers:
-        return html_fragment
-
-    sections: list[str] = []
-    if html_fragment.strip():
-        sections.append(f"<!-- ITEM_SAMPLES -->\n{html_fragment.strip()}")
-    if isinstance(request.pagination_component_html, str) and request.pagination_component_html.strip():
-        sections.append(f"<!-- PAGINATION_COMPONENT -->\n{request.pagination_component_html.strip()}")
-    if isinstance(request.pruned_body_html, str) and request.pruned_body_html.strip():
-        sections.append(f"<!-- GLOBAL_PRUNED_BODY -->\n{request.pruned_body_html.strip()}")
-    return "\n\n".join(sections).strip() or html_fragment
-
-
 def analyze_pagination(request: AssistLlmRequest) -> AssistLlmResponse:
     # Pass only HTML evidence in user prompt; move analysis rules to system suffix.
-    evidence_fragment = _build_pagination_evidence_fragment(request)
-    evidence_prompt = build_pagination_analysis_user_prompt(evidence_fragment)
+    evidence_prompt = build_pagination_evidence_prompt(request)
     return _run_llm_json_task(
         evidence_prompt,
         task_name="analyze_pagination",

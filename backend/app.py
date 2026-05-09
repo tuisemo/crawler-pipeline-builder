@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     pass
 
 
-app = FastAPI(title="Crawler Workflow API", lifespan=lifespan)
+app = FastAPI(title="Scraper Flow Studio API", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")
 
 
@@ -42,7 +42,7 @@ async def validation_exception_handler(_request, exc: RequestValidationError):
 
 @app.get("/")
 def index():
-    return {"message": "Crawler Workflow API - use /api/workflows/* for DSL endpoints"}
+    return {"message": "Scraper Flow Studio API - use /api/workflows/* for DSL endpoints"}
 
 
 app.include_router(workflow_router)
@@ -52,5 +52,5 @@ app.include_router(assist_router)
 def main(port: int | None = None):
     settings = get_settings()
     resolved_port = port or settings.backend_port
-    print(f"[*] Starting Crawler Workflow API at http://{settings.backend_host}:{resolved_port}")
+    print(f"[*] Starting Scraper Flow Studio API at http://{settings.backend_host}:{resolved_port}")
     uvicorn.run(app, host=settings.backend_host, port=resolved_port, reload=False)

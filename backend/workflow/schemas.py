@@ -1,6 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 from typing import List, Dict, Any, Optional
-from enum import Enum
 
 
 # ----------------------------------------------------------------------
@@ -9,12 +8,7 @@ from enum import Enum
 
 
 class FieldSchema(BaseModel):
-    """Strongly-typed field definition for extract_field nodes.
-
-    Supports legacy-compatible field shapes so that FromLegacyConfigRequest.fields
-    and DSL extract_field.fields use the same schema. At minimum, each field needs
-    a name and a selector; the extraction_type defaults to "text" if not provided.
-    """
+    """Strongly-typed canonical field definition for extract_field nodes."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -23,12 +17,7 @@ class FieldSchema(BaseModel):
     selector: Optional[str] = None
     type: Optional[str] = None
 
-    # Legacy aliases (field_name, css, extraction_type)
-    field_name: Optional[str] = None
-    css: Optional[str] = None
-    extraction_type: Optional[str] = None
-
-    @field_validator("name", "field_name", "selector", "css")
+    @field_validator("name", "selector")
     @classmethod
     def _coerce_blank_to_none(cls, v: Optional[str]) -> Optional[str]:
         if isinstance(v, str) and not v.strip():
@@ -36,96 +25,76 @@ class FieldSchema(BaseModel):
         return v
 
     def resolved_name(self) -> Optional[str]:
-        return self.name or self.field_name
+        return self.name
 
     def resolved_selector(self) -> Optional[str]:
-        return self.selector or self.css
+        return self.selector
 
     def resolved_type(self) -> Optional[str]:
-        return self.type or self.extraction_type or "text"
+        return self.type or "text"
+
+
+DEPRECATED_EXTRACTION_FIELD_KEYS = {"sample_value", "clean_data_type", "normalized_sample"}
+FIELD_ALIAS_KEYS = {"field_name", "css", "extraction_type"}
+FIELD_CANONICAL_KEYS = {"name", "selector", "type"}
+REMOVED_FIELD_KEYS = DEPRECATED_EXTRACTION_FIELD_KEYS | FIELD_ALIAS_KEYS | FIELD_CANONICAL_KEYS
+
+
+class LegacyFieldAliasError(ValueError):
+    """Raised when removed legacy field aliases are still provided."""
+
+
+def normalize_field_payload(raw_field: Any, index: int | None = None) -> dict[str, Any]:
+    if isinstance(raw_field, dict):
+        legacy_aliases = sorted(key for key in FIELD_ALIAS_KEYS if key in raw_field)
+        if legacy_aliases:
+            raise LegacyFieldAliasError(
+                "Legacy field aliases are no longer supported: "
+                f"{', '.join(legacy_aliases)}. Use name, selector, and type."
+            )
+    field = raw_field if isinstance(raw_field, FieldSchema) else FieldSchema.model_validate(raw_field)
+    normalized: dict[str, Any] = {}
+    if isinstance(raw_field, dict):
+        normalized = {
+            key: value
+            for key, value in raw_field.items()
+            if key not in REMOVED_FIELD_KEYS
+        }
+
+    name = field.resolved_name()
+    if not name and index is not None:
+        name = f"field_{index + 1}"
+    if name:
+        normalized["name"] = name
+
+    selector = field.resolved_selector()
+    if selector:
+        normalized["selector"] = selector
+
+    normalized["type"] = field.resolved_type() or "text"
+    return normalized
+
+
+def normalize_field_payloads(fields: List[Any] | None, assign_fallback_names: bool = False) -> List[Any] | None:
+    if fields is None:
+        return None
+
+    normalized: list[dict[str, Any]] = []
+    for index, raw_field in enumerate(fields):
+        if isinstance(raw_field, dict):
+            normalized.append(
+                normalize_field_payload(
+                    raw_field,
+                    index=index if assign_fallback_names else None,
+                )
+            )
+            continue
+        normalized.append(raw_field)
+    return normalized
 
 
 # ----------------------------------------------------------------------
-# Node-level data models (one per core node type)
-# ----------------------------------------------------------------------
-
-
-class OpenPageData(BaseModel):
-    """Data model for open_page nodes. URL is required at validation time."""
-
-    model_config = ConfigDict(extra="allow")
-
-    url: str = ""  # Required; empty string triggers validation error
-
-
-class SelectListData(BaseModel):
-    """Data model for select_list nodes. item_selector is required at validation time."""
-
-    model_config = ConfigDict(extra="allow")
-
-    item_selector: str = ""  # Required; empty string triggers validation error
-
-
-class ExtractFieldData(BaseModel):
-    """Data model for extract_field nodes. fields list is required at validation time."""
-
-    model_config = ConfigDict(extra="allow")
-
-    fields: Optional[List[FieldSchema]] = None
-    html_fragment: Optional[str] = None
-
-
-class PaginateData(BaseModel):
-    """Data model for paginate nodes. pagination_selector is required at validation time."""
-
-    model_config = ConfigDict(extra="allow")
-
-    pagination_selector: str = ""  # Required; empty string triggers validation error
-    pagination_strategy: Optional[str] = None
-    max_pages: Optional[int] = None
-
-
-class LoopData(BaseModel):
-    """Data model for loop nodes.
-
-    Consumes the item set produced by a upstream select_list and provides
-    current-item context for downstream nodes.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    # on_error: "skip" (default) | "stop" - controls per-item failure behavior
-    on_error: Optional[str] = None
-
-
-class ConditionData(BaseModel):
-    """Data model for condition nodes.
-
-    Evaluates a simple expression against the current execution state
-    and routes to either the true or false branch.
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    condition: str = ""  # Required; empty string triggers validation error
-    # expression_mode: "simple" (default) - whitelist of operators only
-    expression_mode: Optional[str] = None
-
-
-class EndData(BaseModel):
-    """Data model for end nodes.
-
-    Marks the explicit termination of a workflow path. It is a safe no-op
-    in the executor (execution stops when ctx.state["ended"] is True).
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    label: Optional[str] = None
-
-
-# ----------------------------------------------------------------------
-# Legacy-compatible NodeData (still used by WorkflowNode for backward compatibility)
+# Legacy-compatible NodeData (used by WorkflowNode)
 # ----------------------------------------------------------------------
 
 

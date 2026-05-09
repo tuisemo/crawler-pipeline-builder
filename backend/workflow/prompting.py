@@ -29,64 +29,24 @@ class PromptGenerationError(Exception):
         return self.error
 
 
-def _extract_prompt_config(graph: WorkflowGraph) -> dict:
-    config = {
-        "url": "",
-        "item_selector": "",
-        "fields": [],
-        "pagination_selector": "",
-        "pagination_strategy": "none",
-        "max_pages": 1,
-        "html_fragment": "",
-    }
-
+def _extract_html_fragment(graph: WorkflowGraph) -> str:
     for node in graph.nodes:
-        data = node.data
-        if node.type == "open_page":
-            config["url"] = data.url or ""
-        elif node.type == "select_list":
-            config["item_selector"] = data.item_selector or ""
-        elif node.type == "extract_field":
-            config["fields"] = data.fields or []
-            if data.html_fragment:
-                config["html_fragment"] = data.html_fragment
-        elif node.type == "paginate":
-            config["pagination_selector"] = data.pagination_selector or ""
-            if data.pagination_strategy:
-                config["pagination_strategy"] = data.pagination_strategy
-            if data.max_pages is not None:
-                config["max_pages"] = data.max_pages
-
-    return config
+        if node.type == "extract_field" and node.data.html_fragment:
+            return node.data.html_fragment
+    return ""
 
 
 def _build_generation_prompt(graph: WorkflowGraph, prompt_override: str | None = None) -> tuple[str, str, dict]:
-    config = _extract_prompt_config(graph)
-    if not config["url"] or not config["item_selector"]:
+    plan = compile_graph_to_plan(graph)
+    if not plan.entry_url or not plan.item_selector:
         raise PromptGenerationError(
             error="URL and item_selector are required to generate prompt"
         )
 
-    plan = compile_graph_to_plan(graph)
     plan_dict = execution_plan_to_dict(plan)
-    pagination = plan_dict.get("pagination", {})
-    if not isinstance(pagination, dict):
-        pagination = {}
-    limits = plan_dict.get("limits", {})
-    if not isinstance(limits, dict):
-        limits = {}
-    base_prompt = CrawlerPromptGenerator().generate_from_simple_config(
-        url=plan_dict.get("entry_url", config["url"]),
-        item_selector=plan_dict.get("item_selector", config["item_selector"]),
-        fields=plan_dict.get("field_specs", []),
-        pagination_selector=str(pagination.get("selector", "") or ""),
-        pagination_strategy=str(pagination.get("strategy", "none") or "none"),
-        max_pages=int(pagination.get("max_pages") or limits.get("max_pages") or 1),
-        html_fragment=config.get("html_fragment", ""),
-        output_contract=plan_dict.get("output", {}),
-        execution_limits=limits,
-        conditions=plan_dict.get("conditions", []),
-        node_types=plan_dict.get("node_types", []),
+    base_prompt = CrawlerPromptGenerator().generate_from_plan(
+        plan_dict,
+        html_fragment=_extract_html_fragment(graph),
     )
     editable_prompt = prompt_override.strip() if isinstance(prompt_override, str) and prompt_override.strip() else base_prompt
 

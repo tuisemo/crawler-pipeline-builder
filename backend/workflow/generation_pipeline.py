@@ -14,7 +14,7 @@ from backend.prompts.tasks.crawler_system import (
     CRAWLER_REVISION_SYSTEM_PROMPT,
 )
 
-from backend.workflow.schemas import GenerateCrawlerRequest, GenerateCrawlerResponse, NodeData, WorkflowGraph, WorkflowNode
+from backend.workflow.schemas import GenerateCrawlerRequest, GenerateCrawlerResponse, WorkflowGraph
 from .prompting import (
     PromptGenerationError,
     _build_review_prompt,
@@ -30,7 +30,7 @@ SCRIPT_REVIEW_MAX_TOKENS = _settings.script_review_max_tokens
 SCRIPT_SANDBOX_ENABLED = _settings.script_sandbox_enabled
 SCRIPT_SANDBOX_TIMEOUT_SECONDS = _settings.script_sandbox_timeout_seconds
 SUPPORTED_GENERATION_MODES = {"lite", "pro"}
-DEPRECATED_NODE_DATA_KEYS = {"max_steps", "max_items"}
+from backend.workflow._shared import sanitize_graph as _sanitize_graph
 
 
 def _extract_json_object(content: str) -> dict:
@@ -104,22 +104,7 @@ def _graph_summary(graph: WorkflowGraph) -> dict[str, Any]:
     }
 
 
-def _sanitize_graph(graph: WorkflowGraph) -> WorkflowGraph:
-    return WorkflowGraph(
-        nodes=[
-            WorkflowNode(
-                id=node.id,
-                type=node.type,
-                data=NodeData.model_validate({
-                    key: value
-                    for key, value in node.data.model_dump().items()
-                    if key not in DEPRECATED_NODE_DATA_KEYS
-                }),
-            )
-            for node in graph.nodes
-        ],
-        edges=list(graph.edges),
-    )
+
 
 
 def _capture_length_warning(response, stage: str) -> str | None:
@@ -212,7 +197,16 @@ def _run_final_script_sandbox(
 def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse:
     """Generate a Playwright crawler script from a DSL workflow graph."""
     generation_mode = _resolve_generation_mode(request.generation_mode)
-    sanitized_graph = _sanitize_graph(request.graph)
+    try:
+        sanitized_graph = _sanitize_graph(request.graph)
+    except ValueError as e:
+        audit_event(
+            "workflow_generate_crawler_failed",
+            stage="sanitize_graph",
+            generation_mode=generation_mode,
+            error=str(e),
+        )
+        return GenerateCrawlerResponse(success=False, error=str(e))
     audit_event(
         "workflow_generate_crawler_started",
         generation_mode=generation_mode,
@@ -542,19 +536,6 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
                     generation_mode=generation_mode,
                     generation_trace=generation_trace,
                     warnings=[*warnings, *final_compatibility_issues],
-                    review_summary=review_summary,
-                    error=error_message,
-                )
-                return GenerateCrawlerResponse(
-                    success=False,
-                    prompt=final_prompt,
-                    editable_prompt=editable_prompt,
-                    script=final_script,
-                    model=model_name,
-                    usage=total_usage,
-                    generation_mode=generation_mode,
-                    generation_trace=generation_trace,
-                    warnings=warnings,
                     review_summary=review_summary,
                     error=error_message,
                 )

@@ -8,7 +8,7 @@ import {
   SaveOutlined,
 } from '@ant-design/icons'
 import { useState } from 'react'
-import { StatTags, EditorShell } from './ResultCommon'
+import { StatTags, FullscreenEditorShell } from './ResultCommon'
 import { copyText } from './resultHelpers'
 
 export type ScriptWorkspaceProps = {
@@ -94,10 +94,6 @@ export function ScriptWorkspace({
         {model ? <StatTags value={`via ${model}`} accent="green" /> : null}
       </Space>
 
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        支持在这里微调脚本、请求格式化，并将最终版本直接保存到当前项目目录。
-      </Typography.Paragraph>
-
       <Space wrap style={{ marginBottom: 12 }}>
         <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>
           {copied ? '已复制' : '复制脚本'}
@@ -157,15 +153,16 @@ export function ScriptWorkspace({
         </Typography.Paragraph>
       )}
 
-      <EditorShell
+      <FullscreenEditorShell
         value={scriptDraft}
         language="python"
-        height={360}
+        height={280}
         readOnly={!scriptEditable}
         theme="vs-dark"
         wordWrap={scriptWrapMode}
         onChange={setScriptDraft}
         visibilityToken={visibilityToken}
+        label="脚本编辑器"
       />
     </div>
   )

@@ -116,21 +116,9 @@ class CrawlerPromptGenerator:
 
         return "\n".join(parts).strip()
 
-    def generate_from_simple_config(
-        self,
-        url: str,
-        item_selector: str,
-        fields: list[dict[str, Any]],
-        pagination_selector: str = "",
-        pagination_strategy: str = "none",
-        max_pages: int = 1,
-        html_fragment: str = "",
-        output_contract: dict[str, Any] | None = None,
-        execution_limits: dict[str, Any] | None = None,
-        conditions: list[dict[str, Any]] | None = None,
-        node_types: list[str] | None = None,
-    ) -> str:
-        field_specs = [
+    @staticmethod
+    def _build_field_specs(fields: list[dict[str, Any]]) -> list[FieldSpec]:
+        return [
             FieldSpec(
                 name=f.get("name", f.get("field_name", f"field_{index + 1}")),
                 selector=f.get("selector", f.get("css", "")),
@@ -140,6 +128,22 @@ class CrawlerPromptGenerator:
             for index, f in enumerate(fields)
         ]
 
+    def _configure_prompt_context(
+        self,
+        *,
+        url: str,
+        item_selector: str,
+        fields: list[dict[str, Any]],
+        pagination_selector: str,
+        pagination_strategy: str,
+        max_pages: int,
+        html_fragment: str,
+        output_contract: dict[str, Any] | None,
+        execution_limits: dict[str, Any] | None,
+        conditions: list[dict[str, Any]] | None,
+        node_types: list[str] | None,
+    ) -> str:
+        field_specs = self._build_field_specs(fields)
         self.target_url = url
         self.extraction = ExtractionSpec(
             item_selector=item_selector,
@@ -155,6 +159,72 @@ class CrawlerPromptGenerator:
         self.node_types = node_types or []
         self.workflow = self._build_default_workflow(url, item_selector, field_specs)
         return self.generate()
+
+    def generate_from_simple_config(
+        self,
+        url: str,
+        item_selector: str,
+        fields: list[dict[str, Any]],
+        pagination_selector: str = "",
+        pagination_strategy: str = "none",
+        max_pages: int = 1,
+        html_fragment: str = "",
+        output_contract: dict[str, Any] | None = None,
+        execution_limits: dict[str, Any] | None = None,
+        conditions: list[dict[str, Any]] | None = None,
+        node_types: list[str] | None = None,
+    ) -> str:
+        return self._configure_prompt_context(
+            url=url,
+            item_selector=item_selector,
+            fields=fields,
+            pagination_selector=pagination_selector,
+            pagination_strategy=pagination_strategy,
+            max_pages=max_pages,
+            html_fragment=html_fragment,
+            output_contract=output_contract,
+            execution_limits=execution_limits,
+            conditions=conditions,
+            node_types=node_types,
+        )
+
+    def generate_from_plan(
+        self,
+        plan: dict[str, Any],
+        html_fragment: str = "",
+    ) -> str:
+        pagination = plan.get("pagination", {})
+        if not isinstance(pagination, dict):
+            pagination = {}
+        limits = plan.get("limits", {})
+        if not isinstance(limits, dict):
+            limits = {}
+        output_contract = plan.get("output", {})
+        if not isinstance(output_contract, dict):
+            output_contract = {}
+        conditions = plan.get("conditions", [])
+        if not isinstance(conditions, list):
+            conditions = []
+        node_types = plan.get("node_types", [])
+        if not isinstance(node_types, list):
+            node_types = []
+        fields = plan.get("field_specs", [])
+        if not isinstance(fields, list):
+            fields = []
+
+        return self._configure_prompt_context(
+            url=str(plan.get("entry_url", "") or ""),
+            item_selector=str(plan.get("item_selector", "") or ""),
+            fields=fields,
+            pagination_selector=str(pagination.get("selector", "") or ""),
+            pagination_strategy=str(pagination.get("strategy", "none") or "none"),
+            max_pages=int(pagination.get("max_pages") or limits.get("max_pages") or 1),
+            html_fragment=html_fragment,
+            output_contract=output_contract,
+            execution_limits=limits,
+            conditions=conditions,
+            node_types=node_types,
+        )
 
     def _build_default_workflow(self, url: str, item_selector: str, fields: list[FieldSpec]) -> list[WorkflowStep]:
         workflow = [

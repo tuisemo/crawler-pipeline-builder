@@ -1,8 +1,8 @@
-import { Button, Checkbox, Descriptions, Input, Segmented, Space, Typography } from 'antd'
+import { Button, Checkbox, Descriptions, Input, Segmented, Space } from 'antd'
 import { CopyOutlined, DownloadOutlined, EditOutlined, SaveOutlined } from '@ant-design/icons'
 import { useState } from 'react'
-import { EditorShell } from './ResultCommon'
 import { copyText } from './resultHelpers'
+import { FullscreenEditorShell } from './FullscreenEditorShell'
 
 export type DetailBatchRunnerForm = {
   databasePath: string
@@ -84,10 +84,6 @@ export function BatchRunnerWorkspace({
 
   return (
     <div className="result-workspace-block">
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        基于当前列表采集脚本的输出契约，生成一个独立的第二阶段批处理脚本。该脚本会从 SQLite 读取 <Typography.Text code>detail_url</Typography.Text>，并并发调用 <Typography.Text code>page-extractor collect</Typography.Text>。
-      </Typography.Paragraph>
-
       <div className="detail-batch-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginBottom: 16 }}>
         <Input
           value={form.databasePath}
@@ -225,15 +221,16 @@ export function BatchRunnerWorkspace({
               {warnings.length > 0 && <Descriptions.Item label="Warnings">{warnings.join(' | ')}</Descriptions.Item>}
             </Descriptions>
           ) : null}
-          <EditorShell
+          <FullscreenEditorShell
             value={draft}
             language="python"
-            height={320}
+            height={240}
             readOnly={!editable}
             theme="vs-dark"
             wordWrap={wrapMode}
             onChange={setDraft}
             visibilityToken={visibilityToken}
+            label="批处理脚本编辑"
           />
         </div>
       ) : null}

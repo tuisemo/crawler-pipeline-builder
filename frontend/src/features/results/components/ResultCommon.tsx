@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Tag } from 'antd'
 import Editor from '@monaco-editor/react'
+export { FullscreenEditorShell } from './FullscreenEditorShell'
 
 export function StatTags({ value, accent }: { value: string; accent?: 'blue' | 'green' | 'orange' | 'red' | 'default' }) {
   return (

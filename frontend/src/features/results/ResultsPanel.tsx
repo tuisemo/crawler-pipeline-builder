@@ -1,4 +1,4 @@
-import { Alert, Card, Result, Spin, Tabs, Tag, Typography } from 'antd'
+import { Spin, Tabs, Typography } from 'antd'
 import { useMemo, useState } from 'react'
 import { ResultDetails } from './ResultDetails'
 import type { PromptWorkspaceProps } from './components/PromptWorkspace'
@@ -19,17 +19,10 @@ type ResultsPanelProps = {
   resultState: ResultState
   runningAction: string | null
   promptWorkspace: PromptWorkspaceProps | null
-  selectedNodeId: string
   visibilityToken?: number
 }
 
-const toneConfig: Record<ResultTone, { alertType: 'success' | 'info' | 'warning' | 'error' | null; resultStatus?: 'success' | 'info' | 'warning' | 'error' | '403' | '404' | '500' | 403 | 404 | 500; label: string }> = {
-  idle:          { alertType: null, label: '待执行' },
-  loading:       { alertType: 'info', label: '运行中' },
-  success:       { alertType: 'success', resultStatus: 'success', label: '已完成' },
-  'validation-error': { alertType: 'warning', resultStatus: 'warning', label: '需修正' },
-  'runtime-error':     { alertType: 'error', resultStatus: 'error', label: '运行失败' },
-}
+
 
 type ArtifactTabKey = Exclude<ResultDetailsView, 'all'>
 type ArtifactAvailability = Record<ArtifactTabKey, boolean>
@@ -39,15 +32,6 @@ const ARTIFACT_TAB_VISIBILITY_INDEX: Record<ArtifactTabKey, number> = {
   records: 3,
   logs: 4,
   diagnostics: 5,
-}
-
-const actionLabels: Partial<Record<WorkbenchAction, string>> = {
-  validate: '校验 DSL',
-  prompt: '预览 Prompt',
-  'compile-plan': '编排计划',
-  'generate-skeleton': '生成骨架',
-  'generate-script': '生成爬虫脚本',
-  'auto-layout': '优化布局',
 }
 
 function buildPayloadSignature(value: unknown): string {
@@ -83,28 +67,18 @@ function resolvePreferredArtifactTab(
 }
 
 type ArtifactTabsViewProps = {
-  cfg: typeof toneConfig[ResultTone]
   resultState: ResultState
   promptWorkspace: PromptWorkspaceProps | null
-  selectedNodeId: string
   visibilityToken?: number
   artifactAvailability: ArtifactAvailability
-  enabledArtifactCount: number
-  actionLabel: string
-  hasScriptPayload: boolean
   defaultArtifactTab: ArtifactTabKey
 }
 
 function ArtifactTabsView({
-  cfg,
   resultState,
   promptWorkspace,
-  selectedNodeId,
   visibilityToken,
   artifactAvailability,
-  enabledArtifactCount,
-  actionLabel,
-  hasScriptPayload,
   defaultArtifactTab,
 }: ArtifactTabsViewProps) {
   const [activeArtifactTab, setActiveArtifactTab] = useState<ArtifactTabKey>(defaultArtifactTab)
@@ -116,57 +90,11 @@ function ArtifactTabsView({
     { key: 'logs', label: '日志', disabled: !artifactAvailability.logs },
     { key: 'diagnostics', label: '诊断', disabled: !artifactAvailability.diagnostics },
   ]
-  const scriptFocusMode = (
-    activeArtifactTab === 'script'
-    && hasScriptPayload
-    && (resultState.action === 'generate-skeleton' || resultState.action === 'generate-script')
-  )
+
 
   return (
     <>
-      {!scriptFocusMode ? (
-        <div className="workspace-context-strip">
-          <Typography.Text className="workspace-context-chip">
-            当前节点 {selectedNodeId || '未选择'}
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            当前动作 {actionLabel}
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            可查看 {enabledArtifactCount} 类结果
-          </Typography.Text>
-        </div>
-      ) : (
-        <div className="workspace-context-strip workspace-context-strip-compact">
-          <Typography.Text className="workspace-context-chip">
-            {actionLabel}
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            当前节点 {selectedNodeId || '未选择'}
-          </Typography.Text>
-          <Typography.Text className="workspace-context-chip">
-            脚本工作区
-          </Typography.Text>
-        </div>
-      )}
 
-      {cfg.alertType && !(cfg.alertType === 'success' && hasScriptPayload) && !scriptFocusMode && (
-        <Alert
-          className="results-status-alert"
-          type={cfg.alertType}
-          title={resultState.title}
-          description={resultState.message}
-          showIcon
-          style={{ marginBottom: 12, borderRadius: 'var(--sd-radius-lg)', border: 'none', boxShadow: 'var(--sd-shadow-border)' }}
-        />
-      )}
-      {cfg.alertType === 'success' && hasScriptPayload && !scriptFocusMode && (
-        <div className="result-compact-status">
-          <Typography.Text strong>{resultState.title}</Typography.Text>
-          <Tag color="green">success</Tag>
-          <Typography.Text type="secondary">{resultState.message}</Typography.Text>
-        </div>
-      )}
       <Tabs
         className="result-artifact-tabs"
         activeKey={activeArtifactTab}
@@ -191,8 +119,7 @@ function ArtifactTabsView({
   )
 }
 
-export function ResultsPanel({ resultState, runningAction, promptWorkspace, selectedNodeId, visibilityToken }: ResultsPanelProps) {
-  const cfg = toneConfig[resultState.tone]
+export function ResultsPanel({ resultState, runningAction, promptWorkspace, visibilityToken }: ResultsPanelProps) {
   const payloadRecord = resultState.payload && typeof resultState.payload === 'object'
     ? resultState.payload as Record<string, unknown>
     : {}
@@ -221,15 +148,6 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
     () => resolvePreferredArtifactTab(resultState.action, artifactAvailability),
     [artifactAvailability, resultState.action],
   )
-  const artifactTabItems: Array<{ key: ArtifactTabKey; label: string; disabled: boolean }> = [
-    { key: 'script', label: '脚本', disabled: !artifactAvailability.script },
-    { key: 'prompt', label: '提示词', disabled: !artifactAvailability.prompt },
-    { key: 'records', label: '记录', disabled: !artifactAvailability.records },
-    { key: 'logs', label: '日志', disabled: !artifactAvailability.logs },
-    { key: 'diagnostics', label: '诊断', disabled: !artifactAvailability.diagnostics },
-  ]
-  const enabledArtifactCount = artifactTabItems.filter((item) => !item.disabled).length
-  const actionLabel = resultState.action ? actionLabels[resultState.action] ?? resultState.action : '等待操作'
   const artifactSessionKey = [
     resultState.action ?? 'idle',
     resultState.tone,
@@ -243,40 +161,18 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
   ].join('|')
 
   return (
-    <Card
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Typography.Text strong style={{ fontSize: 16, color: 'var(--sd-color-ink)', letterSpacing: '-0.32px' }}>执行结果</Typography.Text>
-          <Tag
-            color={cfg.alertType === 'success' ? 'green' : cfg.alertType === 'error' ? 'red' : cfg.alertType === 'warning' ? 'orange' : cfg.alertType === 'info' ? 'blue' : 'default'}
-            style={{ margin: 0, border: 'none', boxShadow: 'var(--sd-shadow-border-light)' }}
-          >
-            {cfg.label}
-          </Tag>
-        </div>
-      }
-      extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>实时工作区</Typography.Text>}
-      styles={{ body: { padding: '12px 16px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}
-      className="results-area ant-results-card"
-      variant="outlined"
-    >
+    <div className="results-area-minimal" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {resultState.tone === 'idle' && (
-        <Result
-          status="info"
-          title="等待执行"
-          subTitle="请配置工作流节点后，点击顶部操作按钮运行。"
-          style={{ padding: '24px 0' }}
-        />
+        <div style={{ padding: '40px 0', textAlign: 'center' }}>
+          <Typography.Text type="secondary">等待执行。请配置工作流节点后运行。</Typography.Text>
+        </div>
       )}
 
       {resultState.tone === 'loading' && (
-        <div style={{ textAlign: 'center', padding: '32px 0' }}>
-          <Spin size="large" />
-          <Typography.Paragraph style={{ margin: '16px 0 0', color: 'var(--sd-color-text-secondary)', fontWeight: 500 }}>
-            {runningAction ? `正在执行：${runningAction}` : '请求处理中，请稍候…'}
-          </Typography.Paragraph>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '8px 0 0' }}>
-            浏览器型任务会串行运行以保证状态一致。
+        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+          <Spin size="default" />
+          <Typography.Paragraph style={{ margin: '12px 0 0', color: 'var(--sd-color-text-secondary)', fontWeight: 500, fontSize: 13 }}>
+            {runningAction ? `正在执行：${runningAction}` : '请求处理中…'}
           </Typography.Paragraph>
         </div>
       )}
@@ -284,19 +180,14 @@ export function ResultsPanel({ resultState, runningAction, promptWorkspace, sele
       {(resultState.tone !== 'idle' && resultState.tone !== 'loading') && (
         <ArtifactTabsView
           key={artifactSessionKey}
-          cfg={cfg}
           resultState={resultState}
           promptWorkspace={promptWorkspace}
-          selectedNodeId={selectedNodeId}
           visibilityToken={visibilityToken}
           artifactAvailability={artifactAvailability}
-          enabledArtifactCount={enabledArtifactCount}
-          actionLabel={actionLabel}
-          hasScriptPayload={hasScriptPayload}
           defaultArtifactTab={defaultArtifactTab}
         />
       )}
-    </Card>
+    </div>
   )
 }
 

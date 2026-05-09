@@ -1,7 +1,7 @@
 import { Button, Space, Typography } from 'antd'
 import { CopyOutlined, RedoOutlined, SaveOutlined } from '@ant-design/icons'
 import { useState } from 'react'
-import { StatTags, EditorShell } from './ResultCommon'
+import { StatTags, FullscreenEditorShell } from './ResultCommon'
 import { copyText, formatSavedAt } from './resultHelpers'
 
 export type PromptWorkspaceProps = {
@@ -56,9 +56,6 @@ export function PromptWorkspace({
         {workspace.isDirty ? <StatTags value="未保存修改" accent="orange" /> : <StatTags value="已与默认同步" accent="green" />}
         {workspace.hasSavedDraft ? <StatTags value={`已保存 ${formatSavedAt(workspace.savedAt)}`} accent="blue" /> : null}
       </Space>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        这里编辑的是可定制提示词正文。执行脚本生成时，系统会自动在前面拼接固定执行计划与字段规则。
-      </Typography.Paragraph>
       <Space wrap style={{ marginBottom: 12 }}>
         <Button size="small" icon={<CopyOutlined />} onClick={handleCopy}>
           {copied ? '已复制' : '复制提示词'}
@@ -70,13 +67,14 @@ export function PromptWorkspace({
           恢复默认
         </Button>
       </Space>
-      <EditorShell
+      <FullscreenEditorShell
         value={workspace.value}
         language="markdown"
-        height={280}
+        height={200}
         readOnly={false}
         onChange={workspace.onChange}
         visibilityToken={visibilityToken}
+        label="提示词编辑"
       />
     </div>
   )
@@ -110,12 +108,13 @@ export function PromptPreview({
           {copied ? '已复制' : '复制'}
         </Button>
       </Space>
-      <EditorShell
+      <FullscreenEditorShell
         value={prompt}
         language="markdown"
         height={240}
         readOnly={true}
         visibilityToken={visibilityToken}
+        label="提示词预览"
       />
     </div>
   )

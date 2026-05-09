@@ -42,6 +42,7 @@ from backend.workflow.services import (
     save_script,
     WorkflowValidationError,
     WorkflowConversionError,
+    LEGACY_CONFIG_DEPRECATION_WARNING,
     PromptGenerationError,
     ScriptPersistenceError,
 )
@@ -210,6 +211,7 @@ def test_convert_legacy_config_returns_domain_response_on_success():
     assert result.success is True
     assert result.graph is not None
     assert len(result.graph.nodes) == 3  # open_page, select_list, extract_field
+    assert [warning.message for warning in result.warnings] == [LEGACY_CONFIG_DEPRECATION_WARNING]
 
 
 def test_convert_legacy_config_raises_on_blank_url():
@@ -248,6 +250,7 @@ def test_convert_legacy_config_preserves_pagination_node():
     assert result.success is True
     assert len(result.graph.nodes) == 4  # includes paginate
     assert result.graph.nodes[3].type == "paginate"
+    assert [warning.message for warning in result.warnings] == [LEGACY_CONFIG_DEPRECATION_WARNING]
 
 
 # ----------------------------------------------------------------------
@@ -332,6 +335,26 @@ def test_graph_to_prompt_strips_deprecated_max_steps_from_plan_and_prompt():
     assert "max_steps" not in result["plan"]["limits"]
 
 
+def test_graph_to_prompt_rejects_legacy_field_aliases():
+    request = ToPromptRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(fields=[{"field_name": "title", "css": "h1", "extraction_type": "text"}]),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    with pytest.raises(PromptGenerationError, match="Legacy field aliases are no longer supported"):
+        graph_to_prompt(request)
+
+
 def test_graph_to_prompt_raises_on_missing_url():
     """Missing URL raises PromptGenerationError, not JSONResponse."""
     request = ToPromptRequest(
@@ -410,6 +433,71 @@ def test_compile_plan_removes_deprecated_max_items_limit():
     result = compile_plan(request)
     assert result.success is True
     assert "max_items" not in result.plan["limits"]
+
+
+def test_compile_plan_rejects_legacy_field_aliases():
+    request = CompilePlanRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(
+                        fields=[
+                            {
+                                "field_name": "title",
+                                "css": ".title",
+                                "extraction_type": "text",
+                                "sample_value": "Example",
+                            }
+                        ]
+                    ),
+                ),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+            ],
+        )
+    )
+
+    result = compile_plan(request)
+
+    assert result.success is False
+    assert "Legacy field aliases are no longer supported" in result.error
+
+
+def test_compile_plan_assigns_fallback_name_for_unnamed_field():
+    request = CompilePlanRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(fields=[{"selector": ".title", "type": "text"}]),
+                ),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+            ],
+        )
+    )
+
+    result = compile_plan(request)
+
+    assert result.success is True
+    assert result.plan["field_specs"] == [
+        {
+            "name": "field_1",
+            "selector": ".title",
+            "type": "text",
+        }
+    ]
 
 
 def test_compile_plan_includes_emit_record_output_config():
@@ -878,6 +966,33 @@ def test_generate_crawler_can_skip_sandbox(monkeypatch):
     assert not any(item.get("stage") == "script_sandbox" for item in result.generation_trace or [])
 
 
+def test_generate_crawler_rejects_legacy_field_aliases(monkeypatch):
+    monkeypatch.setattr(
+        "backend.workflow.generation_pipeline.get_default_client",
+        lambda: pytest.fail("LLM client should not be called for rejected legacy aliases"),
+    )
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(fields=[{"field_name": "title", "css": "h1", "extraction_type": "text"}]),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is False
+    assert "Legacy field aliases are no longer supported" in result.error
+
+
 def test_generate_skeleton_returns_script_with_required_input():
     request = GenerateSkeletonRequest(
         graph=WorkflowGraph(
@@ -904,6 +1019,31 @@ def test_generate_skeleton_returns_script_with_required_input():
     assert 'print(f"Run log saved to: {RUN_LOG_PATH}")' in result.script
     assert "page_records: list[dict[str, Any]] = []" in result.script
     assert "LAST_PERSIST_INFO = persist_records(page_records, page.url)" in result.script
+
+
+def test_generate_skeleton_rejects_legacy_field_aliases():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(fields=[{"field_name": "title", "css": "h1", "extraction_type": "text"}]),
+                ),
+            ],
+            edges=[
+                WorkflowEdge(id="e1", source="n1", target="n2"),
+                WorkflowEdge(id="e2", source="n2", target="n3"),
+            ],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is False
+    assert "Legacy field aliases are no longer supported" in result.error
 
 
 def test_generate_detail_batch_runner_returns_valid_script():

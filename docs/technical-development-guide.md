@@ -76,7 +76,7 @@ flowchart TD
 | `backend/api/` | HTTP 路由层 |
 | `backend/workflow/` | 工作流编译、执行、脚本生成、详情批处理生成 |
 | `backend/assist/` | AI 辅助任务、JSON 协议、分页恢复策略 |
-| `backend/extraction/` | 列表检测、HTML 提取、选择器测试 |
+| `backend/extraction/` | 已移除；相关浏览器侧职责已迁移到前端与扩展 |
 | `backend/runtime/` | 浏览器会话、阻塞桥接、记录落盘 |
 | `backend/prompts/` | Prompt 规则、任务模板、组装器 |
 | `backend/llm/` | OpenAI 兼容客户端 |
@@ -214,7 +214,7 @@ flowchart LR
 | 路径 | 作用 |
 | --- | --- |
 | `/validate` | 校验工作流图 |
-| `/from-legacy-config` | 兼容旧配置转图 |
+| `/from-legacy-config` | 已弃用；仅保留旧配置转图兼容入口 |
 | `/to-prompt` | 生成 Prompt |
 | `/compile-plan` | 输出执行计划 |
 | `/generate-skeleton` | 输出确定性骨架脚本 |
@@ -485,13 +485,11 @@ Assist 并不是直接把整页 DOM 粗暴丢给模型，而是分成三步：
 
 ```mermaid
 flowchart LR
-    A["当前工作流上下文"] --> B["extract-html / auto-detect / test-selector"]
-    B --> C["Playwright 页面会话"]
-    C --> D["HtmlExtractor / AutoDetector / SelectorTester"]
-    D --> E["HTML 证据包"]
-    E --> F["assist/services.py"]
-    F --> G["LLM JSON task"]
-    G --> H["前端回填节点配置"]
+    A["当前工作流上下文"] --> B["前端 / 扩展侧证据采集"]
+    B --> C["HTML / 分页结构化证据包"]
+    C --> D["assist/services.py"]
+    D --> E["LLM JSON task"]
+    E --> F["前端回填节点配置"]
 ```
 
 ### 11.3 JSON 协议的工程化处理

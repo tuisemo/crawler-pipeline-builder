@@ -10,7 +10,7 @@ from dataclasses import dataclass, asdict
 from typing import Any
 
 from backend.workflow.output_defaults import default_output_config
-from backend.workflow.schemas import WorkflowGraph
+from backend.workflow.schemas import WorkflowGraph, normalize_field_payload
 
 
 @dataclass
@@ -24,18 +24,6 @@ class ExecutionPlan:
     limits: dict[str, int]
     edges: list[dict[str, Any]]
     conditions: list[dict[str, Any]]
-
-
-def _resolve_field(field: dict[str, Any], index: int) -> dict[str, Any]:
-    name = field.get("name") or field.get("field_name") or f"field_{index + 1}"
-    selector = field.get("selector") or field.get("css") or ""
-    extraction_type = field.get("type") or field.get("extraction_type") or "text"
-    return {
-        "name": name,
-        "selector": selector,
-        "type": extraction_type,
-    }
-
 
 def _coerce_limit(value: Any) -> int | None:
     if value is None:
@@ -73,7 +61,7 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
         elif node.type == "extract_field":
             raw_fields = data.fields or []
             field_specs = [
-                _resolve_field(raw_field, index)
+                normalize_field_payload(raw_field, index=index)
                 for index, raw_field in enumerate(raw_fields)
             ]
         elif node.type == "paginate":

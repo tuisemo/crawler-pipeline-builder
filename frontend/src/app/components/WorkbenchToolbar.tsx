@@ -63,21 +63,22 @@ const groupedActions: Array<{ title: string; actions: WorkbenchAction[]; primary
 
 function renderExtensionTag(extensionStatus: ExtensionStatus | null) {
   if (!extensionStatus) {
-    return <Tag color="default" className="toolbar-chip">检测中…</Tag>
+    return <Tag color="default" className="toolbar-extension-pill">检测中…</Tag>
   }
   if (extensionStatus.installed && extensionStatus.ready) {
     return (
       <Tooltip title="Browser Bridge 已通过页面注入桥接接入当前工作台。">
-        <Tag color="success" className="toolbar-chip">
-          已就绪（本地扩展加速中）
+        <Tag color="success" className="toolbar-extension-pill">
+          <span className="pill-dot" />
+          本地扩展已就绪
         </Tag>
       </Tooltip>
     )
   }
   return (
     <Tooltip title="未检测到工作台页面桥接。请确认已重新加载 Browser Bridge 扩展，并刷新当前工作台页面。">
-      <Tag color="error" className="toolbar-chip">
-        未安装扩展
+      <Tag color="error" className="toolbar-extension-pill">
+        未检测到扩展
       </Tag>
     </Tooltip>
   )
@@ -94,139 +95,146 @@ export function WorkbenchToolbar({
   layout,
 }: WorkbenchToolbarProps) {
   return (
-    <Card className="ant-toolbar-card" styles={{ body: { padding: '10px 14px' } }} variant="outlined">
+    <Card className="ant-toolbar-card" styles={{ body: { padding: '8px 16px' } }} variant="outlined">
       <div className="toolbar-shell">
-        <div className="toolbar-top">
-          <div className="toolbar-brand">
-            <div className="toolbar-brand-row">
-              <div className="toolbar-brand-badge">
-                <CompassOutlined />
-              </div>
-              <div className="toolbar-brand-copy">
-                <Typography.Text className="toolbar-eyebrow">
-                  Workflow Orchestration Workbench
-                </Typography.Text>
-                <Typography.Text strong className="toolbar-brand-title">
-                  Scraper Flow Studio
-                </Typography.Text>
-              </div>
-              <Tag variant="filled" className="toolbar-chip toolbar-chip-active toolbar-chip-inline">
-                {selectedNodeId || '未选择节点'}
-              </Tag>
+        {/* Header: Brand & Environment */}
+        <div className="toolbar-header">
+          <div className="toolbar-header-left">
+            <div className="toolbar-logo-wrapper">
+              <img src="/logo_128.webp" alt="Scraper Flow Studio" className="toolbar-logo-img" />
             </div>
-            <div className="toolbar-summary-line">
-              <div className="toolbar-meta-chips">
-                <Tag color="blue" className="toolbar-chip">节点 {workflowStats.nodeCount}</Tag>
-                <Tag color="cyan" className="toolbar-chip">连线 {workflowStats.edgeCount}</Tag>
-                <Tag color="purple" className="toolbar-chip">字段 {workflowStats.fieldCount}</Tag>
-                {workflowStats.hasPagination ? <Tag color="gold" className="toolbar-chip">分页</Tag> : null}
-                {renderExtensionTag(extensionStatus)}
-              </div>
-              <Typography.Text type="secondary" className="toolbar-summary-label">
-                分页行为
+            <div className="toolbar-brand-info">
+              <Typography.Text strong className="toolbar-studio-title">
+                Scraper Flow Studio
               </Typography.Text>
-              <Typography.Text className="toolbar-summary-value">
-                {workflowStats.hasPagination ? '按站点翻页条件自动结束' : '未启用分页'}
+              <Typography.Text className="toolbar-studio-subtitle">
+                Workflow Orchestration
               </Typography.Text>
             </div>
+            <div className="toolbar-separator" />
+            <Tag variant="filled" className="toolbar-active-context">
+              <NodeIndexOutlined style={{ marginRight: 4 }} />
+              {selectedNodeId || '未选择节点'}
+            </Tag>
           </div>
 
-          <div className="toolbar-inline-rail">
-            <div className="toolbar-control-row">
-              <Typography.Text type="secondary" className="toolbar-group-title">
-                模式
-              </Typography.Text>
-              <Segmented
-                size="small"
-                value={generationMode}
-                onChange={(value) => onGenerationModeChange(value as ScriptGenerationMode)}
-                options={[
-                  { label: 'Lite', value: 'lite' },
-                  { label: 'Pro', value: 'pro' },
-                ]}
-              />
-            </div>
-
-            <div className="toolbar-control-row">
-              <Typography.Text type="secondary" className="toolbar-group-title">
-                工作区
-              </Typography.Text>
+          <div className="toolbar-header-right">
+            {renderExtensionTag(extensionStatus)}
+            <div className="toolbar-vertical-divider" />
+            <div className="toolbar-view-controls">
+              <div className="toolbar-control-item">
+                <Typography.Text type="secondary" className="toolbar-mini-label">模式</Typography.Text>
+                <Segmented
+                  size="small"
+                  value={generationMode}
+                  onChange={(value) => onGenerationModeChange(value as ScriptGenerationMode)}
+                  options={[
+                    { label: 'Lite', value: 'lite' },
+                    { label: 'Pro', value: 'pro' },
+                  ]}
+                />
+              </div>
+              <div className="toolbar-vertical-divider" />
               <Space.Compact>
-                <Tooltip title="显示或隐藏左侧节点库">
+                <Tooltip title="节点库">
                   <Button
-                    className="toolbar-action-btn toolbar-toggle-btn"
+                    className="toolbar-toggle-btn"
                     size="small"
                     type={layout.leftPanelOpen ? 'primary' : 'default'}
                     icon={<LayoutOutlined />}
                     onClick={() => layout.setLeftPanelOpen(!layout.leftPanelOpen)}
-                  >
-                    节点库
-                  </Button>
+                  />
                 </Tooltip>
-                <Tooltip title="显示或隐藏右侧属性配置">
+                <Tooltip title="属性面板">
                   <Button
-                    className="toolbar-action-btn toolbar-toggle-btn"
+                    className="toolbar-toggle-btn"
                     size="small"
                     type={layout.rightPanelOpen ? 'primary' : 'default'}
                     icon={<AppstoreOutlined />}
                     onClick={() => layout.setRightPanelOpen(!layout.rightPanelOpen)}
-                  >
-                    属性
-                  </Button>
+                  />
                 </Tooltip>
-                <Tooltip title="打开执行结果工作区">
+                <Tooltip title="执行结果">
                   <Button
-                    className="toolbar-action-btn toolbar-toggle-btn"
+                    className="toolbar-toggle-btn"
                     size="small"
                     type={layout.bottomDockOpen && layout.activeDockTab === 'results' ? 'primary' : 'default'}
                     icon={<BarsOutlined />}
                     onClick={() => layout.openDockTab('results')}
-                  >
-                    结果
-                  </Button>
+                  />
                 </Tooltip>
-                <Tooltip title="打开 DSL 编辑器">
+                <Tooltip title="DSL 编辑器">
                   <Button
-                    className="toolbar-action-btn toolbar-toggle-btn"
+                    className="toolbar-toggle-btn"
                     size="small"
                     type={layout.bottomDockOpen && layout.activeDockTab === 'dsl' ? 'primary' : 'default'}
                     icon={<SaveOutlined />}
                     onClick={() => layout.openDockTab('dsl')}
-                  >
-                    DSL
-                  </Button>
+                  />
                 </Tooltip>
               </Space.Compact>
             </div>
           </div>
         </div>
 
-        <div className="toolbar-actions toolbar-actions-compact">
-          {groupedActions.map((group) => (
-            <div key={group.title} className="toolbar-action-group toolbar-action-group-compact">
-              <Typography.Text type="secondary" className="toolbar-group-title">
-                {group.title}
-              </Typography.Text>
-              <Space size={8} wrap>
-                {group.actions.map((action) => {
-                  const cfg = actionConfig[action]
-                  return (
-                    <Button
-                      key={action}
-                      className={group.primary === action ? 'toolbar-action-btn toolbar-action-btn-primary' : 'toolbar-action-btn'}
-                      size="small"
-                      type={group.primary === action ? 'primary' : 'default'}
-                      disabled={runningAction !== null}
-                      onClick={() => onRunAction(action)}
-                      icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
-                    >
-                      {cfg.label}
-                    </Button>
-                  )
-                })}
-              </Space>
+        {/* Belt: Stats & Actions */}
+        <div className="toolbar-belt">
+          <div className="toolbar-belt-left">
+            <div className="toolbar-stats-belt">
+              <Tooltip title={`当前工作流包含 ${workflowStats.nodeCount} 个节点`}>
+                <Tag className="toolbar-stat-pill">
+                  <span className="stat-label">NODES</span>
+                  <span className="stat-value">{workflowStats.nodeCount}</span>
+                </Tag>
+              </Tooltip>
+              <Tooltip title={`当前工作流包含 ${workflowStats.edgeCount} 条连线`}>
+                <Tag className="toolbar-stat-pill">
+                  <span className="stat-label">EDGES</span>
+                  <span className="stat-value">{workflowStats.edgeCount}</span>
+                </Tag>
+              </Tooltip>
+              <Tooltip title={`已配置 ${workflowStats.fieldCount} 个抓取字段`}>
+                <Tag className="toolbar-stat-pill">
+                  <span className="stat-label">FIELDS</span>
+                  <span className="stat-value">{workflowStats.fieldCount}</span>
+                </Tag>
+              </Tooltip>
+              {workflowStats.hasPagination && (
+                <Tag color="gold" className="toolbar-stat-pill toolbar-stat-pill-active">
+                  PAGINATION ACTIVE
+                </Tag>
+              )}
             </div>
-          ))}
+          </div>
+
+          <div className="toolbar-belt-right">
+            <div className="toolbar-actions-rail">
+              {groupedActions.map((group) => (
+                <div key={group.title} className="toolbar-action-group">
+                  <Typography.Text className="toolbar-group-tag">{group.title}</Typography.Text>
+                  <Space size={6}>
+                    {group.actions.map((action) => {
+                      const cfg = actionConfig[action]
+                      const isPrimary = group.primary === action
+                      return (
+                        <Button
+                          key={action}
+                          className={`toolbar-action-btn ${isPrimary ? 'toolbar-action-btn-primary' : ''}`}
+                          size="small"
+                          type={isPrimary ? 'primary' : 'default'}
+                          disabled={runningAction !== null}
+                          onClick={() => onRunAction(action)}
+                          icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
+                        >
+                          {cfg.label}
+                        </Button>
+                      )
+                    })}
+                  </Space>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </Card>

@@ -42,44 +42,16 @@ from backend.workflow.schemas import (
     RunScriptSandboxResponse,
 )
 
+from backend.workflow._shared import (
+    _sanitize_extract_fields,
+    sanitize_graph as _sanitize_graph,
+)
 
-DEPRECATED_NODE_DATA_KEYS = {"max_steps", "max_items"}
-DEPRECATED_EXTRACTION_FIELD_KEYS = {"sample_value", "clean_data_type", "normalized_sample"}
-
-
-def _sanitize_extract_fields(fields: list[dict] | None) -> list[dict] | None:
-    if fields is None:
-        return None
-    sanitized_fields: list[dict] = []
-    for field in fields:
-        if not isinstance(field, dict):
-            sanitized_fields.append(field)
-            continue
-        sanitized_fields.append({
-            key: value
-            for key, value in field.items()
-            if key not in DEPRECATED_EXTRACTION_FIELD_KEYS
-        })
-    return sanitized_fields
-
-
-def _sanitize_node_data(data: NodeData) -> NodeData:
-    payload = data.model_dump()
-    for key in DEPRECATED_NODE_DATA_KEYS:
-        payload.pop(key, None)
-    if isinstance(payload.get("fields"), list):
-        payload["fields"] = _sanitize_extract_fields(payload.get("fields"))
-    return NodeData.model_validate(payload)
-
-
-def _sanitize_graph(graph: WorkflowGraph) -> WorkflowGraph:
-    return WorkflowGraph(
-        nodes=[
-            WorkflowNode(id=node.id, type=node.type, data=_sanitize_node_data(node.data))
-            for node in graph.nodes
-        ],
-        edges=list(graph.edges),
-    )
+LEGACY_CONFIG_DEPRECATION_WARNING = (
+    "Deprecated endpoint: /api/workflows/from-legacy-config will be removed in a future cleanup. "
+    "Prefer sending DSL graphs to /api/workflows/compile-plan, /api/workflows/generate-skeleton, "
+    "or /api/workflows/generate-crawler."
+)
 
 
 # ----------------------------------------------------------------------
@@ -105,6 +77,10 @@ def convert_legacy_config(request: FromLegacyConfigRequest) -> FromLegacyConfigR
         raise WorkflowConversionError(
             error="URL and item_selector are required for legacy conversion"
         )
+    try:
+        sanitized_fields = _sanitize_extract_fields(request.fields)
+    except ValueError as e:
+        raise WorkflowConversionError(error=str(e)) from e
 
     nodes = [
         WorkflowNode(
@@ -120,7 +96,7 @@ def convert_legacy_config(request: FromLegacyConfigRequest) -> FromLegacyConfigR
         WorkflowNode(
             id="node_3",
             type="extract_field",
-            data=NodeData(fields=_sanitize_extract_fields(request.fields), html_fragment=request.html_fragment),
+            data=NodeData(fields=sanitized_fields, html_fragment=request.html_fragment),
         ),
     ]
     edges = [
@@ -145,7 +121,7 @@ def convert_legacy_config(request: FromLegacyConfigRequest) -> FromLegacyConfigR
     return FromLegacyConfigResponse(
         success=True,
         graph=WorkflowGraph(nodes=nodes, edges=edges),
-        warnings=[],
+        warnings=[{"message": LEGACY_CONFIG_DEPRECATION_WARNING}],
     )
 
 
@@ -154,7 +130,10 @@ def graph_to_prompt(request: ToPromptRequest) -> dict:
     
     Raises PromptGenerationError if required config is missing.
     """
-    sanitized_graph = _sanitize_graph(request.graph)
+    try:
+        sanitized_graph = _sanitize_graph(request.graph)
+    except ValueError as e:
+        raise PromptGenerationError(str(e)) from e
     final_prompt, editable_prompt, plan_dict = _build_generation_prompt(sanitized_graph)
     return {
         "success": True,

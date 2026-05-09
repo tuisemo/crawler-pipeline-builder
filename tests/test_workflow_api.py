@@ -1,10 +1,10 @@
 import shutil
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
-from server import app
 from backend.workflow.schemas import AssistLlmResponse
+from backend.workflow.services import LEGACY_CONFIG_DEPRECATION_WARNING
+from server import app
 
 client = TestClient(app)
 
@@ -107,7 +107,6 @@ def test_from_legacy_config_valid():
         "name": "title",
         "selector": "h1",
         "type": "text",
-        "extraction_type": "text",
         "custom_key": "preserved",
     }]
     response = client.post("/api/workflows/from-legacy-config", json={
@@ -124,7 +123,7 @@ def test_from_legacy_config_valid():
     body = response.json()
     data = response_data(response)
     assert body["success"] is True
-    assert body["warnings"] == []
+    assert body["warnings"] == [{"message": LEGACY_CONFIG_DEPRECATION_WARNING}]
     
     graph = data["graph"]
     nodes = graph["nodes"]
@@ -139,7 +138,12 @@ def test_from_legacy_config_valid():
     ]
     assert nodes[0]["data"]["url"] == "http://example.com"
     assert nodes[1]["data"]["item_selector"] == ".item"
-    assert nodes[2]["data"]["fields"] == fields
+    assert nodes[2]["data"]["fields"] == [{
+        "name": "title",
+        "selector": "h1",
+        "type": "text",
+        "custom_key": "preserved",
+    }]
     assert nodes[2]["data"]["html_fragment"] == "<article>Sample</article>"
     assert nodes[3]["data"]["pagination_selector"] == ".next"
     assert nodes[3]["data"]["pagination_strategy"] == "click_next"
@@ -157,7 +161,7 @@ def test_from_legacy_config_omits_pagination_node_when_selector_omitted():
     body = response.json()
     data = response_data(response)
     assert body["success"] is True
-    assert body["warnings"] == []
+    assert body["warnings"] == [{"message": LEGACY_CONFIG_DEPRECATION_WARNING}]
 
     graph = data["graph"]
     assert [node["type"] for node in graph["nodes"]] == ["open_page", "select_list", "extract_field"]
@@ -166,6 +170,18 @@ def test_from_legacy_config_omits_pagination_node_when_selector_omitted():
         {"id": "edge_2_3", "source": "node_2", "target": "node_3"},
     ]
     assert graph["nodes"][2]["data"]["html_fragment"] == ""
+
+
+def test_from_legacy_config_rejects_legacy_field_aliases():
+    response = client.post("/api/workflows/from-legacy-config", json={
+        "url": "http://example.com",
+        "item_selector": ".item",
+        "fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}],
+    })
+
+    assert response.status_code == 400
+    assert response.json()["success"] is False
+    assert "Legacy field aliases are no longer supported" in response.json()["error"]
 
 def test_to_prompt_missing_graph():
     response = client.post("/api/workflows/to-prompt", json={})
@@ -205,6 +221,23 @@ def test_to_prompt_valid():
     assert data["editable_prompt"] == data["prompt"]
     assert "Execution Plan (Deterministic)" in data["effective_prompt"]
     assert "Output Strategy (In-Memory)" in data["effective_prompt"]
+
+
+def test_to_prompt_rejects_legacy_field_aliases():
+    response = client.post("/api/workflows/to-prompt", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}},
+            ],
+            "edges": []
+        }
+    })
+
+    assert response.status_code == 400
+    assert response.json()["success"] is False
+    assert "Legacy field aliases are no longer supported" in response.json()["error"]
 
 
 # ----------------------------------------------------------------------
@@ -272,6 +305,23 @@ def test_generate_crawler_valid_without_llm(monkeypatch):
     assert data["generation_mode"] == "lite"
     assert data["generation_trace"][0]["stage"] == "draft_generation"
     assert data.get("sandbox_result") is None
+
+
+def test_generate_crawler_rejects_legacy_field_aliases():
+    response = client.post("/api/workflows/generate-crawler", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}},
+            ],
+            "edges": []
+        }
+    })
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert "Legacy field aliases are no longer supported" in response.json()["error"]
 
 
 def test_generate_detail_batch_runner_endpoint_returns_valid_script():
@@ -457,6 +507,23 @@ def test_generate_skeleton_valid():
     assert "FIELD_SPECS" in data["script"]
 
 
+def test_generate_skeleton_rejects_legacy_field_aliases():
+    response = client.post("/api/workflows/generate-skeleton", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}},
+            ],
+            "edges": []
+        }
+    })
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert "Legacy field aliases are no longer supported" in response.json()["error"]
+
+
 def test_format_script_endpoint_returns_formatted_content():
     response = client.post("/api/workflows/format-script", json={
         "content": "def run():\r\n\treturn 1\r\n",
@@ -529,6 +596,23 @@ def test_compile_plan_valid():
     assert "max_items" not in data["plan"]["limits"]
     assert data["plan"]["field_specs"][0]["name"] == "title"
     assert any(edge["branch"] == "true" for edge in data["plan"]["edges"])
+
+
+def test_compile_plan_rejects_legacy_field_aliases():
+    response = client.post("/api/workflows/compile-plan", json={
+        "graph": {
+            "nodes": [
+                {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                {"id": "n3", "type": "extract_field", "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}},
+            ],
+            "edges": []
+        }
+    })
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert "Legacy field aliases are no longer supported" in response.json()["error"]
 
 
 def test_assist_removed_browser_mediation_routes_return_404():
@@ -874,7 +958,7 @@ def test_validate_extract_field_accepts_valid_fields():
                 "data": {
                     "fields": [
                         {"name": "title", "selector": "h1", "type": "text"},
-                        {"field_name": "link", "css": "a", "extraction_type": "attr:href"},
+                        {"name": "link", "selector": "a", "type": "attr:href"},
                     ]
                 }
             },
@@ -888,8 +972,7 @@ def test_validate_extract_field_accepts_valid_fields():
     assert response.json()["success"] is True
 
 
-def test_validate_extract_field_accepts_legacy_field_aliases():
-    """extract_field fields using legacy aliases (field_name, css, extraction_type) pass validation."""
+def test_validate_extract_field_rejects_legacy_field_aliases():
     response = post_validate({
         "nodes": [
             {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
@@ -897,7 +980,7 @@ def test_validate_extract_field_accepts_legacy_field_aliases():
             {
                 "id": "n3",
                 "type": "extract_field",
-                "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]}
+                "data": {"fields": [{"field_name": "title", "css": "h1", "extraction_type": "text"}]},
             },
         ],
         "edges": [
@@ -905,7 +988,8 @@ def test_validate_extract_field_accepts_legacy_field_aliases():
             {"id": "e2", "source": "n2", "target": "n3"},
         ],
     })
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "extract_field_legacy_aliases_not_supported"
 
 
 def test_validate_extract_field_requires_field_name_and_selector():
@@ -922,6 +1006,7 @@ def test_validate_extract_field_requires_field_name_and_selector():
     })
     assert response.status_code == 400
     assert response.json()["error_code"] == "extract_field_requires_field_name"
+    assert "requires a non-empty name." in response.json()["error"]
 
     response = post_validate({
         "nodes": [
@@ -936,6 +1021,7 @@ def test_validate_extract_field_requires_field_name_and_selector():
     })
     assert response.status_code == 400
     assert response.json()["error_code"] == "extract_field_requires_field_selector"
+    assert "requires a non-empty selector." in response.json()["error"]
 
 
 def test_validate_paginate_requires_pagination_selector():
