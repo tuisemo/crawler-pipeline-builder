@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Task } from '../services/taskApi'
 import { getTask, getTaskAsset } from '../services/taskApi'
@@ -76,7 +76,7 @@ export interface UseWorkflowAssetResult {
 }
 
 export function useWorkflowAsset(): UseWorkflowAssetResult {
-  async function loadAsset(id: number) {
+  const loadAsset = useCallback(async (id: number) => {
     const asset = await getTaskAsset(id, 'workflow_graph')
     if (!asset || !asset.content) return null
     try {
@@ -87,7 +87,7 @@ export function useWorkflowAsset(): UseWorkflowAssetResult {
     } catch {
       return null
     }
-  }
+  }, [])
 
   return { loadAsset }
 }
