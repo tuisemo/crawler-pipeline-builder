@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.assist_routes import router as assist_router
+from backend.api.task_routes import router as task_router
 from backend.api.workflow_routes import router as workflow_router
 from backend.core.api_response import api_response
 from backend.core.app_logging import configure_logging
@@ -50,6 +51,7 @@ def index():
 
 app.include_router(workflow_router)
 app.include_router(assist_router)
+app.include_router(task_router)
 
 
 def main(port: int | None = None):
