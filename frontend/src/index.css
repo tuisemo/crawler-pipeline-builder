@@ -121,3 +121,205 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* ===================================================================
+   Home Page — Brand Landing
+   =================================================================== */
+
+.home-root {
+  min-height: 100vh;
+  background: #F3F7FB;
+}
+
+/* Hero Section */
+.home-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #F3F7FB;
+}
+
+.home-hero-inner {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 800px;
+}
+
+.home-hero-title {
+  font-family: var(--sd-font-mono);
+  font-size: clamp(36px, 8vw, 64px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0f172a;
+  margin: 0 0 24px 0;
+  line-height: 1.1;
+}
+
+.home-hero-subtitle {
+  font-size: 16px;
+  color: #64748b;
+  margin: 0 0 40px 0;
+  line-height: 1.7;
+}
+
+.home-hero-cta {
+  height: 48px;
+  padding: 0 32px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: #2563EB !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.3);
+}
+
+.home-hero-cta:hover {
+  background: #1d4ed8 !important;
+}
+
+.home-hero-decoration {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.home-hero-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Feature Showcase */
+.home-features {
+  background: #F3F7FB;
+  padding: 80px 24px;
+}
+
+.home-features-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.home-feature-card {
+  background: #ffffff;
+  padding: 32px 28px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.home-feature-tag {
+  display: inline-block;
+  font-family: var(--sd-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 16px;
+}
+
+.home-feature-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 12px 0;
+  letter-spacing: -0.01em;
+}
+
+.home-feature-desc {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Dark Workflow Section */
+.home-workflow {
+  background: #0F172A;
+  padding: 96px 24px;
+}
+
+.home-workflow-inner {
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.home-workflow-eyebrow {
+  display: inline-block;
+  font-family: var(--sd-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 20px;
+}
+
+.home-workflow-heading {
+  font-family: var(--sd-font-mono);
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  margin: 0 0 20px 0;
+}
+
+.home-workflow-subtext {
+  font-size: 15px;
+  color: #94a3b8;
+  margin: 0 0 56px 0;
+  line-height: 1.6;
+}
+
+.home-workflow-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-workflow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+}
+
+.home-workflow-index {
+  font-family: var(--sd-font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: #2563EB;
+  line-height: 1;
+}
+
+.home-workflow-label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+.home-workflow-arrow {
+  font-family: var(--sd-font-mono);
+  font-size: 20px;
+  color: #475569;
+  padding: 0 4px;
+}

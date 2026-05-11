@@ -22,8 +22,11 @@ export default function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Hide sider for workbench routes to provide full-screen experience
-  const isWorkbenchRoute = location.pathname.match(/^\/tasks\/[^/]+\/workbench$/)
+  // Hide sider for homepage (full-screen landing) and workbench routes
+  const isFullScreenRoute = location.pathname === '/' || location.pathname.match(/^\/tasks\/[^/]+\/workbench$/)
+
+
+  const selectedMenuKey = location.pathname === '/' ? '/' : '/tasks'
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     navigate(key)
@@ -31,7 +34,7 @@ export default function Layout() {
 
   return (
     <AntdLayout style={{ minHeight: '100vh' }}>
-      {!isWorkbenchRoute && (
+      {!isFullScreenRoute && (
         <Sider
           width={200}
           style={{
@@ -56,7 +59,7 @@ export default function Layout() {
           </div>
           <Menu
             mode="inline"
-            selectedKeys={[location.pathname === '/' ? '/' : '/tasks']}
+            selectedKeys={[selectedMenuKey]}
             items={menuItems}
             onClick={handleMenuClick}
             style={{
