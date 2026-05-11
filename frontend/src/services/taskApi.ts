@@ -1,44 +1,43 @@
 import type { ApiEnvelope } from './workflowApi'
 
+export type TaskStatus = 'draft' | 'active' | 'archived'
+
 export interface Task {
   id: number
   name: string
   description: string | null
   target_url: string | null
-  status: 'draft' | 'active' | 'archived'
+  status: TaskStatus
   created_at: string
   updated_at: string
 }
 
-export interface TaskAsset {
+export interface AssetMeta {
   asset_type: string
   version: number
   created_at: string
 }
 
-export interface TaskDetailResponse {
-  task: Task
-  assets: TaskAsset[]
+export interface AssetItem {
+  asset_type: string
+  version: number
+  content: string
+  created_at: string
 }
 
 export interface TaskListResponse {
   items: Task[]
   total: number
-  page: number
-  page_size: number
 }
 
-export interface CreateTaskRequest {
-  name: string
-  description?: string
-  target_url?: string
+export interface TaskDetailResponse {
+  task: Task
+  assets: AssetMeta[]
 }
 
-export interface UpdateTaskRequest {
-  name?: string
-  description?: string
-  target_url?: string
-  status?: 'draft' | 'active' | 'archived'
+export interface SaveAssetsResponse {
+  saved_count: number
+  assets: AssetMeta[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -71,25 +70,49 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return data as T
 }
 
-export async function listTasks(params?: { page?: number; page_size?: number }): Promise<TaskListResponse> {
-  const query = new URLSearchParams()
-  if (params?.page) query.set('page', String(params.page))
-  if (params?.page_size) query.set('page_size', String(params.page_size))
-  const queryStr = query.toString()
-  return request<TaskListResponse>(`/api/tasks${queryStr ? `?${queryStr}` : ''}`)
+async function requestOrNull<T>(path: string, options?: RequestInit): Promise<T | null> {
+  const response = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (response.status === 404) {
+    return null
+  }
+  const { data, envelope } = await parseEnvelope(response)
+  if (!response.ok || !envelope.success) {
+    throw new Error(envelope.error || 'Request failed')
+  }
+  return data as T
 }
 
-export async function createTask(body: CreateTaskRequest): Promise<{ task: Task }> {
+export async function listTasks(
+  page: number = 1,
+  pageSize: number = 20,
+  status?: TaskStatus
+): Promise<TaskListResponse> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
+  if (status) params.set('status', status)
+  return request<TaskListResponse>(`/api/tasks?${params.toString()}`)
+}
+
+export async function createTask(data: { name: string; description?: string; target_url?: string }): Promise<{ task: Task }> {
   return request<{ task: Task }>('/api/tasks', {
     method: 'POST',
-    body: JSON.stringify(body),
+    body: JSON.stringify(data),
   })
 }
 
-export async function updateTask(taskId: number, body: UpdateTaskRequest): Promise<{ task: Task }> {
+export async function getTask(taskId: number): Promise<TaskDetailResponse> {
+  return request<TaskDetailResponse>(`/api/tasks/${taskId}`)
+}
+
+export async function updateTask(
+  taskId: number,
+  data: { name?: string; description?: string; target_url?: string; status?: TaskStatus }
+): Promise<{ task: Task }> {
   return request<{ task: Task }>(`/api/tasks/${taskId}`, {
     method: 'PUT',
-    body: JSON.stringify(body),
+    body: JSON.stringify(data),
   })
 }
 
@@ -99,6 +122,16 @@ export async function deleteTask(taskId: number): Promise<{ task: Task }> {
   })
 }
 
-export async function getTask(taskId: number): Promise<TaskDetailResponse> {
-  return request<TaskDetailResponse>(`/api/tasks/${taskId}`)
+export async function saveTaskAssets(
+  taskId: number,
+  assets: Record<string, string>
+): Promise<SaveAssetsResponse> {
+  return request<SaveAssetsResponse>(`/api/tasks/${taskId}/assets`, {
+    method: 'POST',
+    body: JSON.stringify({ assets }),
+  })
+}
+
+export async function getTaskAsset(taskId: number, assetType: string): Promise<AssetItem | null> {
+  return requestOrNull<AssetItem>(`/api/tasks/${taskId}/assets/${assetType}`)
 }

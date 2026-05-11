@@ -51,6 +51,7 @@ import {
 } from '../features/workflow/workbenchDefaults'
 import { resolveNextNodeId, resolveNextNodePosition, autoLayoutNodes } from '../features/workflow/workflowNodePlacement'
 import { useTaskContext, useWorkflowAsset } from './useTaskContext'
+import { saveTaskAssets } from '../services/taskApi'
 
 loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
@@ -357,6 +358,74 @@ export default function WorkbenchPage() {
     void runWorkflowAction(action)
   }
 
+  const [saveToTaskLoading, setSaveToTaskLoading] = useState(false)
+
+  function extractScriptFromPayload(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return ''
+    const record = payload as Record<string, unknown>
+    return typeof record.script === 'string' ? record.script : ''
+  }
+
+  function extractCompilePlanFromPayload(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return ''
+    const record = payload as Record<string, unknown>
+    if (typeof record.plan === 'object' && record.plan !== null) {
+      return JSON.stringify(record.plan)
+    }
+    return ''
+  }
+
+  function extractPromptFromPayload(payload: unknown): string {
+    if (!payload || typeof payload !== 'object') return ''
+    const record = payload as Record<string, unknown>
+    if (typeof record.prompt === 'string') return record.prompt
+    if (typeof record.effective_prompt === 'string') return record.effective_prompt
+    return ''
+  }
+
+  function toDetailBatchRunnerContent(detailBatchRunner: unknown): { config: string; script: string } {
+    if (!detailBatchRunner || typeof detailBatchRunner !== 'object') return { config: '', script: '' }
+    const record = detailBatchRunner as Record<string, unknown>
+    return {
+      config: typeof record.config === 'string' ? record.config : '',
+      script: typeof record.script === 'string' ? record.script : '',
+    }
+  }
+
+  async function handleSaveToTask() {
+    if (!taskId) return
+    setSaveToTaskLoading(true)
+    try {
+      const payloadRecord = resultState.payload && typeof resultState.payload === 'object'
+        ? resultState.payload as Record<string, unknown>
+        : {}
+
+      const assets: Record<string, string> = {
+        workflow_graph: JSON.stringify(canonicalGraph),
+      }
+
+      const scriptContent = extractScriptFromPayload(resultState.payload)
+      if (scriptContent) assets.list_script = scriptContent
+
+      const compilePlanContent = extractCompilePlanFromPayload(resultState.payload)
+      if (compilePlanContent) assets.compile_plan = compilePlanContent
+
+      const promptContent = extractPromptFromPayload(resultState.payload)
+      if (promptContent) assets.prompt = promptContent
+
+      const detailBatchRunner = toDetailBatchRunnerContent(payloadRecord['detail-batch-runner'])
+      if (detailBatchRunner.config) assets.detail_batch_config = detailBatchRunner.config
+      if (detailBatchRunner.script) assets.detail_batch_script = detailBatchRunner.script
+
+      await saveTaskAssets(taskId, assets)
+      message.success('已保存到任务')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setSaveToTaskLoading(false)
+    }
+  }
+
   const workspaceShellClassName = [
     'workspace-shell',
     leftPanelOpen ? 'workspace-shell--left-open' : 'workspace-shell--left-closed',
@@ -386,6 +455,8 @@ export default function WorkbenchPage() {
           }}
           taskName={taskName}
           onBack={taskId ? goBack : undefined}
+          onSaveToTask={taskId ? handleSaveToTask : undefined}
+          saveToTaskLoading={saveToTaskLoading}
         />
       </div>
 

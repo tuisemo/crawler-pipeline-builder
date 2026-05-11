@@ -10,6 +10,7 @@ import {
   RocketOutlined,
   SaveOutlined,
   NodeIndexOutlined,
+  CloudUploadOutlined,
 } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 import type { ExtensionStatus } from '../../features/runtime/extensionBridge'
@@ -47,6 +48,8 @@ type WorkbenchToolbarProps = {
   }
   taskName?: string | null
   onBack?: () => void
+  onSaveToTask?: () => void
+  saveToTaskLoading?: boolean
 }
 
 const actionConfig: Record<WorkbenchAction, { label: string; icon: ReactNode }> = {
@@ -97,6 +100,8 @@ export function WorkbenchToolbar({
   layout,
   taskName,
   onBack,
+  onSaveToTask,
+  saveToTaskLoading,
 }: WorkbenchToolbarProps) {
   return (
     <Card className="ant-toolbar-card" styles={{ body: { padding: '8px 16px' } }} variant="outlined">
@@ -258,6 +263,21 @@ export function WorkbenchToolbar({
                   </Space>
                 </div>
               ))}
+              {onSaveToTask && (
+                <div className="toolbar-action-group">
+                  <Typography.Text className="toolbar-group-tag">资产</Typography.Text>
+                  <Button
+                    size="small"
+                    type="default"
+                    icon={saveToTaskLoading ? <Spin size="small" /> : <CloudUploadOutlined />}
+                    disabled={saveToTaskLoading || runningAction !== null}
+                    onClick={onSaveToTask}
+                    style={{ borderColor: 'rgba(37, 99, 235, 0.4)', color: '#2563eb' }}
+                  >
+                    保存到任务
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>
