@@ -1,6 +1,7 @@
 import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
 import {
   AppstoreOutlined,
+  ArrowLeftOutlined,
   BarsOutlined,
   CheckCircleOutlined,
   CodeOutlined,
@@ -45,6 +46,8 @@ type WorkbenchToolbarProps = {
     setRightPanelOpen: (open: boolean) => void
     openDockTab: (tab: 'results' | 'dsl') => void
   }
+  taskName?: string | null
+  onBack?: () => void
 }
 
 const actionConfig: Record<WorkbenchAction, { label: string; icon: ReactNode }> = {
@@ -93,6 +96,8 @@ export function WorkbenchToolbar({
   onGenerationModeChange,
   extensionStatus,
   layout,
+  taskName,
+  onBack,
 }: WorkbenchToolbarProps) {
   return (
     <Card className="ant-toolbar-card" styles={{ body: { padding: '8px 16px' } }} variant="outlined">
@@ -100,6 +105,27 @@ export function WorkbenchToolbar({
         {/* Header: Brand & Environment */}
         <div className="toolbar-header">
           <div className="toolbar-header-left">
+            {onBack && (
+              <>
+                <Button
+                  size="small"
+                  icon={<ArrowLeftOutlined />}
+                  onClick={onBack}
+                  className="toolbar-back-btn"
+                >
+                  返回任务
+                </Button>
+                <div className="toolbar-separator" />
+              </>
+            )}
+            {taskName && (
+              <>
+                <Typography.Text strong className="toolbar-task-name">
+                  {taskName}
+                </Typography.Text>
+                <div className="toolbar-separator" />
+              </>
+            )}
             <div className="toolbar-logo-wrapper">
               <img src="/logo_128.webp" alt="Scraper Flow Studio" className="toolbar-logo-img" />
             </div>

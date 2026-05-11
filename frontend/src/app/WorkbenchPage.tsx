@@ -50,11 +50,14 @@ import {
   type DockTabKey,
 } from '../features/workflow/workbenchDefaults'
 import { resolveNextNodeId, resolveNextNodePosition, autoLayoutNodes } from '../features/workflow/workflowNodePlacement'
+import { useTaskContext, useWorkflowAsset } from './useTaskContext'
 
 loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
-export default function App() {
+export default function WorkbenchPage() {
   const { message } = AntdApp.useApp()
+  const { taskId, taskName, goBack } = useTaskContext()
+  const { loadAsset } = useWorkflowAsset()
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes)
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges)
   const [selectedNodeId, setSelectedNodeId] = useState(initialNodes[0].id)
@@ -67,6 +70,23 @@ export default function App() {
 
   const [canvasFitToken, setCanvasFitToken] = useState(0)
   const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
+
+  // Load workflow_graph asset from task on mount
+  useEffect(() => {
+    if (!taskId) return
+    let cancelled = false
+    setCanvasFitToken((t) => t + 1)
+    loadAsset(taskId).then((result) => {
+      if (cancelled || !result) return
+      setNodes(result.nodes)
+      setEdges(result.edges)
+      setSelectedNodeId(result.nodes[0]?.id ?? '')
+      setDslText(JSON.stringify(toCanonicalGraph(result.nodes, result.edges), null, 2))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [taskId, loadAsset])
 
   const [extensionStatus, setExtensionStatus] = useState<ExtensionStatus | null>(null)
   useEffect(() => {
@@ -364,6 +384,8 @@ export default function App() {
             setRightPanelOpen,
             openDockTab,
           }}
+          taskName={taskName}
+          onBack={taskId ? goBack : undefined}
         />
       </div>
 
