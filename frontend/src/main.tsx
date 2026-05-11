@@ -1,9 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import './index.css'
-import App from './app/App.tsx'
+import Layout from './app/Layout'
+import HomePage from './app/HomePage'
+import TaskListPage from './app/TaskListPage'
+import TaskDetailPage from './app/TaskDetailPage'
+import WorkbenchPage from './app/WorkbenchPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -78,7 +83,16 @@ createRoot(document.getElementById('root')!).render(
       }}
     >
       <AntdApp>
-        <App />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<HomePage />} />
+              <Route path="tasks" element={<TaskListPage />} />
+              <Route path="tasks/:taskId" element={<TaskDetailPage />} />
+              <Route path="tasks/:taskId/workbench" element={<WorkbenchPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
       </AntdApp>
     </ConfigProvider>
   </StrictMode>,
