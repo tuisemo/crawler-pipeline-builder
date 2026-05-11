@@ -26,6 +26,7 @@ export function useTaskContext(): TaskContext {
 
   useEffect(() => {
     if (!taskId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTask(null)
       setLoading(false)
       return

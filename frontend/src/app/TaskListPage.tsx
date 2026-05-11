@@ -45,6 +45,7 @@ export default function TaskListPage() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTasks()
   }, [fetchTasks])
 
@@ -61,7 +62,7 @@ export default function TaskListPage() {
       setCreateModalOpen(false)
       form.resetFields()
       await fetchTasks()
-    } catch (err) {
+    } catch {
       message.error('创建任务失败')
     } finally {
       setSubmitting(false)

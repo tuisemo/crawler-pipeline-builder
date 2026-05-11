@@ -76,9 +76,10 @@ export default function WorkbenchPage() {
   useEffect(() => {
     if (!taskId) return
     let cancelled = false
-    setCanvasFitToken((t) => t + 1)
     loadAsset(taskId).then((result) => {
-      if (cancelled || !result) return
+      if (cancelled) return
+      setCanvasFitToken((t) => t + 1)
+      if (!result) return
       setNodes(result.nodes)
       setEdges(result.edges)
       setSelectedNodeId(result.nodes[0]?.id ?? '')
