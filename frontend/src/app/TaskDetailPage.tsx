@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Button, Card, Typography, Descriptions, Space, Tag, List, Drawer, Form, Input, message, Empty } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, EnterOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
-import { getTask, updateTask, type Task, type TaskAsset } from '../services/taskApi'
+import { ArrowLeftOutlined, EditOutlined, EnterOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { getTask, updateTask, type Task, type AssetMeta } from '../services/taskApi'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -36,7 +36,7 @@ export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
   const [task, setTask] = useState<Task | null>(null)
-  const [assets, setAssets] = useState<TaskAsset[]>([])
+  const [assets, setAssets] = useState<AssetMeta[]>([])
   const [loading, setLoading] = useState(false)
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editForm] = Form.useForm()

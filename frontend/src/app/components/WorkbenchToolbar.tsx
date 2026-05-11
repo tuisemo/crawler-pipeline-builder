@@ -5,7 +5,6 @@ import {
   BarsOutlined,
   CheckCircleOutlined,
   CodeOutlined,
-  CompassOutlined,
   FileSearchOutlined,
   LayoutOutlined,
   RocketOutlined,
