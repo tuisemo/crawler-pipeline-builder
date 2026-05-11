@@ -13,12 +13,14 @@
   "dependencies": {
     "@ant-design/icons": "^6.1.1",
     "@monaco-editor/react": "^4.7.0",
+    "@types/three": "^0.184.1",
     "@xyflow/react": "^12.10.2",
     "antd": "^6.3.6",
     "monaco-editor": "^0.55.1",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-router-dom": "^7.15.0"
+    "react-router-dom": "^7.15.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

@@ -1,23 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Card, Typography, Descriptions, Space, Tag, List, Drawer, Form, Input, message, Empty } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, EnterOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { Button, Typography, Space, Tag, List, Drawer, Form, Input, message, Empty, Breadcrumb } from 'antd'
+import { ArrowLeftOutlined, EditOutlined, EnterOutlined, CheckCircleOutlined, CodeOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { getTask, updateTask, type Task, type AssetMeta } from '../services/taskApi'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
-
-const statusTagColor: Record<string, string> = {
-  draft: 'default',
-  active: 'green',
-  archived: 'red',
-}
-
-const statusLabel: Record<string, string> = {
-  draft: '草稿',
-  active: '进行中',
-  archived: '已归档',
-}
 
 const assetTypeLabel: Record<string, string> = {
   workflow_graph: '工作流图',
@@ -26,10 +14,6 @@ const assetTypeLabel: Record<string, string> = {
   prompt: '提示词',
   detail_batch_config: '批处理配置',
   detail_batch_script: '批处理脚本',
-}
-
-function formatDate(isoString: string): string {
-  return new Date(isoString).toLocaleString('zh-CN')
 }
 
 export default function TaskDetailPage() {
@@ -59,7 +43,6 @@ export default function TaskDetailPage() {
   }, [id])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTask()
   }, [fetchTask])
 
@@ -89,142 +72,181 @@ export default function TaskDetailPage() {
     setEditDrawerOpen(true)
   }
 
+  if (loading && !task) {
+    return (
+      <div style={{ padding: 100, textAlign: 'center', background: '#fff' }}>
+        <div className="mono" style={{ color: 'var(--sd-color-primary)', fontSize: 14 }}>同步工作空间资源...</div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ padding: 24 }}>
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/tasks')}>
-              返回列表
-            </Button>
-            <Title level={3} style={{ margin: 0, letterSpacing: '-0.02em' }}>
-              任务详情
-            </Title>
-          </Space>
-          <Button icon={<EditOutlined />} onClick={openEditDrawer}>
-            编辑信息
-          </Button>
+    <div className="tech-workspace" style={{ background: '#fff' }}>
+      {/* --- Left Sidebar (Command Unit) --- */}
+      <div className="tech-sidebar" style={{ 
+        width: 360, 
+        borderRight: '1px solid #f0f0f0', 
+        padding: '40px 32px',
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#fdfdfd'
+      }}>
+        <Breadcrumb
+          items={[
+            { title: <a onClick={() => navigate('/tasks')} style={{ color: '#999' }}>任务列表</a> },
+            { title: <span className="mono" style={{ color: '#000', fontWeight: 600 }}>#{task?.id.toString().padStart(3, '0')}</span> },
+          ]}
+          style={{ marginBottom: 40 }}
+        />
+
+        <div style={{ marginBottom: 48 }}>
+           <div className="mono" style={{ color: '#bbb', fontSize: 10, letterSpacing: '0.1em', marginBottom: 12 }}>任务标识符 // IDENTIFIER</div>
+           <Title level={2} style={{ margin: 0, fontSize: 28, fontWeight: 800, letterSpacing: '-0.02em' }}>{task?.name}</Title>
+           <Tag color={task?.status === 'active' ? 'success' : 'default'} style={{ marginTop: 12, borderRadius: 4, fontWeight: 600 }}>
+             {task?.status === 'active' ? '● 正在运行' : '○ 待处理'}
+           </Tag>
         </div>
 
-        {/* Task Metadata Card */}
-        <Card
-          loading={loading}
-          style={{
-            borderRadius: 16,
-            boxShadow: '0 0 0 1px rgba(148, 163, 184, 0.12), 0 12px 24px rgba(15, 23, 42, 0.05)',
-          }}
-        >
-          {task && (
-            <Descriptions column={2} bordered size="small">
-              <Descriptions.Item label="任务名称">{task.name}</Descriptions.Item>
-              <Descriptions.Item label="状态">
-                <Tag color={statusTagColor[task.status] || 'default'}>
-                  {statusLabel[task.status] || task.status}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="目标网址">
-                {task.target_url || <Text type="secondary">--</Text>}
-              </Descriptions.Item>
-              <Descriptions.Item label="创建时间">{formatDate(task.created_at)}</Descriptions.Item>
-              <Descriptions.Item label="任务描述" span={2}>
-                {task.description || <Text type="secondary">无</Text>}
-              </Descriptions.Item>
-              <Descriptions.Item label="最后更新">{formatDate(task.updated_at)}</Descriptions.Item>
-              <Descriptions.Item label="任务ID">{task.id}</Descriptions.Item>
-            </Descriptions>
-          )}
-        </Card>
+        <div style={{ marginBottom: 48 }}>
+           <div className="mono" style={{ color: '#bbb', fontSize: 10, letterSpacing: '0.1em', marginBottom: 16 }}>系统元数据 // METADATA</div>
+           <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #eee', paddingBottom: 8 }}>
+                <span style={{ color: '#999', fontSize: 12 }}>创建时间</span>
+                <span className="mono" style={{ fontSize: 12 }}>{task ? new Date(task.created_at).toLocaleDateString() : '--'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #eee', paddingBottom: 8 }}>
+                <span style={{ color: '#999', fontSize: 12 }}>最后更新</span>
+                <span className="mono" style={{ fontSize: 12 }}>{task ? new Date(task.updated_at).toLocaleDateString() : '--'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #eee', paddingBottom: 8 }}>
+                <span style={{ color: '#999', fontSize: 12 }}>目标域名</span>
+                <span className="mono" style={{ fontSize: 12, color: 'var(--sd-color-info)' }}>{task?.target_url ? new URL(task.target_url).hostname : '本地'}</span>
+              </div>
+           </Space>
+        </div>
 
-        {/* Asset Overview Card */}
-        <Card
-          title={<Text strong style={{ fontSize: 15 }}>资产概览</Text>}
-          loading={loading}
-          style={{
-            borderRadius: 16,
-            boxShadow: '0 0 0 1px rgba(148, 163, 184, 0.12), 0 12px 24px rgba(15, 23, 42, 0.05)',
-          }}
-        >
-          {assets.length === 0 ? (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={<Text type="secondary">暂无已保存的资产</Text>}
-            />
-          ) : (
-            <List
-              size="small"
-              dataSource={assets}
-              renderItem={(asset) => (
-                <List.Item
-                  style={{ padding: '10px 0' }}
-                  extra={
-                    <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        v{asset.version}
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {formatDate(asset.created_at)}
-                      </Text>
-                    </Space>
-                  }
-                >
+        <div style={{ marginTop: 'auto' }}>
+           <Button 
+            block 
+            icon={<EditOutlined />} 
+            onClick={openEditDrawer}
+            style={{ height: 48, borderRadius: 8, marginBottom: 16, fontWeight: 600 }}
+           >
+            修改任务配置
+           </Button>
+           <Button 
+            block 
+            type="primary"
+            icon={<EnterOutlined />} 
+            onClick={() => navigate(`/tasks/${taskId}/workbench`)}
+            style={{ height: 48, borderRadius: 8, background: '#000', border: 'none', fontWeight: 700 }}
+           >
+            进入流程工作站
+           </Button>
+        </div>
+      </div>
+
+      {/* --- Main Dashboard Area --- */}
+      <div className="tech-main" style={{ flex: 1, padding: '60px 80px', overflowY: 'auto' }}>
+         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+            {/* Description Block */}
+            <section style={{ marginBottom: 60 }}>
+               <div className="mono" style={{ color: 'var(--sd-color-primary)', fontSize: 11, fontWeight: 700, marginBottom: 20, letterSpacing: '0.1em' }}>
+                 // 业务逻辑描述 / DESCRIPTION
+               </div>
+               <div style={{ 
+                 background: '#f9f9f9', 
+                 padding: 32, 
+                 borderRadius: 16, 
+                 border: '1px solid #f0f0f0',
+                 color: '#555',
+                 fontSize: 16,
+                 lineHeight: 1.8,
+                 whiteSpace: 'pre-wrap'
+               }}>
+                 {task?.description || '暂无该任务的详细业务描述。您可以通过“修改任务配置”添加相关背景。'}
+               </div>
+            </section>
+
+            {/* Assets List Section */}
+            <section>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, paddingBottom: 16, borderBottom: '2px solid #000' }}>
+                  <div className="mono" style={{ fontSize: 14, fontWeight: 800 }}>
+                    存储资产库 ({assets.length}) <span style={{ color: '#ccc', fontWeight: 400, marginLeft: 8 }}>/ REPOSITORY_ASSETS</span>
+                  </div>
                   <Space>
-                    <CheckCircleOutlined style={{ color: '#16a34a' }} />
-                    <Text strong>{assetTypeLabel[asset.asset_type] || asset.asset_type}</Text>
-                    <Tag color="blue" style={{ marginLeft: 4 }}>{asset.asset_type}</Tag>
+                    <Button type="text" icon={<CodeOutlined />} />
+                    <Button type="text" icon={<ShareAltOutlined />} />
                   </Space>
-                </List.Item>
-              )}
-            />
-          )}
-        </Card>
+               </div>
 
-        {/* Navigation Button */}
-        <Button
-          type="primary"
-          icon={<EnterOutlined />}
-          size="large"
-          onClick={() => navigate(`/tasks/${taskId}/workbench`)}
-          style={{
-            alignSelf: 'flex-start',
-            background: '#2563eb',
-            borderColor: '#2563eb',
-          }}
-        >
-          进入编排工作台
-        </Button>
-      </Space>
+               {assets.length === 0 ? (
+                 <div style={{ padding: '80px 0', textAlign: 'center', background: '#fafafa', borderRadius: 16, border: '1px dashed #ddd' }}>
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ color: '#999' }}>暂未检测到已编译资产</span>} />
+                 </div>
+               ) : (
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {assets.map((asset, idx) => (
+                      <div key={idx} className="tech-card-horizontal" style={{ 
+                        background: '#fff', 
+                        border: '1px solid #eee', 
+                        borderRadius: 12, 
+                        padding: '20px 32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        transition: 'all 0.2s ease'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+                           <div style={{ width: 40, height: 40, background: 'rgba(0,0,0,0.02)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <CheckCircleOutlined style={{ color: 'var(--sd-color-success)', fontSize: 18 }} />
+                           </div>
+                           <div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: '#000' }}>{assetTypeLabel[asset.asset_type] || asset.asset_type}</div>
+                              <div className="mono" style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>{asset.asset_type.toUpperCase()}</div>
+                           </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                           <div className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--sd-color-primary)' }}>REV_{asset.version.toString().padStart(2, '0')}</div>
+                           <div className="mono" style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>{new Date(asset.created_at).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                    ))}
+                 </div>
+               )}
+            </section>
+         </div>
+      </div>
 
-      {/* Edit Drawer */}
+      {/* --- Edit Configuration Drawer --- */}
       <Drawer
-        title="编辑任务信息"
+        title={<span className="mono" style={{ fontWeight: 700 }}>配置更新 / EDIT_CONFIG</span>}
         placement="right"
-        width={400}
+        width={480}
         open={editDrawerOpen}
         onClose={() => setEditDrawerOpen(false)}
-        extra={
-          <Space>
-            <Button onClick={() => setEditDrawerOpen(false)}>取消</Button>
-            <Button type="primary" loading={submitting} onClick={handleEdit}>
-              保存
-            </Button>
-          </Space>
-        }
+        styles={{ body: { padding: '32px' } }}
       >
-        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={editForm} layout="vertical">
           <Form.Item
             name="name"
-            label="任务名称"
+            label={<span className="mono" style={{ fontSize: 11 }}>任务识别名 / TASK_NAME</span>}
             rules={[{ required: true, message: '请输入任务名称' }]}
           >
-            <Input placeholder="请输入任务名称" />
+            <Input bordered={false} style={{ borderBottom: '1px solid #eee', borderRadius: 0, padding: '12px 0', fontSize: 16 }} />
           </Form.Item>
-          <Form.Item name="description" label="任务描述">
-            <TextArea rows={3} placeholder="请输入任务描述（可选）" />
+          <Form.Item name="description" label={<span className="mono" style={{ fontSize: 11 }}>业务背景 / DESCRIPTION</span>}>
+            <TextArea rows={5} bordered={false} style={{ borderBottom: '1px solid #eee', borderRadius: 0, padding: '12px 0' }} />
           </Form.Item>
-          <Form.Item name="target_url" label="目标网址">
-            <Input placeholder="请输入目标网址（可选）" />
+          <Form.Item name="target_url" label={<span className="mono" style={{ fontSize: 11 }}>目标起始地址 / TARGET_URL</span>}>
+            <Input bordered={false} style={{ borderBottom: '1px solid #eee', borderRadius: 0, padding: '12px 0' }} />
           </Form.Item>
+          
+          <div style={{ marginTop: 40 }}>
+            <Button type="primary" block size="large" loading={submitting} onClick={handleEdit} style={{ height: 54, background: '#000', border: 'none', borderRadius: 8, fontWeight: 700 }}>
+              保存并部署更新
+            </Button>
+          </div>
         </Form>
       </Drawer>
     </div>
