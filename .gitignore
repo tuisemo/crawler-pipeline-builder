@@ -27,3 +27,6 @@ frontend/node_modules/
 temp
 .env
 node_modules/
+
+# Runtime SQLite database
+data/*.db

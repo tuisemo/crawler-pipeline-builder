@@ -13,7 +13,7 @@ from backend.api.workflow_routes import router as workflow_router
 from backend.core.api_response import api_response
 from backend.core.app_logging import configure_logging
 from backend.core.settings import get_settings
-
+from backend.database import close_connection, run_migrations
 
 configure_logging()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,8 +21,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: initialize database
+    run_migrations()
     yield
-    pass
+    # Shutdown: close database connection
+    close_connection()
 
 
 app = FastAPI(title="Scraper Flow Studio API", lifespan=lifespan)
