@@ -241,26 +241,30 @@ export function WorkbenchToolbar({
             <div className="toolbar-actions-rail">
               {groupedActions.map((group) => (
                 <div key={group.title} className="toolbar-action-group">
-                  <Typography.Text className="toolbar-group-tag">{group.title}</Typography.Text>
-                  <Space size={6}>
-                    {group.actions.map((action) => {
-                      const cfg = actionConfig[action]
-                      const isPrimary = group.primary === action
-                      return (
-                        <Button
-                          key={action}
-                          className={`toolbar-action-btn ${isPrimary ? 'toolbar-action-btn-primary' : ''}`}
-                          size="small"
-                          type={isPrimary ? 'primary' : 'default'}
-                          disabled={runningAction !== null}
-                          onClick={() => onRunAction(action)}
-                          icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
-                        >
-                          {cfg.label}
-                        </Button>
-                      )
-                    })}
-                  </Space>
+                  <div className="toolbar-action-group-inner">
+                    <Typography.Text className="toolbar-group-tag">{group.title}</Typography.Text>
+                    <Space size={6}>
+                      {group.actions.filter(Boolean).map((action) => {
+                        const cfg = actionConfig[action]
+                        const isPrimary = group.primary === action
+                        if (!cfg) return null;
+                        return (
+                          <Button
+                            key={action}
+                            id={`btn-action-${action}`}
+                            className={`toolbar-action-btn ${isPrimary ? 'toolbar-action-btn-primary' : ''}`}
+                            size="small"
+                            type={isPrimary ? 'primary' : 'default'}
+                            disabled={runningAction !== null}
+                            onClick={() => onRunAction(action)}
+                            icon={runningAction === action ? <Spin size="small" /> : cfg.icon}
+                          >
+                            {cfg.label}
+                          </Button>
+                        )
+                      })}
+                    </Space>
+                  </div>
                 </div>
               ))}
               {onSaveToTask && (
