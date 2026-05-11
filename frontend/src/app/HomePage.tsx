@@ -39,7 +39,7 @@ export default function HomePage() {
       {/* Hero Section */}
       <section className="home-hero">
         <div className="home-hero-inner">
-          <h1 className="home-hero-title">CRAWER WORKFLOW STUDIO</h1>
+          <h1 className="home-hero-title">CRAWLER WORKFLOW STUDIO</h1>
           <p className="home-hero-subtitle">
             面向浏览器自动化采集的可视化工作台<br />
             支持从工作流设计到脚本生成的全链路编排
