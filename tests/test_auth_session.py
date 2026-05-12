@@ -176,9 +176,16 @@ class TestCreateSession:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
 
+        # MySQL DATETIME(3) truncates to millisecond precision, so allow
+        # a 1-second tolerance on each boundary instead of exact comparison.
         min_expected = before + timedelta(hours=settings.session_ttl_hours)
         max_expected = after + timedelta(hours=settings.session_ttl_hours)
-        assert min_expected <= expires_at <= max_expected
+        tolerance = timedelta(seconds=1)
+        assert (
+            min_expected - tolerance
+            <= expires_at
+            <= max_expected + tolerance
+        ), f"expires_at={expires_at}, expected range=[{min_expected}, {max_expected}]"
 
     def test_session_stores_user_id(self, sample_user):
         """Session record has the correct user_id."""
@@ -213,9 +220,16 @@ class TestCreateSession:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
 
+        # MySQL DATETIME(3) truncates to millisecond precision, so allow
+        # a 1-second tolerance on each boundary instead of exact comparison.
         min_expected = before + timedelta(hours=custom_ttl)
         max_expected = after + timedelta(hours=custom_ttl)
-        assert min_expected <= expires_at <= max_expected
+        tolerance = timedelta(seconds=1)
+        assert (
+            min_expected - tolerance
+            <= expires_at
+            <= max_expected + tolerance
+        ), f"expires_at={expires_at}, expected range=[{min_expected}, {max_expected}]"
 
 
 # ── get_session_by_token ─────────────────────────────────────────────────
