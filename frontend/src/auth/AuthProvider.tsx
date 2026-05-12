@@ -75,17 +75,19 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [authError, setAuthError] = useState<string | null>(null)
+  // Compute initial auth error from URL query params (from OAuth callback failure)
+  // using a lazy initializer so no setState call is needed inside an effect.
+  const [authError, setAuthError] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return getAuthErrorMessage(params.get('auth_error'))
+  })
   // Use a ref so the 401 callback always reads the latest login function
   const loginRef = useRef<(nextPath?: string) => void>(undefined as unknown as (nextPath?: string) => void)
 
   useEffect(() => {
-    // Check for auth error in URL query params (from OAuth callback failure)
+    // Clean up the URL to prevent the error from showing on refresh
     const params = new URLSearchParams(window.location.search)
-    const errorCode = params.get('auth_error')
-    if (errorCode) {
-      setAuthError(getAuthErrorMessage(errorCode))
-      // Clean up the URL to prevent the error from showing on refresh
+    if (params.get('auth_error')) {
       const url = new URL(window.location.href)
       url.searchParams.delete('auth_error')
       window.history.replaceState({}, '', url.pathname + url.search)
