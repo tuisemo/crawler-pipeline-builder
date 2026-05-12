@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { AuthProvider } from './auth/AuthProvider'
+import { RequireAuth } from './auth/RequireAuth'
 import './index.css'
 import Layout from './app/Layout'
 import HomePage from './app/HomePage'
@@ -89,9 +90,9 @@ createRoot(document.getElementById('root')!).render(
           <Routes>
             <Route path="/" element={<Layout />}>
               <Route index element={<HomePage />} />
-              <Route path="tasks" element={<TaskListPage />} />
-              <Route path="tasks/:taskId" element={<TaskDetailPage />} />
-              <Route path="tasks/:taskId/workbench" element={<WorkbenchPage />} />
+              <Route path="tasks" element={<RequireAuth><TaskListPage /></RequireAuth>} />
+              <Route path="tasks/:taskId" element={<RequireAuth><TaskDetailPage /></RequireAuth>} />
+              <Route path="tasks/:taskId/workbench" element={<RequireAuth><WorkbenchPage /></RequireAuth>} />
             </Route>
           </Routes>
         </BrowserRouter>
