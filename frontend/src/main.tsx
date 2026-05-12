@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { App as AntdApp, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
+import { AuthProvider } from './auth/AuthProvider'
 import './index.css'
 import Layout from './app/Layout'
 import HomePage from './app/HomePage'
@@ -12,6 +13,7 @@ import WorkbenchPage from './app/WorkbenchPage'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <AuthProvider>
     <ConfigProvider
       locale={zhCN}
       theme={{
@@ -95,5 +97,6 @@ createRoot(document.getElementById('root')!).render(
         </BrowserRouter>
       </AntdApp>
     </ConfigProvider>
+    </AuthProvider>
   </StrictMode>,
 )
