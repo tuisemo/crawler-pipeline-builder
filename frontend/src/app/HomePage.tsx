@@ -1,17 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { Button, Space, Typography, Card, Statistic, Row, Col } from 'antd'
+import { Button, Space, Typography, Row, Col } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { 
   ArrowRightOutlined, 
   ThunderboltFilled, 
-  SafetyCertificateOutlined, 
   GithubOutlined,
-  TwitterOutlined,
-  GlobalOutlined,
   DatabaseOutlined,
-  DeploymentUnitOutlined,
-  AreaChartOutlined,
-  BarChartOutlined
+  DeploymentUnitOutlined
 } from '@ant-design/icons'
 
 const { Title, Text } = Typography

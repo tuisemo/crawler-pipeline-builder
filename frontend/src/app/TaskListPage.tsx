@@ -1,14 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Button, Tag, Space, Typography, Modal, Form, Input, message, Dropdown, Row, Col, Card, Statistic, Pagination } from 'antd'
+import { useState, useEffect } from 'react'
+import { Button, Space, Typography, Modal, Form, Input, message, Dropdown, Row, Col, Card, Statistic, Pagination } from 'antd'
 import { 
   PlusOutlined, 
   MoreOutlined, 
-  ArrowRightOutlined, 
-  GlobalOutlined, 
-  HistoryOutlined, 
-  SettingOutlined, 
-  DeleteOutlined, 
-  AreaChartOutlined 
+  DeleteOutlined 
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { Task } from '../services/taskApi'
@@ -28,22 +23,34 @@ export default function TaskListPage() {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
 
-  const fetchTasks = useCallback(async (page: number) => {
-    setLoading(true)
-    try {
-      const res = await listTasks(page, pageSize)
-      setTasks(res.items)
-      setTotalTasks(res.total)
-    } catch {
-      message.error('加载任务列表失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [pageSize])
-
   useEffect(() => {
+    let cancelled = false
+
+    async function fetchTasks(page: number) {
+      setLoading(true)
+      try {
+        const res = await listTasks(page, pageSize)
+        if (!cancelled) {
+          setTasks(res.items)
+          setTotalTasks(res.total)
+        }
+      } catch {
+        if (!cancelled) {
+          message.error('加载任务列表失败')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
     fetchTasks(currentPage)
-  }, [fetchTasks, currentPage])
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentPage, pageSize])
 
   async function handleCreate() {
     try {
@@ -54,7 +61,10 @@ export default function TaskListPage() {
       setCreateModalOpen(false)
       form.resetFields()
       setCurrentPage(1)
-      await fetchTasks(1)
+      await listTasks(1, pageSize).then(res => {
+        setTasks(res.items)
+        setTotalTasks(res.total)
+      })
     } catch {
       message.error('创建任务失败')
     } finally {
@@ -66,7 +76,10 @@ export default function TaskListPage() {
     try {
       await deleteTask(taskId)
       message.success('任务已归档')
-      await fetchTasks(currentPage)
+      await listTasks(currentPage, pageSize).then(res => {
+        setTasks(res.items)
+        setTotalTasks(res.total)
+      })
     } catch {
       message.error('归档任务失败')
     }

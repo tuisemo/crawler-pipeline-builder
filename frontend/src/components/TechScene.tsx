@@ -160,10 +160,11 @@ export const TechScene = () => {
     }
     const animId = animate()
 
+    const container = containerRef.current
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
       cancelAnimationFrame(animId)
-      if (containerRef.current) containerRef.current.innerHTML = ''
+      if (container) container.innerHTML = ''
       renderer.dispose()
     }
   }, [])
