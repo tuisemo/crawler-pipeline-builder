@@ -103,6 +103,24 @@ class CrawlerWorkflowSettings:
     script_sandbox_timeout_seconds: int = 60
     default_max_pages: int = 10
 
+    # ── MySQL ──
+    db_host: str = "127.0.0.1"
+    db_port: int = 3306
+    db_user: str = "root"
+    db_password: str = ""
+    db_name: str = "crawler_workflow"
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+
+    # ── Auth / User Center ──
+    user_center_base_uri: str = ""
+    user_center_client_id: str = ""
+    user_center_client_secret: str = ""
+    user_center_scope: str = "basic"
+    user_center_redirect_uri: str = ""
+    session_ttl_hours: int = 24
+    session_cookie_name: str = "session_token"
+
     @classmethod
     def from_env(cls) -> "CrawlerWorkflowSettings":
         config = load_env_config()
@@ -130,6 +148,21 @@ class CrawlerWorkflowSettings:
             script_sandbox_enabled=_read_bool(config, "SCRIPT_SANDBOX_ENABLED", True),
             script_sandbox_timeout_seconds=_read_int(config, "SCRIPT_SANDBOX_TIMEOUT_SECONDS", 60),
             default_max_pages=_read_int(config, "DEFAULT_MAX_PAGES", 10),
+            db_host=_read_value(config, "DB_HOST", "127.0.0.1"),
+            db_port=_read_int(config, "DB_PORT", 3306),
+            db_user=_read_value(config, "DB_USER", "root"),
+            db_password=_read_value(config, "DB_PASSWORD", ""),
+            db_name=_read_value(config, "DB_NAME", "crawler_workflow"),
+            db_pool_size=_read_int(config, "DB_POOL_SIZE", 10),
+            db_max_overflow=_read_int(config, "DB_MAX_OVERFLOW", 20),
+            # ── Auth / User Center ──
+            user_center_base_uri=_read_value(config, "USER_CENTER_BASE_URI", ""),
+            user_center_client_id=_read_value(config, "USER_CENTER_CLIENT_ID", ""),
+            user_center_client_secret=_read_value(config, "USER_CENTER_CLIENT_SECRET", ""),
+            user_center_scope=_read_value(config, "USER_CENTER_SCOPE", "basic"),
+            user_center_redirect_uri=_read_value(config, "USER_CENTER_REDIRECT_URI", ""),
+            session_ttl_hours=_read_int(config, "SESSION_TTL_HOURS", 24),
+            session_cookie_name=_read_value(config, "SESSION_COOKIE_NAME", "session_token"),
         )
 
 
