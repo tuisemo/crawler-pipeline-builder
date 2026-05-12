@@ -15,10 +15,17 @@
  *   - On page refresh the provider re-checks `/api/auth/me`,
  *     so login state persists as long as the cookie is valid
  *     (VAL-FE-008).
+ *
+ * 401 handling (VAL-FE-004, VAL-FLOW-003):
+ *   - The provider registers an `onUnauthorized` callback with
+ *     the shared apiClient.  When any API call returns 401, the
+ *     callback clears user state and triggers the login redirect
+ *     so the user can re-authenticate and return to their page.
  */
 
-import { createContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 import { fetchMe, login as apiLogin, logout as apiLogout, type AuthUser } from '../services/authApi'
+import { setOnUnauthorized } from '../services/apiClient'
 
 // ── Context shape ────────────────────────────────────────
 
@@ -44,6 +51,8 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // Use a ref so the 401 callback always reads the latest login function
+  const loginRef = useRef<(nextPath?: string) => void>(undefined as unknown as (nextPath?: string) => void)
 
   useEffect(() => {
     let cancelled = false
@@ -60,6 +69,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = useCallback((nextPath?: string) => {
     apiLogin(nextPath ?? window.location.pathname)
+  }, [])
+
+  // Keep the ref in sync with the latest login function
+  useEffect(() => {
+    loginRef.current = login
+  }, [login])
+
+  // Register the 401 handler with apiClient so that any API call
+  // returning 401 automatically clears auth state and triggers
+  // re-login (VAL-FE-004, VAL-FLOW-003).
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      setUser(null)
+      // Redirect to login with the current page as the return path
+      loginRef.current?.()
+    })
+    return () => {
+      setOnUnauthorized(null)
+    }
   }, [])
 
   const logoutFn = useCallback(async () => {

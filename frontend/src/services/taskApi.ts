@@ -1,3 +1,4 @@
+import { apiFetch, UnauthorizedError } from './apiClient'
 import type { ApiEnvelope } from './workflowApi'
 
 export type TaskStatus = 'draft' | 'active' | 'archived'
@@ -58,11 +59,11 @@ async function parseEnvelope(response: Response): Promise<{ data: Record<string,
   return { data, envelope }
 }
 
+// Re-export UnauthorizedError so callers can catch it specifically
+export { UnauthorizedError }
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const response = await apiFetch(path, options)
   const { data, envelope } = await parseEnvelope(response)
   if (!response.ok || !envelope.success) {
     throw new Error(envelope.error || 'Request failed')
@@ -71,10 +72,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function requestOrNull<T>(path: string, options?: RequestInit): Promise<T | null> {
-  const response = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const response = await apiFetch(path, options)
   if (response.status === 404) {
     return null
   }

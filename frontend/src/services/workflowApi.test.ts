@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { postAssistAction, postWorkflowAction, validateGraphWithBackend } from './workflowApi'
+import { postAssistAction, postWorkflowAction, validateGraphWithBackend, UnauthorizedError } from './workflowApi'
 
 const originalFetch = globalThis.fetch
 
@@ -57,5 +57,31 @@ describe('workflowApi', () => {
 
     expect(result.response.ok).toBe(true)
     expect(result.payload).toEqual({ result: { item_selector: '.item' } })
+  })
+
+  it('all fetch calls include credentials: include', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: {}, warnings: [], meta: {} }),
+    } as Response)
+
+    await validateGraphWithBackend({ nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }], edges: [] })
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
+
+  it('401 response throws UnauthorizedError', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ success: false, error: 'Not authenticated' }),
+    } as Response)
+
+    await expect(
+      postWorkflowAction('/api/workflows/to-prompt', { graph: { nodes: [], edges: [] } }),
+    ).rejects.toThrow(UnauthorizedError)
   })
 })

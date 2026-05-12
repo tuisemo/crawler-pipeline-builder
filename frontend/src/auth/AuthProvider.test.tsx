@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import { AuthProvider } from './AuthProvider'
 import { useAuth } from './useAuth'
+import { setOnUnauthorized } from '../services/apiClient'
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ describe('AuthProvider', () => {
   afterEach(() => {
     cleanup()
     globalThis.fetch = originalFetch
+    setOnUnauthorized(null)
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -230,5 +232,75 @@ describe('AuthProvider', () => {
       '/api/auth/me',
       expect.objectContaining({ credentials: 'include' }),
     )
+  })
+
+  it('registers onUnauthorized handler that clears auth state and triggers login on 401', async () => {
+    // Start as authenticated
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+
+    render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    // Wait for auth to resolve
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true')
+    })
+
+    // Simulate a 401 from any API call by directly invoking the
+    // onUnauthorized callback that AuthProvider registered
+    // Import and invoke the registered handler through apiClient
+    const { apiFetch } = await import('../services/apiClient')
+
+    // Mock a 401 response
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ success: false, error: 'Not authenticated' }),
+    } as Response)
+
+    // apiFetch should throw UnauthorizedError and trigger the
+    // onUnauthorized callback which clears user state
+    const { UnauthorizedError } = await import('../services/apiClient')
+    await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
+
+    // Auth state should be cleared after 401
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('false')
+    })
+    expect(screen.getByTestId('username').textContent).toBe('none')
+
+    // Login should have been triggered (window.location.href set)
+    expect(window.location.href).toContain('/api/auth/login')
+  })
+
+  it('clears onUnauthorized handler on unmount', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+
+    const { unmount } = render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true')
+    })
+
+    // Unmount should clear the handler
+    unmount()
+
+    // After unmount, a 401 should not crash or call stale callbacks
+    const { apiFetch, UnauthorizedError } = await import('../services/apiClient')
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ success: false, error: 'Not authenticated' }),
+    } as Response)
+
+    // Should throw UnauthorizedError without crashing
+    await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
   })
 })

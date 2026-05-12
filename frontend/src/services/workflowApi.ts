@@ -1,3 +1,4 @@
+import { apiFetch, UnauthorizedError } from './apiClient'
 import { getErrorMessage } from '../features/workflow/workflowState'
 import type { WorkflowGraph } from '../features/workflow/workflowContracts'
 
@@ -59,10 +60,12 @@ async function parseEnvelope(response: Response): Promise<WorkflowActionResponse
   return { response, payload, envelope }
 }
 
+// Re-export UnauthorizedError so callers can catch it specifically
+export { UnauthorizedError }
+
 export async function validateGraphWithBackend(graph: WorkflowGraph): Promise<void> {
-  const response = await fetch('/api/workflows/validate', {
+  const response = await apiFetch('/api/workflows/validate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ graph }),
   })
   const { envelope } = await parseEnvelope(response)
@@ -72,18 +75,16 @@ export async function validateGraphWithBackend(graph: WorkflowGraph): Promise<vo
 }
 
 export async function postWorkflowAction(path: WorkflowActionPath, body: unknown): Promise<WorkflowActionResponse> {
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   return parseEnvelope(response)
 }
 
 export async function postAssistAction(path: AssistActionPath, body: unknown): Promise<WorkflowActionResponse> {
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   return parseEnvelope(response)
