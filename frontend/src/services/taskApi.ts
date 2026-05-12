@@ -62,8 +62,22 @@ async function parseEnvelope(response: Response): Promise<{ data: Record<string,
 // Re-export UnauthorizedError so callers can catch it specifically
 export { UnauthorizedError }
 
+/**
+ * Thrown when a request receives a 404 response.
+ * Used to detect non-owned or non-existent tasks.
+ */
+export class NotFoundError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'Not found')
+    this.name = 'NotFoundError'
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch(path, options)
+  if (response.status === 404) {
+    throw new NotFoundError('Not found')
+  }
   const { data, envelope } = await parseEnvelope(response)
   if (!response.ok || !envelope.success) {
     throw new Error(envelope.error || 'Request failed')

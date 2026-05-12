@@ -5,8 +5,10 @@ import {
   ThunderboltFilled, 
   GithubOutlined,
   DatabaseOutlined,
-  DeploymentUnitOutlined
+  DeploymentUnitOutlined,
+  LoginOutlined
 } from '@ant-design/icons'
+import { useAuth } from '../auth/useAuth'
 
 const { Title, Text } = Typography
 
@@ -27,6 +29,7 @@ import { TechScene } from '../components/TechScene'
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const { isAuthenticated, login } = useAuth()
 
   return (
     <div className="home-root" style={{ background: '#fff', overflow: 'hidden' }}>
@@ -72,6 +75,16 @@ export default function HomePage() {
             >
               进入工作站 <ArrowRightOutlined />
             </Button>
+            {!isAuthenticated && (
+              <Button 
+                size="large" 
+                icon={<LoginOutlined />}
+                onClick={() => login('/tasks')}
+                style={{ height: 52, padding: '0 32px', fontSize: 18, border: '1px solid #ddd', borderRadius: 8 }}
+              >
+                登录
+              </Button>
+            )}
             <Button 
               size="large" 
               style={{ height: 52, padding: '0 32px', fontSize: 18, border: '1px solid #ddd', borderRadius: 8 }}

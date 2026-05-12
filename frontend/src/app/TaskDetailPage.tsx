@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Typography, Space, Tag, List, Drawer, Form, Input, message, Empty, Breadcrumb } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, EnterOutlined, CheckCircleOutlined, CodeOutlined, ShareAltOutlined } from '@ant-design/icons'
-import { getTask, updateTask, type Task, type AssetMeta } from '../services/taskApi'
+import { Button, Typography, Space, Tag, Drawer, Form, Input, message, Empty, Breadcrumb, Result } from 'antd'
+import { EditOutlined, EnterOutlined, CheckCircleOutlined, CodeOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { getTask, updateTask, type Task, type AssetMeta, UnauthorizedError, NotFoundError } from '../services/taskApi'
 
-const { Title, Text } = Typography
+const { Title } = Typography
 const { TextArea } = Input
 
 const assetTypeLabel: Record<string, string> = {
@@ -22,29 +22,51 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null)
   const [assets, setAssets] = useState<AssetMeta[]>([])
   const [loading, setLoading] = useState(false)
+  const [notFound, setNotFound] = useState(false)
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editForm] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
 
   const id = taskId ? parseInt(taskId, 10) : NaN
 
-  const fetchTask = useCallback(async () => {
-    if (isNaN(id)) return
-    setLoading(true)
-    try {
-      const detail = await getTask(id)
-      setTask(detail.task)
-      setAssets(detail.assets)
-    } catch {
-      message.error('加载任务详情失败')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchTask() {
+      if (isNaN(id)) return
+      setLoading(true)
+      setNotFound(false)
+      try {
+        const detail = await getTask(id)
+        if (!cancelled) {
+          setTask(detail.task)
+          setAssets(detail.assets)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          // Detect 404 / not-found (non-owned or non-existent task)
+          if (err instanceof NotFoundError) {
+            setNotFound(true)
+          } else if (err instanceof UnauthorizedError) {
+            // 401 handled by apiClient onUnauthorized
+            message.error('登录已过期，请重新登录')
+          } else {
+            message.error('加载任务详情失败')
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchTask()
+
+    return () => {
+      cancelled = true
     }
   }, [id])
-
-  useEffect(() => {
-    fetchTask()
-  }, [fetchTask])
 
   async function handleEdit() {
     if (!task) return
@@ -70,6 +92,23 @@ export default function TaskDetailPage() {
       target_url: task.target_url,
     })
     setEditDrawerOpen(true)
+  }
+
+  if (notFound) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh', background: '#fff' }}>
+        <Result
+          status="404"
+          title="任务不存在"
+          subTitle="该任务可能已被删除，或者您没有访问权限。"
+          extra={
+            <Button type="primary" onClick={() => navigate('/tasks')} style={{ background: '#000', border: 'none', borderRadius: 8, fontWeight: 600 }}>
+              返回任务列表
+            </Button>
+          }
+        />
+      </div>
+    )
   }
 
   if (loading && !task) {

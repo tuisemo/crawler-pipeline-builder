@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { listTasks, createTask, getTask, updateTask, deleteTask, saveTaskAssets, getTaskAsset, UnauthorizedError } from './taskApi'
+import { listTasks, createTask, getTask, updateTask, deleteTask, saveTaskAssets, getTaskAsset, UnauthorizedError, NotFoundError } from './taskApi'
 
 const originalFetch = globalThis.fetch
 
@@ -159,5 +159,46 @@ describe('taskApi', () => {
     } as Response)
 
     await expect(getTaskAsset(1, 'schema')).rejects.toThrow(UnauthorizedError)
+  })
+
+  // ── 404 handling (request) ──────────────────────────────
+
+  it('getTask throws NotFoundError on 404', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ success: false, error: 'Task not found' }),
+    } as Response)
+
+    await expect(getTask(999)).rejects.toThrow(NotFoundError)
+  })
+
+  it('NotFoundError has correct name and message', () => {
+    const err = new NotFoundError()
+    expect(err.name).toBe('NotFoundError')
+    expect(err.message).toBe('Not found')
+
+    const errCustom = new NotFoundError('Task not found')
+    expect(errCustom.message).toBe('Task not found')
+  })
+
+  it('updateTask throws NotFoundError on 404', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ success: false, error: 'Task not found' }),
+    } as Response)
+
+    await expect(updateTask(999, { name: 'test' })).rejects.toThrow(NotFoundError)
+  })
+
+  it('deleteTask throws NotFoundError on 404', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ success: false, error: 'Task not found' }),
+    } as Response)
+
+    await expect(deleteTask(999)).rejects.toThrow(NotFoundError)
   })
 })

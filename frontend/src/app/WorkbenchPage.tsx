@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loader } from '@monaco-editor/react'
-import { App as AntdApp, Button, Drawer, Tabs, Tag, Typography } from 'antd'
+import { App as AntdApp, Button, Drawer, Tabs, Tag, Typography, Result } from 'antd'
 import {
   AppstoreOutlined,
   BarsOutlined,
@@ -57,7 +57,7 @@ loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
 
 export default function WorkbenchPage() {
   const { message } = AntdApp.useApp()
-  const { taskId, taskName, goBack } = useTaskContext()
+  const { taskId, taskName, goBack, errorKind } = useTaskContext()
   const { loadAsset } = useWorkflowAsset()
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes)
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges)
@@ -433,6 +433,24 @@ export default function WorkbenchPage() {
     rightPanelOpen ? 'workspace-shell--right-open' : 'workspace-shell--right-closed',
   ].join(' ')
   const activeWorkspaceLabel = activeDockTab === 'dsl' ? 'DSL 编辑器' : '执行结果'
+
+  // Handle 404 / not-found for non-owned or non-existent tasks
+  if (errorKind === 'not_found') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh', background: '#f4f5f7' }}>
+        <Result
+          status="404"
+          title="任务不存在"
+          subTitle="该任务可能已被删除，或者您没有访问权限。"
+          extra={
+            <Button type="primary" onClick={goBack} style={{ background: '#000', border: 'none', borderRadius: 8, fontWeight: 600 }}>
+              返回任务列表
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="console-root">

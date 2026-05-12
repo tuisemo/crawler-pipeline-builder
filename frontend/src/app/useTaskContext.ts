@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { Task } from '../services/taskApi'
-import { getTask, getTaskAsset } from '../services/taskApi'
+import { getTask, getTaskAsset, UnauthorizedError, NotFoundError } from '../services/taskApi'
 import type { WorkflowGraph } from '../features/workflow/workflowContracts'
 import type { WorkflowNode, WorkflowEdge } from '../features/workflow/workflowState'
 import { graphToFlowState } from '../features/workflow/workflowState'
+
+export type TaskErrorKind = 'not_found' | 'unauthorized' | 'network' | null
 
 export interface TaskContext {
   taskId: number | null
@@ -12,6 +14,7 @@ export interface TaskContext {
   task: Task | null
   loading: boolean
   error: string | null
+  errorKind: TaskErrorKind
   goBack: () => void
 }
 
@@ -23,6 +26,7 @@ export function useTaskContext(): TaskContext {
   const [task, setTask] = useState<Task | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorKind, setErrorKind] = useState<TaskErrorKind>(null)
 
   useEffect(() => {
     if (!taskId) {
@@ -35,6 +39,7 @@ export function useTaskContext(): TaskContext {
     let cancelled = false
     setLoading(true)
     setError(null)
+    setErrorKind(null)
 
     getTask(taskId)
       .then((response) => {
@@ -44,7 +49,18 @@ export function useTaskContext(): TaskContext {
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Failed to load task')
+        // Detect 404 specifically for non-owned or non-existent tasks
+        if (err instanceof NotFoundError) {
+          setError('任务不存在')
+          setErrorKind('not_found')
+        } else if (err instanceof UnauthorizedError) {
+          // 401 — should be handled by apiClient's onUnauthorized
+          setError('登录已过期，请重新登录')
+          setErrorKind('unauthorized')
+        } else {
+          setError(err instanceof Error ? err.message : '加载任务失败')
+          setErrorKind('network')
+        }
         setLoading(false)
       })
 
@@ -67,6 +83,7 @@ export function useTaskContext(): TaskContext {
     task,
     loading,
     error,
+    errorKind,
     goBack,
   }
 }

@@ -34,17 +34,21 @@ function mockFetchError(status: number, error: string): Response {
 
 // A test component that consumes useAuth
 function AuthConsumer() {
-  const { isAuthenticated, user, isLoading, login, logout } = useAuth()
+  const { isAuthenticated, user, isLoading, login, logout, authError, clearAuthError } = useAuth()
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="authenticated">{String(isAuthenticated)}</span>
       <span data-testid="username">{user?.display_name ?? 'none'}</span>
+      <span data-testid="auth-error">{authError ?? 'none'}</span>
       <button data-testid="login-btn" onClick={() => login('/tasks')}>
         Login
       </button>
       <button data-testid="logout-btn" onClick={logout}>
         Logout
+      </button>
+      <button data-testid="clear-error-btn" onClick={clearAuthError}>
+        Clear Error
       </button>
     </div>
   )
@@ -302,5 +306,81 @@ describe('AuthProvider', () => {
 
     // Should throw UnauthorizedError without crashing
     await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
+  })
+
+  it('reads auth_error from URL and sets authError state', async () => {
+    // Set window.location.search to simulate auth_error query param
+    const originalSearch = window.location.search
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        assign: vi.fn(),
+        href: 'http://localhost/?auth_error=user_center_unavailable',
+        search: '?auth_error=user_center_unavailable',
+      },
+      writable: true,
+    })
+
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+
+    render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false')
+    })
+
+    // authError should be set to the Chinese message
+    expect(screen.getByTestId('auth-error').textContent).toBe('登录服务暂不可用，请稍后重试')
+
+    // Restore location
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        search: originalSearch,
+      },
+      writable: true,
+    })
+  })
+
+  it('clearAuthError clears the error state', async () => {
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        assign: vi.fn(),
+        href: 'http://localhost/?auth_error=invalid_oauth_state',
+        search: '?auth_error=invalid_oauth_state',
+      },
+      writable: true,
+    })
+
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+
+    render(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auth-error').textContent).toBe('登录状态已过期，请重新登录')
+    })
+
+    // Click clear error button
+    const clearBtn = screen.getByTestId('clear-error-btn')
+    await act(async () => {
+      clearBtn.click()
+    })
+
+    expect(screen.getByTestId('auth-error').textContent).toBe('none')
+
+    // Restore location
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+    })
   })
 })
