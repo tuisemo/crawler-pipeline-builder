@@ -1,4 +1,11 @@
-"""Business logic for task CRUD operations."""
+"""Business logic for task CRUD operations.
+
+All functions require an ``owner_user_id`` parameter (derived from the
+authenticated user).  The owner constraint is enforced at the service
+layer so that non-owner access raises ``TaskNotFoundError`` (which
+maps to 404 in the route layer — intentionally NOT 403, to prevent
+task-ID enumeration).
+"""
 
 from __future__ import annotations
 
@@ -22,16 +29,43 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class TaskNotFoundError(Exception):
+    """Raised when a task is not found OR the user does not own it.
+
+    Both conditions produce the same error to avoid task-ID enumeration.
+    """
+
+
+def _check_task_owner(cursor, task_id: int, owner_user_id: int) -> dict:
+    """Fetch a task row, raising TaskNotFoundError if not found or not owned.
+
+    Both conditions produce the same error to avoid task-ID enumeration.
+
+    Returns the task row dict on success.
+    """
+    cursor.execute(
+        "SELECT id, name, description, target_url, status, created_at, updated_at, owner_user_id "
+        "FROM tasks WHERE id = %s",
+        (task_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise TaskNotFoundError(f"Task {task_id} not found")
+    if row["owner_user_id"] != owner_user_id:
+        raise TaskNotFoundError(f"Task {task_id} not found")
+    return row
+
+
 # -- Task CRUD ---------------------------------------------------------------
 
 
-def create_task(request: CreateTaskRequest) -> TaskResponse:
+def create_task(request: CreateTaskRequest, owner_user_id: int) -> TaskResponse:
     now = _now()
     with get_cursor() as cursor:
         cursor.execute(
             """INSERT INTO tasks (owner_user_id, name, description, target_url, status, created_at, updated_at)
-               VALUES (1, %s, %s, %s, 'draft', %s, %s)""",
-            (request.name, request.description, request.target_url, now, now),
+               VALUES (%s, %s, %s, %s, 'draft', %s, %s)""",
+            (owner_user_id, request.name, request.description, request.target_url, now, now),
         )
         task_id = cursor.lastrowid
         cursor.execute(
@@ -44,6 +78,7 @@ def create_task(request: CreateTaskRequest) -> TaskResponse:
 
 
 def list_tasks(
+    owner_user_id: int,
     page: int = 1,
     page_size: int = 20,
     include_archived: bool = False,
@@ -51,19 +86,27 @@ def list_tasks(
     offset = (page - 1) * page_size
     with get_cursor() as cursor:
         if include_archived:
-            cursor.execute("SELECT COUNT(*) AS cnt FROM tasks")
+            cursor.execute(
+                "SELECT COUNT(*) AS cnt FROM tasks WHERE owner_user_id = %s",
+                (owner_user_id,),
+            )
         else:
             cursor.execute(
-                "SELECT COUNT(*) AS cnt FROM tasks WHERE status != 'archived'"
+                "SELECT COUNT(*) AS cnt FROM tasks WHERE owner_user_id = %s AND status != 'archived'",
+                (owner_user_id,),
             )
         total = cursor.fetchone()["cnt"]
 
-        where = "" if include_archived else "WHERE status != 'archived' "
+        if include_archived:
+            where = "WHERE owner_user_id = %s "
+        else:
+            where = "WHERE owner_user_id = %s AND status != 'archived' "
+
         cursor.execute(
             f"""SELECT id, name, description, target_url, status, created_at, updated_at
                 FROM tasks {where}
                 ORDER BY created_at DESC LIMIT %s OFFSET %s""",
-            (page_size, offset),
+            (owner_user_id, page_size, offset),
         )
         rows = cursor.fetchall()
 
@@ -71,16 +114,9 @@ def list_tasks(
     return TaskListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-def get_task(task_id: int) -> TaskDetailResponse:
+def get_task(task_id: int, owner_user_id: int) -> TaskDetailResponse:
     with get_cursor() as cursor:
-        cursor.execute(
-            """SELECT id, name, description, target_url, status, created_at, updated_at
-               FROM tasks WHERE id = %s""",
-            (task_id,),
-        )
-        row = cursor.fetchone()
-        if row is None:
-            raise ValueError(f"Task {task_id} not found")
+        row = _check_task_owner(cursor, task_id, owner_user_id)
 
         cursor.execute(
             """SELECT asset_type, version, created_at
@@ -101,31 +137,41 @@ def get_task(task_id: int) -> TaskDetailResponse:
     return TaskDetailResponse(task=task, assets=assets)
 
 
-def update_task(task_id: int, request: UpdateTaskRequest) -> TaskResponse:
-    updates: list[str] = []
-    params: list[Any] = []
-
-    if request.name is not None:
-        updates.append("name = %s")
-        params.append(request.name)
-    if request.description is not None:
-        updates.append("description = %s")
-        params.append(request.description)
-    if request.target_url is not None:
-        updates.append("target_url = %s")
-        params.append(request.target_url)
-    if request.status is not None:
-        updates.append("status = %s")
-        params.append(request.status)
-
-    if not updates:
-        return get_task(task_id).task
-
-    updates.append("updated_at = %s")
-    params.append(_now())
-    params.append(task_id)
-
+def update_task(task_id: int, request: UpdateTaskRequest, owner_user_id: int) -> TaskResponse:
     with get_cursor() as cursor:
+        # Verify ownership first
+        _check_task_owner(cursor, task_id, owner_user_id)
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if request.name is not None:
+            updates.append("name = %s")
+            params.append(request.name)
+        if request.description is not None:
+            updates.append("description = %s")
+            params.append(request.description)
+        if request.target_url is not None:
+            updates.append("target_url = %s")
+            params.append(request.target_url)
+        if request.status is not None:
+            updates.append("status = %s")
+            params.append(request.status)
+
+        if not updates:
+            cursor.execute(
+                """SELECT id, name, description, target_url, status, created_at, updated_at
+                   FROM tasks WHERE id = %s""",
+                (task_id,),
+            )
+            return _row_to_task_response(cursor.fetchone())
+
+        updates.append("updated_at = %s")
+        params.append(_now())
+        updates.append("updated_by_user_id = %s")
+        params.append(owner_user_id)
+        params.append(task_id)
+
         cursor.execute(
             f"UPDATE tasks SET {', '.join(updates)} WHERE id = %s", params
         )
@@ -136,14 +182,17 @@ def update_task(task_id: int, request: UpdateTaskRequest) -> TaskResponse:
         )
         row = cursor.fetchone()
         if row is None:
-            raise ValueError(f"Task {task_id} not found")
+            raise TaskNotFoundError(f"Task {task_id} not found")
 
     return _row_to_task_response(row)
 
 
-def delete_task(task_id: int) -> TaskResponse:
+def delete_task(task_id: int, owner_user_id: int) -> TaskResponse:
     now = _now()
     with get_cursor() as cursor:
+        # Verify ownership first
+        _check_task_owner(cursor, task_id, owner_user_id)
+
         cursor.execute(
             "UPDATE tasks SET status = 'archived', updated_at = %s WHERE id = %s",
             (now, task_id),
@@ -155,7 +204,7 @@ def delete_task(task_id: int) -> TaskResponse:
         )
         row = cursor.fetchone()
         if row is None:
-            raise ValueError(f"Task {task_id} not found")
+            raise TaskNotFoundError(f"Task {task_id} not found")
 
     return _row_to_task_response(row)
 
@@ -163,7 +212,7 @@ def delete_task(task_id: int) -> TaskResponse:
 # -- Asset services ----------------------------------------------------------
 
 
-def save_assets(task_id: int, assets: dict[str, Any]) -> SaveAssetResponse:
+def save_assets(task_id: int, assets: dict[str, Any], owner_user_id: int) -> SaveAssetResponse:
     for asset_type in assets.keys():
         if asset_type not in VALID_ASSET_TYPES:
             raise ValueError(
@@ -175,9 +224,8 @@ def save_assets(task_id: int, assets: dict[str, Any]) -> SaveAssetResponse:
     versions: dict[str, int] = {}
 
     with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))
-        if cursor.fetchone() is None:
-            raise ValueError(f"Task {task_id} not found")
+        # Verify task ownership before saving assets
+        _check_task_owner(cursor, task_id, owner_user_id)
 
         for asset_type, content in assets.items():
             # FOR UPDATE locks the row, preventing concurrent duplicate versions
@@ -202,7 +250,7 @@ def save_assets(task_id: int, assets: dict[str, Any]) -> SaveAssetResponse:
     return SaveAssetResponse(saved_count=len(assets), versions=versions)
 
 
-def get_asset(task_id: int, asset_type: str) -> dict[str, Any]:
+def get_asset(task_id: int, asset_type: str, owner_user_id: int) -> dict[str, Any]:
     if asset_type not in VALID_ASSET_TYPES:
         raise ValueError(
             f"Invalid asset type: {asset_type}. "
@@ -210,9 +258,8 @@ def get_asset(task_id: int, asset_type: str) -> dict[str, Any]:
         )
 
     with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))
-        if cursor.fetchone() is None:
-            raise ValueError(f"Task {task_id} not found")
+        # Verify task ownership before fetching assets
+        _check_task_owner(cursor, task_id, owner_user_id)
 
         cursor.execute(
             """SELECT content, asset_type, version, created_at

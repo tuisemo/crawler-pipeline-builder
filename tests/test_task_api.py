@@ -1,28 +1,53 @@
-"""Tests for task CRUD API endpoints."""
+"""Tests for task CRUD API endpoints.
+
+All task endpoints now require authentication.  This module creates a
+test user and session before each test so that every request carries a
+valid session cookie.
+"""
+
+from __future__ import annotations
 
 from fastapi.testclient import TestClient
 import pytest
 
-from backend.database.db import get_connection
-from backend.database.migrations import run_migrations
+from backend.auth.session import create_session, upsert_user
+from backend.database import get_cursor, run_migrations
 from server import app
 
 
 @pytest.fixture(autouse=True)
-def setup_database():
-    """Set up an in-memory database for each test."""
-    # Create tables
+def _setup_auth_environment(monkeypatch: pytest.MonkeyPatch):
+    """Set up database and auth environment for each test."""
+    monkeypatch.setenv("USER_CENTER_BASE_URI", "https://user-center.example.com")
+    monkeypatch.setenv("USER_CENTER_CLIENT_ID", "crawler-client")
+    monkeypatch.setenv("USER_CENTER_CLIENT_SECRET", "crawler-secret")
+    monkeypatch.setenv("SESSION_COOKIE_NAME", "session_token")
+    monkeypatch.delenv("ENV", raising=False)
+
     run_migrations()
-    yield
-    # Cleanup after test
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM task_assets")
-    cursor.execute("DELETE FROM tasks")
-    conn.commit()
+
+    with get_cursor() as cur:
+        cur.execute("DELETE FROM task_assets")
+        cur.execute("DELETE FROM tasks")
+        cur.execute("DELETE FROM sessions")
+        cur.execute("DELETE FROM users")
 
 
-client = TestClient(app)
+@pytest.fixture()
+def test_user():
+    """Create a test user and return (user_dict, session_token)."""
+    user = upsert_user(external_id="openId_task_test", display_name="Task Tester")
+    token = create_session(user_id=user["id"])
+    return {"user": user, "token": token}
+
+
+@pytest.fixture()
+def client(test_user):
+    """TestClient with session cookie pre-set for authenticated access."""
+    token = test_user["token"]
+    with TestClient(app) as c:
+        c.cookies.set("session_token", token)
+        yield c
 
 
 # ----------------------------------------------------------------------
@@ -30,7 +55,7 @@ client = TestClient(app)
 # ----------------------------------------------------------------------
 
 
-def test_create_task_with_full_fields():
+def test_create_task_with_full_fields(client: TestClient):
     """POST /api/tasks with full fields returns 200 with task object."""
     response = client.post(
         "/api/tasks",
@@ -56,7 +81,7 @@ def test_create_task_with_full_fields():
     assert "updated_at" in task
 
 
-def test_create_task_with_name_only():
+def test_create_task_with_name_only(client: TestClient):
     """POST /api/tasks with name only returns description=null, target_url=null."""
     response = client.post("/api/tasks", json={"name": "Minimal Task"})
 
@@ -70,7 +95,7 @@ def test_create_task_with_name_only():
     assert task["status"] == "draft"
 
 
-def test_create_task_without_name_fails():
+def test_create_task_without_name_fails(client: TestClient):
     """POST /api/tasks without name returns 422 validation error."""
     response = client.post("/api/tasks", json={})
 
@@ -84,7 +109,7 @@ def test_create_task_without_name_fails():
 # ----------------------------------------------------------------------
 
 
-def test_list_tasks_returns_paginated_items():
+def test_list_tasks_returns_paginated_items(client: TestClient):
     """GET /api/tasks returns paginated {items, total, page, page_size}."""
     # Create a few tasks
     for i in range(3):
@@ -104,7 +129,7 @@ def test_list_tasks_returns_paginated_items():
     assert len(data["items"]) == 3
 
 
-def test_list_tasks_excludes_archived():
+def test_list_tasks_excludes_archived(client: TestClient):
     """GET /api/tasks excludes archived tasks by default."""
     # Create and archive a task
     create_resp = client.post("/api/tasks", json={"name": "To Archive"})
@@ -122,7 +147,7 @@ def test_list_tasks_excludes_archived():
     assert data["items"][0]["name"] == "Active Task"
 
 
-def test_list_tasks_with_pagination():
+def test_list_tasks_with_pagination(client: TestClient):
     """GET /api/tasks supports page and page_size parameters."""
     # Create 5 tasks
     for i in range(5):
@@ -139,7 +164,7 @@ def test_list_tasks_with_pagination():
     assert len(data["items"]) == 2
 
 
-def test_list_tasks_include_archived():
+def test_list_tasks_include_archived(client: TestClient):
     """GET /api/tasks?include_archived=true includes archived tasks."""
     # Create and archive a task
     create_resp = client.post("/api/tasks", json={"name": "To Archive"})
@@ -158,7 +183,7 @@ def test_list_tasks_include_archived():
 # ----------------------------------------------------------------------
 
 
-def test_get_task_returns_detail_with_assets():
+def test_get_task_returns_detail_with_assets(client: TestClient):
     """GET /api/tasks/{id} returns {task: {...}, assets: [...]}."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "Detail Test"})
@@ -176,7 +201,7 @@ def test_get_task_returns_detail_with_assets():
     assert isinstance(data["assets"], list)
 
 
-def test_get_task_not_found():
+def test_get_task_not_found(client: TestClient):
     """GET /api/tasks/{id} for non-existent task returns 404."""
     response = client.get("/api/tasks/99999")
 
@@ -191,7 +216,7 @@ def test_get_task_not_found():
 # ----------------------------------------------------------------------
 
 
-def test_update_task_partial_update():
+def test_update_task_partial_update(client: TestClient):
     """PUT /api/tasks/{id} with partial fields only updates provided fields."""
     # Create a task
     create_resp = client.post(
@@ -210,7 +235,7 @@ def test_update_task_partial_update():
     assert task["target_url"] == "https://original.com"  # Unchanged
 
 
-def test_update_task_updates_timestamp():
+def test_update_task_updates_timestamp(client: TestClient):
     """PUT /api/tasks/{id} updates the updated_at timestamp."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "Time Test"})
@@ -226,7 +251,7 @@ def test_update_task_updates_timestamp():
     assert new_updated_at != original_updated_at
 
 
-def test_update_task_not_found():
+def test_update_task_not_found(client: TestClient):
     """PUT /api/tasks/{id} for non-existent task returns 404."""
     response = client.put("/api/tasks/99999", json={"name": "New Name"})
 
@@ -240,7 +265,7 @@ def test_update_task_not_found():
 # ----------------------------------------------------------------------
 
 
-def test_delete_task_soft_deletes():
+def test_delete_task_soft_deletes(client: TestClient):
     """DELETE /api/tasks/{id} sets status='archived'."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "To Delete"})
@@ -254,7 +279,7 @@ def test_delete_task_soft_deletes():
     assert task["status"] == "archived"
 
 
-def test_delete_task_disappears_from_default_list():
+def test_delete_task_disappears_from_default_list(client: TestClient):
     """DELETE /api/tasks/{id} - task disappears from default list."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "To Delete"})
@@ -269,7 +294,7 @@ def test_delete_task_disappears_from_default_list():
     assert data["total"] == 0
 
 
-def test_delete_task_still_accessible_by_id():
+def test_delete_task_still_accessible_by_id(client: TestClient):
     """DELETE /api/tasks/{id} - task is still accessible by ID with status='archived'."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "To Delete"})
@@ -284,7 +309,7 @@ def test_delete_task_still_accessible_by_id():
     assert task["status"] == "archived"
 
 
-def test_delete_task_not_found():
+def test_delete_task_not_found(client: TestClient):
     """DELETE /api/tasks/{id} for non-existent task returns 404."""
     response = client.delete("/api/tasks/99999")
 
@@ -298,7 +323,7 @@ def test_delete_task_not_found():
 # ----------------------------------------------------------------------
 
 
-def test_save_assets():
+def test_save_assets(client: TestClient):
     """POST /api/tasks/{id}/assets saves assets and returns saved_count and versions."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "Asset Test"})
@@ -316,7 +341,7 @@ def test_save_assets():
     assert data["versions"]["prompt"] == 1
 
 
-def test_save_assets_increments_version():
+def test_save_assets_increments_version(client: TestClient):
     """Saving the same asset type again increments the version."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "Version Test"})
@@ -331,7 +356,7 @@ def test_save_assets_increments_version():
     assert data["versions"]["workflow_graph"] == 2
 
 
-def test_save_assets_invalid_type():
+def test_save_assets_invalid_type(client: TestClient):
     """Saving an invalid asset type returns 400."""
     # Create a task
     create_resp = client.post("/api/tasks", json={"name": "Invalid Asset Test"})
@@ -345,14 +370,14 @@ def test_save_assets_invalid_type():
     assert "invalid_asset" in payload["error_code"].lower() or "invalid" in payload["error"].lower()
 
 
-def test_save_assets_task_not_found():
+def test_save_assets_task_not_found(client: TestClient):
     """Saving assets to non-existent task returns 404."""
     response = client.post("/api/tasks/99999/assets", json={"assets": {"workflow_graph": "{}"}})
 
-    assert response.status_code == 400  # ValueError in service returns 400
+    assert response.status_code == 404  # TaskNotFoundError returns 404
 
 
-def test_get_asset():
+def test_get_asset(client: TestClient):
     """GET /api/tasks/{id}/assets/{type} returns asset content."""
     # Create a task and save asset
     create_resp = client.post("/api/tasks", json={"name": "Get Asset Test"})
@@ -368,7 +393,7 @@ def test_get_asset():
     assert data["asset_type"] == "workflow_graph"
 
 
-def test_get_asset_not_found():
+def test_get_asset_not_found(client: TestClient):
     """GET /api/tasks/{id}/assets/{type} for non-existent asset returns content null."""
     # Create a task without saving the asset
     create_resp = client.post("/api/tasks", json={"name": "No Asset Test"})
@@ -387,7 +412,7 @@ def test_get_asset_not_found():
 # ----------------------------------------------------------------------
 
 
-def test_all_error_responses_use_envelope():
+def test_all_error_responses_use_envelope(client: TestClient):
     """All error cases return proper envelope with error_code and error message."""
     # Get a non-existent task
     response = client.get("/api/tasks/99999")
