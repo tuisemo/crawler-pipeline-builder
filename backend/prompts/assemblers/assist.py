@@ -32,7 +32,8 @@ def build_selector_optimization_prompt(initial_selector: str, html_fragment: str
         "### HTML Fragment",
         html_fragment,
     ]).strip()
-    return SELECTOR_OPTIMIZATION_PROMPT_TEMPLATE.format(
-        initial_selector=initial_selector,
-        html_fragment=structured_html,
+    return (
+        SELECTOR_OPTIMIZATION_PROMPT_TEMPLATE
+        .replace("{initial_selector}", initial_selector)
+        .replace("{html_fragment}", structured_html)
     )

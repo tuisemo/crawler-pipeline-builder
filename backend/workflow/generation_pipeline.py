@@ -24,11 +24,6 @@ from .prompting import (
 from .script_sandbox import run_generated_script_sandbox
 
 
-_settings = get_settings()
-SCRIPT_GENERATION_MAX_TOKENS = _settings.script_generation_max_tokens
-SCRIPT_REVIEW_MAX_TOKENS = _settings.script_review_max_tokens
-SCRIPT_SANDBOX_ENABLED = _settings.script_sandbox_enabled
-SCRIPT_SANDBOX_TIMEOUT_SECONDS = _settings.script_sandbox_timeout_seconds
 SUPPORTED_GENERATION_MODES = {"lite", "pro"}
 from backend.workflow._shared import sanitize_graph as _sanitize_graph
 
@@ -117,6 +112,22 @@ def _with_optional_max_tokens(max_tokens: int | None) -> dict[str, int]:
     return {"max_tokens": max_tokens} if isinstance(max_tokens, int) and max_tokens > 0 else {}
 
 
+def _script_generation_max_tokens() -> int | None:
+    return get_settings().script_generation_max_tokens
+
+
+def _script_review_max_tokens() -> int | None:
+    return get_settings().script_review_max_tokens
+
+
+def _script_sandbox_enabled() -> bool:
+    return get_settings().script_sandbox_enabled
+
+
+def _script_sandbox_timeout_seconds() -> int:
+    return get_settings().script_sandbox_timeout_seconds
+
+
 def _build_empty_script_error(stage: str, finish_reason: str | None) -> str:
     if finish_reason == "length":
         return f"{stage} returned empty content after hitting the model token limit."
@@ -145,14 +156,14 @@ def _detect_script_compatibility_issues(script: str) -> list[str]:
 def _should_run_sandbox(request: GenerateCrawlerRequest) -> bool:
     if request.run_sandbox is None:
         return False
-    return SCRIPT_SANDBOX_ENABLED and bool(request.run_sandbox)
+    return _script_sandbox_enabled() and bool(request.run_sandbox)
 
 
 def _resolve_sandbox_timeout(request: GenerateCrawlerRequest) -> int:
     timeout = request.sandbox_timeout_seconds
     if isinstance(timeout, int) and timeout > 0:
         return timeout
-    return SCRIPT_SANDBOX_TIMEOUT_SECONDS
+    return _script_sandbox_timeout_seconds()
 
 
 def _run_final_script_sandbox(
@@ -235,7 +246,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
             system=CRAWLER_SYSTEM_PROMPT,
             user=final_prompt,
             request_name="workflow_generate_crawler_draft",
-            **_with_optional_max_tokens(SCRIPT_GENERATION_MAX_TOKENS),
+            **_with_optional_max_tokens(_script_generation_max_tokens()),
         )
         _append_trace(
             generation_trace,
@@ -363,7 +374,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
             system=CRAWLER_REVIEW_SYSTEM_PROMPT,
             user=review_prompt,
             request_name="workflow_generate_crawler_review",
-            **_with_optional_max_tokens(SCRIPT_REVIEW_MAX_TOKENS),
+            **_with_optional_max_tokens(_script_review_max_tokens()),
         )
         _append_trace(
             generation_trace,
@@ -442,7 +453,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
                 system=CRAWLER_REVISION_SYSTEM_PROMPT,
                 user=revision_prompt,
                 request_name="workflow_generate_crawler_revision",
-                **_with_optional_max_tokens(SCRIPT_GENERATION_MAX_TOKENS),
+                **_with_optional_max_tokens(_script_generation_max_tokens()),
             )
             _append_trace(
                 generation_trace,

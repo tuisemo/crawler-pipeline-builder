@@ -78,8 +78,9 @@ _PARTIAL_PAGE_SELECTOR_START_RE = re.compile(r'"page_number_selectors"\s*:\s*\['
 def _decode_partial_json_string(value: str) -> str:
     try:
         decoded = json.loads(f'"{value}"')
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         decoded = value
+    # LLM output may over-escape single quotes; normalize them.
     return decoded.replace("\\'", "'")
 
 
@@ -346,7 +347,7 @@ def recover_pagination_from_summary(user_prompt: str) -> dict[str, Any] | None:
         "pagination_strategy": "load_more" if re.search(r"(加载更多|load more|more)", next_control.get("text", ""), re.IGNORECASE) else "click_next",
         "next_button_selector": selector,
         "page_number_selectors": page_number_selectors,
-        "confidence": 0.56 if selector else 0.42,
+        "confidence": 0.56,  # Selector guaranteed non-empty (guarded above)
         "reason": "Recovered from pagination control summary because the model returned a semantically empty analysis.",
     }
 

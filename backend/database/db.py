@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -12,28 +13,33 @@ from pymysql.cursors import DictCursor
 from backend.core.settings import get_settings
 
 _pool: PooledDB | None = None
+_pool_lock = threading.Lock()
 
 
 def _get_pool() -> PooledDB:
-    """Lazy-init MySQL connection pool."""
+    """Lazy-init MySQL connection pool (thread-safe)."""
     global _pool
     if _pool is None:
-        s = get_settings()
-        _pool = PooledDB(
-            creator=pymysql,
-            maxconnections=s.db_pool_size,
-            maxshared=0,
-            blocking=True,
-            host=s.db_host,
-            port=int(s.db_port),
-            user=s.db_user,
-            password=s.db_password,
-            database=s.db_name,
-            charset="utf8mb4",
-            collation="utf8mb4_unicode_ci",
-            cursorclass=DictCursor,
-            autocommit=False,
-        )
+        with _pool_lock:
+            if _pool is None:
+                s = get_settings()
+                _pool = PooledDB(
+                    creator=pymysql,
+                    maxconnections=s.db_pool_size,
+                    maxshared=0,
+                    blocking=True,
+                    host=s.db_host,
+                    port=int(s.db_port),
+                    user=s.db_user,
+                    password=s.db_password,
+                    database=s.db_name,
+                    charset="utf8mb4",
+                    collation="utf8mb4_unicode_ci",
+                    cursorclass=DictCursor,
+                    autocommit=False,
+                    connect_timeout=10,
+                    read_timeout=30,
+                )
     return _pool
 
 
@@ -62,6 +68,7 @@ def get_connection() -> Any:
 def close_connection() -> None:
     """Shutdown hook: close the entire pool."""
     global _pool
-    if _pool is not None:
-        _pool.close()
-        _pool = None
+    with _pool_lock:
+        if _pool is not None:
+            _pool.close()
+            _pool = None

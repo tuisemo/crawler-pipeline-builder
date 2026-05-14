@@ -152,6 +152,17 @@ def test_callback_redirect_uses_redirect_origin_when_frontend_url_missing(client
     assert response.headers["location"].startswith("http://testserver/#/auth/callback")
 
 
+def test_callback_redirect_uses_app_origin_when_redirect_uri_points_to_frontend_callback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("USER_CENTER_FRONTEND_URL", raising=False)
+    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "https://app.example.com/auth/callback")
+    monkeypatch.setattr("backend.core.settings.load_env_config", lambda *args, **kwargs: {})
+    response, _ = _perform_login_callback(client, monkeypatch)
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("https://app.example.com/#/auth/callback")
+
+
 def test_callback_rejects_invalid_state(client: TestClient):
     response = client.get(
         "/api/auth/callback",
@@ -241,6 +252,20 @@ def test_logout_deletes_session(client: TestClient, monkeypatch: pytest.MonkeyPa
 
     me_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {session_id}"})
     assert me_response.status_code == 401
+
+
+def test_logout_uses_frontend_fallback_when_frontend_url_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    response, _ = _perform_login_callback(client, monkeypatch)
+    session_id = _extract_session_id_from_redirect(response.headers["location"])
+
+    monkeypatch.delenv("USER_CENTER_FRONTEND_URL", raising=False)
+    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "https://app.example.com/auth/callback")
+    monkeypatch.setattr("backend.core.settings.load_env_config", lambda *args, **kwargs: {})
+
+    response = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {session_id}"})
+    assert response.status_code == 200
+    logout_uri = response.json()["data"]["logoutUriConfig"]["crawler-client"]
+    assert "redirectUri=https%3A%2F%2Fapp.example.com%2F%23%2F" in logout_uri
 
 
 def test_logout_rejects_invalid_session(client: TestClient):

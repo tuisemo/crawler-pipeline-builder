@@ -1,6 +1,6 @@
-"""MySQL DDL definitions for crawler workflow database.
+"""MySQL DDL definitions and schema bootstrap for crawler workflow database.
 
-Only business-critical persistent data lives here:
+Tables:
 - users        — local mirror of user-center identity
 - tasks        — crawler task records
 - task_assets  — versioned assets attached to tasks
@@ -10,15 +10,11 @@ Sessions and OAuth state are stored in Redis (see backend/auth/session.py).
 
 from __future__ import annotations
 
-# ── Schema version tracking ──────────────────────────────────────────────
+import logging
 
-SCHEMA_VERSION_DDL = """
-CREATE TABLE IF NOT EXISTS schema_version (
-    version     INT UNSIGNED    NOT NULL,
-    applied_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (version)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-"""
+from backend.database.db import get_connection
+
+logger = logging.getLogger(__name__)
 
 # ── Users (local mirror of user-center identity) ────────────────────────
 
@@ -36,7 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
-# ── Tasks (v2: includes owner_user_id and updated_by_user_id) ──────────
+# ── Tasks ────────────────────────────────────────────────────────────────
 
 TASKS_DDL = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -76,15 +72,26 @@ CREATE TABLE IF NOT EXISTS task_assets (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
-# ── Full DDL for fresh installs ─────────────────────────────────────────
-# Order matters: users before tasks (FK dependency).
-# Sessions and OAuth states live in Redis — no DDL needed here.
+# ── DDL execution order (users before tasks — FK dependency) ────────────
 
 ALL_DDL = [
-    SCHEMA_VERSION_DDL,
     USERS_DDL,
     TASKS_DDL,
     TASK_ASSETS_DDL,
 ]
 
-SCHEMA_VERSION = 2
+
+def ensure_schema() -> None:
+    """Create all tables if they do not exist (idempotent).
+
+    Safe to call on every application startup.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        for ddl in ALL_DDL:
+            cursor.execute(ddl)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()

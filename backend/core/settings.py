@@ -188,4 +188,10 @@ class CrawlerWorkflowSettings:
 
 
 def get_settings() -> CrawlerWorkflowSettings:
+    """Load application settings from the current environment."""
     return CrawlerWorkflowSettings.from_env()
+
+
+def reset_settings() -> None:
+    """Compatibility hook for tests; settings are no longer cached."""
+    return None

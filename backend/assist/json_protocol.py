@@ -84,8 +84,6 @@ def _clean_json_string(text: str) -> str:
     cleaned = text.strip()
     # Remove trailing commas before } or ]
     cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
-    # Remove single-line // comments (not inside strings)
-    cleaned = re.sub(r'(?<!["\w])//.*?$', "", cleaned, flags=re.MULTILINE)
     # Remove block comments
     cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
     return cleaned.strip()

@@ -1,10 +1,11 @@
 """FastAPI application entrypoint for the crawler workflow backend."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 
@@ -15,17 +16,18 @@ from backend.api.workflow_routes import router as workflow_router
 from backend.core.api_response import api_response
 from backend.core.app_logging import configure_logging
 from backend.core.settings import get_settings
-from backend.database import close_connection, run_migrations
+from backend.database import close_connection, ensure_schema
 from backend.auth.redis_client import close_redis
 
 configure_logging()
+logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: initialize database
-    run_migrations()
+    ensure_schema()
     yield
     # Shutdown: close connections
     close_connection()
@@ -48,6 +50,27 @@ async def validation_exception_handler(_request, exc: RequestValidationError):
     )
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request, exc: HTTPException):
+    return api_response(
+        status_code=exc.status_code,
+        success=False,
+        error_code="http_error",
+        error=str(exc.detail) if exc.detail else "Request failed",
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(_request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    return api_response(
+        status_code=500,
+        success=False,
+        error_code="internal_error",
+        error="An unexpected error occurred. Please try again later.",
+    )
+
+
 @app.get("/")
 def index():
     return {"message": "Scraper Flow Studio API - use /api/workflows/* for DSL endpoints"}
@@ -61,6 +84,6 @@ app.include_router(auth_router)
 
 def main(port: int | None = None):
     settings = get_settings()
-    resolved_port = port or settings.backend_port
-    print(f"[*] Starting Scraper Flow Studio API at http://{settings.backend_host}:{resolved_port}")
+    resolved_port = port if port is not None else settings.backend_port
+    logger.info("Starting Scraper Flow Studio API at http://%s:%s", settings.backend_host, resolved_port)
     uvicorn.run(app, host=settings.backend_host, port=resolved_port, reload=False)

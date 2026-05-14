@@ -15,6 +15,7 @@ from typing import Any
 from backend.database.db import get_cursor
 from backend.tasks.schemas import (
     VALID_ASSET_TYPES,
+    VALID_TASK_STATUSES,
     CreateTaskRequest,
     SaveAssetResponse,
     TaskAssetResponse,
@@ -155,6 +156,11 @@ def update_task(task_id: int, request: UpdateTaskRequest, owner_user_id: int) ->
             updates.append("target_url = %s")
             params.append(request.target_url)
         if request.status is not None:
+            if request.status not in VALID_TASK_STATUSES:
+                raise ValueError(
+                    f"Invalid status: {request.status!r}. "
+                    f"Must be one of {sorted(VALID_TASK_STATUSES)}"
+                )
             updates.append("status = %s")
             params.append(request.status)
 

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ----------------------------------------------------------------------
-# Asset type enum
+# Constants
 # ----------------------------------------------------------------------
 
 VALID_ASSET_TYPES = frozenset([
@@ -20,6 +20,10 @@ VALID_ASSET_TYPES = frozenset([
     "detail_batch_config",
     "detail_batch_script",
 ])
+
+VALID_TASK_STATUSES = frozenset(["draft", "active", "archived"])
+
+_URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
 
 
 # ----------------------------------------------------------------------
@@ -47,6 +51,13 @@ class CreateTaskRequest(BaseModel):
     description: Optional[str] = None
     target_url: Optional[str] = None
 
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _URL_PATTERN.match(v):
+            raise ValueError(f"Invalid URL format: {v!r}. Must start with http:// or https://")
+        return v
+
 
 class UpdateTaskRequest(BaseModel):
     """Request body for partially updating a task."""
@@ -55,6 +66,22 @@ class UpdateTaskRequest(BaseModel):
     description: Optional[str] = None
     target_url: Optional[str] = None
     status: Optional[str] = None
+
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not _URL_PATTERN.match(v):
+            raise ValueError(f"Invalid URL format: {v!r}. Must start with http:// or https://")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in VALID_TASK_STATUSES:
+            raise ValueError(
+                f"Invalid status: {v!r}. Must be one of {sorted(VALID_TASK_STATUSES)}"
+            )
+        return v
 
 
 # ----------------------------------------------------------------------
@@ -114,4 +141,4 @@ class GetAssetResponse(BaseModel):
     content: Optional[str]
     asset_type: str
     version: int
-    created_at: str
+    created_at: Optional[str] = None

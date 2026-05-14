@@ -8,6 +8,8 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any
 
+import redis as _redis
+
 from backend.core.settings import get_settings
 from backend.database import get_cursor
 
@@ -149,7 +151,7 @@ def consume_oauth_state(state: str) -> dict[str, Any] | None:
     """
     try:
         raw = r.eval(lua_script, 1, key)
-    except Exception:
+    except _redis.exceptions.ResponseError:
         # Fallback for environments that don't support EVAL (e.g. fakeredis)
         raw = r.get(key)
         if raw is not None:
@@ -169,21 +171,33 @@ def create_session(
     refresh_token: str | None = None,
     access_token_expires_at: str | None = None,
     ttl_hours: int | None = None,
+    user_row: dict[str, Any] | None = None,
 ) -> str:
-    """Create a new Redis-backed app session and return its sessionId."""
+    """Create a new Redis-backed app session and return its sessionId.
+
+    Args:
+        user_id: Internal database user ID.
+        access_token: OAuth2 access token from the user center.
+        refresh_token: OAuth2 refresh token from the user center.
+        access_token_expires_at: ISO timestamp when the access token expires.
+        ttl_hours: Session TTL in hours; defaults to settings.session_ttl_hours.
+        user_row: Pre-fetched user dict (id, external_id, display_name, email,
+            avatar_url). When provided the internal SELECT query is skipped,
+            eliminating a redundant database round-trip during login callback.
+    """
     from backend.auth.redis_client import get_redis
 
     settings = get_settings()
     effective_ttl_hours = ttl_hours if ttl_hours is not None else settings.session_ttl_hours
     ttl_seconds = effective_ttl_hours * 3600
 
-    # Fetch user info to embed in the session payload
-    with get_cursor() as cur:
-        cur.execute(
-            "SELECT id, external_id, display_name, email, avatar_url FROM users WHERE id = %s",
-            (user_id,),
-        )
-        user_row = cur.fetchone()
+    if user_row is None:
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT id, external_id, display_name, email, avatar_url FROM users WHERE id = %s",
+                (user_id,),
+            )
+            user_row = cur.fetchone()
 
     if user_row is None:
         raise ValueError(f"User {user_id} not found")

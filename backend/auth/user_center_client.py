@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import httpx
@@ -12,6 +13,10 @@ from backend.auth.oauth_config import (
     get_authorize_url,
     get_user_details_url,
 )
+
+logger = logging.getLogger(__name__)
+
+_SAFE_TOKEN_FIELDS = {"token_type", "expires_in", "scope", "expires_at"}
 
 
 class UserCenterError(Exception):
@@ -61,19 +66,14 @@ async def exchange_code_for_token(
     finally:
         await client.aclose()
 
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(
         "User center /oauth/token response keys: %s",
         list(token.keys()) if isinstance(token, dict) else type(token),
     )
     if isinstance(token, dict):
-        safe_fields = {
-            k: v for k, v in token.items()
-            if k not in ("access_token", "refresh_token")
-        }
+        safe_fields = {k: v for k, v in token.items() if k in _SAFE_TOKEN_FIELDS}
         logger.info(
-            "User center /oauth/token non-sensitive fields: %s",
+            "User center /oauth/token safe fields: %s",
             safe_fields,
         )
 
@@ -111,9 +111,6 @@ async def fetch_user_info(access_token: str) -> dict[str, Any]:
     Calls the user center's /server/public/user/get endpoint with
     Bearer token (matching the Java SDK's UserCenterPublicApi).
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
     from backend.core.settings import get_settings
 
     settings = get_settings()
@@ -123,7 +120,7 @@ async def fetch_user_info(access_token: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 profile_url,
-                headers={"Authorization": f"bearer {access_token}"},
+                headers={"Authorization": f"Bearer {access_token}"},
             )
             resp.raise_for_status()
             payload = resp.json()
@@ -209,9 +206,7 @@ async def call_usercenter_logout(*, access_token: str) -> dict[str, Any]:
             error_code="user_center_logout_failed",
         ) from exc
 
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("User center /public/logout response: %s", payload)
+    logger.info("User center /public/logout response keys: %s", list(payload.keys()) if isinstance(payload, dict) else type(payload))
 
     if not isinstance(payload, dict):
         raise UserCenterError(

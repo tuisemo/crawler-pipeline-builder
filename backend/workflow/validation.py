@@ -37,7 +37,7 @@ SUPPORTED_EXECUTABLE_NODE_TYPES = {
 }
 
 
-def _find_duplicates(values) -> list[str]:
+def _find_duplicates(values: Iterable[str]) -> list[str]:
     seen = set()
     duplicates = []
     for value in values:
@@ -49,7 +49,7 @@ def _find_duplicates(values) -> list[str]:
 
 def _validate_field_schema(raw_field: object, index: int) -> None:
     try:
-        normalized = normalize_field_payload(raw_field)
+        normalized = normalize_field_payload(raw_field, index=index)
     except LegacyFieldAliasError as e:
         raise WorkflowValidationError(
             error_code="extract_field_legacy_aliases_not_supported",
@@ -61,11 +61,6 @@ def _validate_field_schema(raw_field: object, index: int) -> None:
             error=f"extract_field field[{index}] validation failed: {e}.",
         ) from e
 
-    if not normalized.get("name"):
-        raise WorkflowValidationError(
-            error_code="extract_field_requires_field_name",
-            error=f"extract_field field[{index}] requires a non-empty name.",
-        )
     if not normalized.get("selector"):
         raise WorkflowValidationError(
             error_code="extract_field_requires_field_selector",
@@ -118,17 +113,12 @@ def validate_node_data(node: WorkflowNode) -> None:
             )
     elif node_type == "extract_field":
         raw_fields = data.fields
-        if not raw_fields:
-            raise WorkflowValidationError(
-                error_code="extract_field_requires_fields",
-                error="extract_field node requires a non-empty fields list.",
-            )
         if not isinstance(raw_fields, list):
             raise WorkflowValidationError(
                 error_code="extract_field_requires_fields_list",
                 error="extract_field node fields must be a list.",
             )
-        if len(raw_fields) == 0:
+        if not raw_fields:
             raise WorkflowValidationError(
                 error_code="extract_field_requires_fields",
                 error="extract_field node requires at least one field.",

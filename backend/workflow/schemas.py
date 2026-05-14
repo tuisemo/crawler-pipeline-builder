@@ -160,25 +160,6 @@ class WorkflowGraph(BaseModel):
 class ValidateWorkflowRequest(BaseModel):
     graph: WorkflowGraph
 
-class ConversionWarning(BaseModel):
-    message: str
-
-class FromLegacyConfigRequest(BaseModel):
-    url: str
-    item_selector: str
-    fields: List[Dict[str, Any]]
-    pagination_selector: str = ""
-    pagination_strategy: str = "click_next"
-    max_pages: int = 50
-    html_fragment: str = ""
-    # Any other unsupported fields would trigger warnings
-
-class FromLegacyConfigResponse(BaseModel):
-    success: bool
-    graph: Optional[WorkflowGraph] = None
-    warnings: List[ConversionWarning] = []
-    error: Optional[str] = None
-
 class ToPromptRequest(BaseModel):
     graph: WorkflowGraph
 

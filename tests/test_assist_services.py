@@ -8,6 +8,7 @@ from backend.assist.services import (
 from backend.workflow.schemas import AssistLlmRequest
 from backend.workflow.schemas import AssistLlmResponse
 from backend.llm import LLMResponse
+from backend.llm.client import OpenAIClient
 
 
 def test_extract_json_payload_recovers_wrapped_balanced_object():
@@ -58,6 +59,39 @@ def test_run_llm_json_task_uses_json_object_mode_and_normalizes_fields(monkeypat
     }
     assert "Return exactly one valid JSON object and nothing else." in str(captured["system"])
     assert '"fields" must always be an array' in str(captured["system"])
+
+
+def test_openai_client_generate_with_system_strips_internal_request_kwargs(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_call_api(self, messages, method, request_id, request_name, **kwargs):
+        captured["messages"] = messages
+        captured["method"] = method
+        captured["request_id"] = request_id
+        captured["request_name"] = request_name
+        captured["kwargs"] = kwargs
+        return LLMResponse(content='{"ok":true}', model="fake-model")
+
+    monkeypatch.setattr(OpenAIClient, "_call_api", fake_call_api)
+
+    client = OpenAIClient(api_key="test-key", base_url="https://example.com", model="test-model")
+    response = client.generate_with_system(
+        "system prompt",
+        "user prompt",
+        request_id="req-123",
+        request_name="assist_infer_fields",
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+
+    assert response.error is None
+    assert captured["method"] == "generate_with_system"
+    assert captured["request_id"] == "req-123"
+    assert captured["request_name"] == "assist_infer_fields"
+    assert captured["kwargs"] == {
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
 
 
 def test_analyze_pagination_builds_evidence_package_prompt(monkeypatch):

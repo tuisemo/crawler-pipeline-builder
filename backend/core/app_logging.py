@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import datetime as dt
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = PROJECT_ROOT / "logs"
 
 _CONFIGURED = False
+_CONFIGURE_LOCK = threading.Lock()
 
 
 def _build_daily_log_path(prefix: str, extension: str, current_date: dt.date | None = None) -> Path:
@@ -39,6 +41,7 @@ class DailyNamedFileHandler(logging.Handler):
 
         if self._stream is not None:
             self._stream.close()
+            self._stream = None
 
         path = _build_daily_log_path(self.prefix, self.extension, today)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,8 +69,10 @@ class DailyNamedFileHandler(logging.Handler):
             super().close()
 
 
-def serialize_for_log(value: Any, max_chars: int = 50000) -> Any:
+def serialize_for_log(value: Any, max_chars: int = 50000, max_depth: int = 20, _depth: int = 0) -> Any:
     """Convert nested values to JSON-safe log payloads with bounded text fields."""
+    if _depth >= max_depth:
+        return repr(value)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
@@ -76,10 +81,10 @@ def serialize_for_log(value: Any, max_chars: int = 50000) -> Any:
         overflow = len(value) - max_chars
         return f"{value[:max_chars]}\n...[truncated {overflow} chars]"
     if isinstance(value, dict):
-        return {str(key): serialize_for_log(item, max_chars=max_chars) for key, item in value.items()}
+        return {str(key): serialize_for_log(item, max_chars=max_chars, max_depth=max_depth, _depth=_depth + 1) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
-        return [serialize_for_log(item, max_chars=max_chars) for item in value]
-    return serialize_for_log(str(value), max_chars=max_chars)
+        return [serialize_for_log(item, max_chars=max_chars, max_depth=max_depth, _depth=_depth + 1) for item in value]
+    return serialize_for_log(str(value), max_chars=max_chars, max_depth=max_depth, _depth=_depth + 1)
 
 
 def configure_logging() -> None:
@@ -87,41 +92,44 @@ def configure_logging() -> None:
     global _CONFIGURED
     if _CONFIGURED:
         return
+    with _CONFIGURE_LOCK:
+        if _CONFIGURED:
+            return
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
 
-    standard_formatter = logging.Formatter(
-        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+        standard_formatter = logging.Formatter(
+            fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
-    app_log_path = str(_build_daily_log_path("app", "log"))
-    if not any(isinstance(handler, DailyNamedFileHandler) and getattr(handler, "baseFilename", "") == app_log_path for handler in root_logger.handlers):
-        file_handler = DailyNamedFileHandler("app", "log", encoding="utf-8")
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(standard_formatter)
-        root_logger.addHandler(file_handler)
+        app_log_path = str(_build_daily_log_path("app", "log"))
+        if not any(isinstance(handler, DailyNamedFileHandler) and getattr(handler, "baseFilename", "") == app_log_path for handler in root_logger.handlers):
+            file_handler = DailyNamedFileHandler("app", "log", encoding="utf-8")
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(standard_formatter)
+            root_logger.addHandler(file_handler)
 
-    if not any(isinstance(handler, logging.StreamHandler) for handler in root_logger.handlers):
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(standard_formatter)
-        root_logger.addHandler(console_handler)
+        if not any(isinstance(handler, logging.StreamHandler) for handler in root_logger.handlers):
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            console_handler.setFormatter(standard_formatter)
+            root_logger.addHandler(console_handler)
 
-    audit_logger = logging.getLogger("crawler_workflow.audit")
-    audit_logger.setLevel(logging.INFO)
-    audit_logger.propagate = False
-    audit_log_path = str(_build_daily_log_path("audit", "jsonl"))
-    if not any(isinstance(handler, DailyNamedFileHandler) and getattr(handler, "baseFilename", "") == audit_log_path for handler in audit_logger.handlers):
-        audit_handler = DailyNamedFileHandler("audit", "jsonl", encoding="utf-8")
-        audit_handler.setLevel(logging.INFO)
-        audit_handler.setFormatter(logging.Formatter("%(message)s"))
-        audit_logger.addHandler(audit_handler)
+        audit_logger = logging.getLogger("crawler_workflow.audit")
+        audit_logger.setLevel(logging.INFO)
+        audit_logger.propagate = False
+        audit_log_path = str(_build_daily_log_path("audit", "jsonl"))
+        if not any(isinstance(handler, DailyNamedFileHandler) and getattr(handler, "baseFilename", "") == audit_log_path for handler in audit_logger.handlers):
+            audit_handler = DailyNamedFileHandler("audit", "jsonl", encoding="utf-8")
+            audit_handler.setLevel(logging.INFO)
+            audit_handler.setFormatter(logging.Formatter("%(message)s"))
+            audit_logger.addHandler(audit_handler)
 
-    _CONFIGURED = True
+        _CONFIGURED = True
 
 
 def audit_event(event_type: str, **payload: Any) -> None:

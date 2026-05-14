@@ -99,9 +99,9 @@ def compile_graph_to_plan(graph: WorkflowGraph) -> ExecutionPlan:
             "id": edge.id,
             "source": edge.source,
             "target": edge.target,
-            "branch": getattr(edge, "branch", None),
-            "label": getattr(edge, "label", None),
-            "order": getattr(edge, "order", None),
+            "branch": edge.branch,
+            "label": edge.label,
+            "order": edge.order,
         }
         for edge in graph.edges
     ]

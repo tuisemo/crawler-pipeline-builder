@@ -15,11 +15,14 @@ Usage::
 
 from __future__ import annotations
 
+import threading
+
 import redis as _redis
 
 from backend.core.settings import get_settings
 
 _client: _redis.Redis | None = None
+_client_lock = threading.Lock()
 
 
 def _parse_sentinel_nodes(raw: str) -> list[tuple[str, int]]:
@@ -50,47 +53,54 @@ def get_redis() -> _redis.Redis:
     if _client is not None:
         return _client
 
-    settings = get_settings()
+    with _client_lock:
+        if _client is not None:
+            return _client
 
-    sentinel_nodes_raw = settings.redis_sentinel_nodes
-    if sentinel_nodes_raw:
-        from redis.sentinel import Sentinel
+        settings = get_settings()
 
-        nodes = _parse_sentinel_nodes(sentinel_nodes_raw)
-        if not nodes:
-            raise ValueError(
-                f"REDIS_SENTINEL_NODES is set but could not be parsed: {sentinel_nodes_raw!r}"
+        sentinel_nodes_raw = settings.redis_sentinel_nodes
+        if sentinel_nodes_raw:
+            from redis.sentinel import Sentinel
+
+            nodes = _parse_sentinel_nodes(sentinel_nodes_raw)
+            if not nodes:
+                raise ValueError(
+                    f"REDIS_SENTINEL_NODES is set but could not be parsed: {sentinel_nodes_raw!r}"
+                )
+
+            sentinel_kwargs: dict = {"socket_connect_timeout": 5}
+            if settings.redis_sentinel_password:
+                sentinel_kwargs["password"] = settings.redis_sentinel_password
+
+            sentinel = Sentinel(nodes, sentinel_kwargs=sentinel_kwargs)
+
+            master_kwargs: dict = {
+                "db": settings.redis_db,
+                "decode_responses": True,
+            }
+            if settings.redis_password:
+                master_kwargs["password"] = settings.redis_password
+
+            _client = sentinel.master_for(
+                settings.redis_sentinel_master,
+                **master_kwargs,
+            )
+        else:
+            _client = _redis.Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
             )
 
-        sentinel_kwargs: dict = {"socket_connect_timeout": 5}
-        if settings.redis_sentinel_password:
-            sentinel_kwargs["password"] = settings.redis_sentinel_password
-
-        sentinel = Sentinel(nodes, sentinel_kwargs=sentinel_kwargs)
-
-        master_kwargs: dict = {
-            "db": settings.redis_db,
-            "decode_responses": True,
-        }
-        if settings.redis_password:
-            master_kwargs["password"] = settings.redis_password
-
-        _client = sentinel.master_for(
-            settings.redis_sentinel_master,
-            **master_kwargs,
-        )
-    else:
-        _client = _redis.Redis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-        )
-
-    return _client
+        return _client
 
 
 def close_redis() -> None:
     """Close the Redis client (call on application shutdown)."""
     global _client
-    if _client is not None:
-        _client.close()
-        _client = None
+    with _client_lock:
+        if _client is not None:
+            _client.close()
+            _client = None

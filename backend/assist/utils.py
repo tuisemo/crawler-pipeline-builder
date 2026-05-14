@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+_MAX_STABLE_CLASS_TOKENS = 2  # Limit to avoid overly specific, brittle selectors
+
 
 def extract_html_section(section_name: str, html_fragment: str) -> str:
     """Extract a named HTML section delimited by comment markers."""
@@ -24,4 +26,4 @@ def stable_class_tokens(class_name: str) -> list[str]:
             continue
         if re.match(r"^[a-zA-Z_-][a-zA-Z0-9_-]*$", cleaned):
             tokens.append(cleaned)
-    return tokens[:2]
+    return tokens[:_MAX_STABLE_CLASS_TOKENS]

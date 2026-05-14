@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from urllib.parse import quote, urlparse
@@ -29,6 +30,8 @@ from backend.auth.user_center_client import (
 from backend.core.api_response import api_response
 from backend.core.settings import get_settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 CurrentUser = Annotated[AuthenticatedUser, Depends(require_auth)]
 OAUTH_STATE_COOKIE_NAME = "crawler_workflow_oauth_state"
@@ -51,9 +54,12 @@ def _resolve_frontend_base_url(settings) -> str:
     parsed = urlparse(settings.user_center_redirect_uri)
     if parsed.scheme and parsed.netloc:
         path = parsed.path or ""
-        callback_suffix = "/api/auth/callback"
-        if path.endswith(callback_suffix):
-            base_path = path[: -len(callback_suffix)]
+        callback_suffixes = ("/api/auth/callback", "/auth/callback")
+        base_path = ""
+        for callback_suffix in callback_suffixes:
+            if path.endswith(callback_suffix):
+                base_path = path[: -len(callback_suffix)]
+                break
         else:
             base_path = path.rsplit("/", 1)[0]
         base_path = base_path.rstrip("/")
@@ -119,6 +125,18 @@ def _clear_oauth_state_cookie(response) -> None:
     response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/api/auth")
 
 
+def _auth_error_redirect(
+    frontend_url: str, error_code: str, error_message: str
+) -> RedirectResponse:
+    """Build an error redirect response with the OAuth state cookie cleared."""
+    response = RedirectResponse(
+        url=_build_frontend_callback_error_url(frontend_url, error_code, error_message),
+        status_code=302,
+    )
+    _clear_oauth_state_cookie(response)
+    return response
+
+
 @router.get("/login")
 async def login(request: Request, next: str = Query("/", alias="next")):
     """Redirect the browser to the user-center authorize URL."""
@@ -165,39 +183,18 @@ def _build_frontend_callback_error_url(
 @router.get("/callback")
 async def callback(request: Request, code: str = Query(...), state: str = Query(...)):
     """OAuth callback: validate state, exchange code, create session, redirect to frontend."""
-    import logging
-
-    logger = logging.getLogger(__name__)
     settings = get_settings()
     frontend_url = _resolve_frontend_base_url(settings)
 
     state_cookie = request.cookies.get(OAUTH_STATE_COOKIE_NAME)
     if not state_cookie or state_cookie != state:
         logger.warning("OAuth callback rejected: state mismatch")
-        response = RedirectResponse(
-            url=_build_frontend_callback_error_url(
-                frontend_url,
-                "invalid_oauth_state",
-                "OAuth state is invalid or expired",
-            ),
-            status_code=302,
-        )
-        _clear_oauth_state_cookie(response)
-        return response
+        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired")
 
     oauth_state = consume_oauth_state(state)
     if not oauth_state:
         logger.warning("OAuth callback rejected: state consumed or missing")
-        response = RedirectResponse(
-            url=_build_frontend_callback_error_url(
-                frontend_url,
-                "invalid_oauth_state",
-                "OAuth state is invalid or expired",
-            ),
-            status_code=302,
-        )
-        _clear_oauth_state_cookie(response)
-        return response
+        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired")
 
     logger.info("OAuth callback received")
     try:
@@ -212,16 +209,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
             exc.error_code,
             str(exc),
         )
-        response = RedirectResponse(
-            url=_build_frontend_callback_error_url(
-                frontend_url,
-                exc.error_code,
-                "登录失败，请重试",
-            ),
-            status_code=302,
-        )
-        _clear_oauth_state_cookie(response)
-        return response
+        return _auth_error_redirect(frontend_url, exc.error_code, "登录失败，请重试")
 
     user_details = derive_local_user_profile_from_token(token)
     if not user_details.get("external_id"):
@@ -245,16 +233,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
 
     if not user_details.get("external_id"):
         logger.warning("OAuth callback missing stable subject in token claims")
-        response = RedirectResponse(
-            url=_build_frontend_callback_error_url(
-                frontend_url,
-                "oauth_subject_missing",
-                "登录失败，请重试",
-            ),
-            status_code=302,
-        )
-        _clear_oauth_state_cookie(response)
-        return response
+        return _auth_error_redirect(frontend_url, "oauth_subject_missing", "登录失败，请重试")
     external_id = user_details["external_id"]
     display_name = user_details["display_name"]
 
@@ -270,6 +249,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
         access_token=token.get("access_token"),
         refresh_token=token.get("refresh_token"),
         access_token_expires_at=_resolve_access_token_expires_at(token),
+        user_row=user,
     )
 
     next_path = oauth_state.get("next_path") or "/"
@@ -310,28 +290,20 @@ def me(current_user: CurrentUser):
 
 
 @router.post("/logout")
-async def logout(request: Request, current_user: CurrentUser):
+async def logout(current_user: CurrentUser):
     """Delete the local app session.
 
     Deletes the local Redis session. The frontend should then
     redirect the user to the user-center web logout page to
     terminate the user-center session.
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    token = _extract_bearer_token(request)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     settings = get_settings()
-    delete_session(token)
+    delete_session(current_user.session_id)
+    frontend_home_url = _build_frontend_home_url(settings)
 
-    # Build user-center web logout URL so the frontend can redirect
     uc_logout_url = (
         f"{settings.user_center_base_uri.rstrip('/')}/auth/web/#/logout"
-        f"?redirectUri={quote(settings.user_center_frontend_url, safe='')}"
+        f"?redirectUri={quote(frontend_home_url, safe='')}"
         f"&channel={settings.user_center_client_id}"
     )
 
@@ -345,6 +317,7 @@ async def logout(request: Request, current_user: CurrentUser):
 async def logout_redirect(request: Request):
     """Browser-initiated logout: delete session and redirect to user-center logout."""
     settings = get_settings()
+    frontend_home_url = _build_frontend_home_url(settings)
 
     token = _extract_bearer_token(request)
     if token:
@@ -353,7 +326,7 @@ async def logout_redirect(request: Request):
     # Redirect to user-center web logout page
     uc_logout_url = (
         f"{settings.user_center_base_uri.rstrip('/')}/auth/web/#/logout"
-        f"?redirectUri={quote(settings.user_center_frontend_url, safe='')}"
+        f"?redirectUri={quote(frontend_home_url, safe='')}"
         f"&channel={settings.user_center_client_id}"
     )
     return RedirectResponse(url=uc_logout_url, status_code=302)

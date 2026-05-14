@@ -147,10 +147,10 @@ Return a selector with better precision/stability tradeoff than the initial sele
 - Never output non-CSS syntax."""
 
 
-PAGINATION_ANALYSIS_PROMPT_TEMPLATE = """Given HTML content containing pagination elements, analyze the pagination pattern and extract highly robust selectors.
+PAGINATION_ANALYSIS_PROMPT_TEMPLATE = f"""Given HTML content containing pagination elements, analyze the pagination pattern and extract highly robust selectors.
 
 HTML:
-{html_fragment}
+{{html_fragment}}
 
 ## Objective
 Identify the concrete, single control that advances pagination and return a durable selector policy.

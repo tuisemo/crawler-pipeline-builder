@@ -5,9 +5,9 @@ Non-owner access returns 404 (not 403) to prevent task-ID enumeration.
 Unauthenticated access returns 401.
 """
 
+import logging
 from typing import Annotated
 
-import pymysql
 from fastapi import APIRouter, Depends, Query
 
 from backend.auth.dependencies import AuthenticatedUser, require_auth
@@ -32,8 +32,12 @@ from backend.tasks.services import (
     update_task,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 CurrentUser = Annotated[AuthenticatedUser, Depends(require_auth)]
+
+_INTERNAL_ERROR_MSG = "An unexpected error occurred. Please try again later."
 
 
 @router.get("")
@@ -44,13 +48,20 @@ def list_tasks_endpoint(
     include_archived: bool = Query(False),
 ):
     """List tasks with pagination. Only returns tasks owned by the current user."""
-    result = list_tasks(
-        owner_user_id=current_user.user_id,
-        page=page,
-        page_size=page_size,
-        include_archived=include_archived,
-    )
-    return api_response(result)
+    try:
+        result = list_tasks(
+            owner_user_id=current_user.user_id,
+            page=page,
+            page_size=page_size,
+            include_archived=include_archived,
+        )
+        return api_response(result)
+    except Exception:
+        logger.exception("Unexpected error listing tasks")
+        return api_response(
+            status_code=500, success=False,
+            error_code="list_tasks_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.post("")
@@ -59,8 +70,12 @@ def create_task_endpoint(request: CreateTaskRequest, current_user: CurrentUser):
     try:
         task = create_task(request, owner_user_id=current_user.user_id)
         return api_response({"task": task.model_dump()})
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="create_task_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error creating task")
+        return api_response(
+            status_code=500, success=False,
+            error_code="create_task_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.get("/{task_id}")
@@ -71,8 +86,12 @@ def get_task_endpoint(task_id: int, current_user: CurrentUser):
         return api_response({"task": detail.task.model_dump(), "assets": [a.model_dump() for a in detail.assets]})
     except TaskNotFoundError as e:
         return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="get_task_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error getting task %s", task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="get_task_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.put("/{task_id}")
@@ -83,8 +102,12 @@ def update_task_endpoint(task_id: int, request: UpdateTaskRequest, current_user:
         return api_response({"task": task.model_dump()})
     except TaskNotFoundError as e:
         return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="update_task_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error updating task %s", task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="update_task_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.delete("/{task_id}")
@@ -95,8 +118,12 @@ def delete_task_endpoint(task_id: int, current_user: CurrentUser):
         return api_response({"task": task.model_dump()})
     except TaskNotFoundError as e:
         return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="delete_task_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error deleting task %s", task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="delete_task_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.post("/{task_id}/assets")
@@ -109,8 +136,12 @@ def save_assets_endpoint(task_id: int, request: SaveAssetRequest, current_user: 
         return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
     except ValueError as e:
         return api_response(status_code=400, success=False, error_code="invalid_asset", error=str(e))
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="save_assets_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error saving assets for task %s", task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="save_assets_error", error=_INTERNAL_ERROR_MSG,
+        )
 
 
 @router.get("/{task_id}/assets/{asset_type}")
@@ -126,5 +157,9 @@ def get_asset_endpoint(task_id: int, asset_type: str, current_user: CurrentUser)
         if "not found" in error_str.lower():
             return api_response(status_code=404, success=False, error_code="not_found", error=error_str)
         return api_response(status_code=400, success=False, error_code="invalid_asset", error=error_str)
-    except Exception as e:
-        return api_response(status_code=400, success=False, error_code="get_asset_error", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error getting asset %s for task %s", asset_type, task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="get_asset_error", error=_INTERNAL_ERROR_MSG,
+        )
