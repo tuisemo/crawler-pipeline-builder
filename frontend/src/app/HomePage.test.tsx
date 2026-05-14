@@ -4,6 +4,7 @@ import { render, screen, waitFor, cleanup, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import { AuthProvider } from '../auth/AuthProvider'
+import { clearStoredSessionId, setStoredSessionId } from '../services/apiClient'
 
 // ── jsdom polyfills for Antd ──────────────────────────────
 
@@ -69,15 +70,15 @@ function mockFetchError(status: number, error: string): Response {
 
 function renderHomePage() {
   return render(
-    <AuthProvider>
-      <ConfigProvider>
-        <MemoryRouter initialEntries={['/']} initialIndex={0}>
+    <MemoryRouter initialEntries={['/']} initialIndex={0}>
+      <AuthProvider>
+        <ConfigProvider>
           <Routes>
             <Route path="/" element={<HomePage />} />
           </Routes>
-        </MemoryRouter>
-      </ConfigProvider>
-    </AuthProvider>,
+        </ConfigProvider>
+      </AuthProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -89,6 +90,7 @@ describe('HomePage auth UX', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: {
         ...originalLocation,
@@ -102,6 +104,7 @@ describe('HomePage auth UX', () => {
   afterEach(() => {
     cleanup()
     globalThis.fetch = originalFetch
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -123,6 +126,7 @@ describe('HomePage auth UX', () => {
   })
 
   it('does not show 登录 button in hero section when authenticated', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
 
     renderHomePage()

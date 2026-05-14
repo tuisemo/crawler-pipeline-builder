@@ -61,7 +61,7 @@ function AppHeader() {
             <Button
               type="primary"
               size="small"
-              onClick={() => login(window.location.pathname)}
+              onClick={() => login(window.location.hash.replace('#', '') || '/')}
               style={{ height: 32, fontWeight: 600, borderRadius: 6 }}
             >
               登录

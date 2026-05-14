@@ -1,5 +1,4 @@
-import { apiFetch, UnauthorizedError } from './apiClient'
-import type { ApiEnvelope } from './workflowApi'
+import { apiFetch, UnauthorizedError, isRecord, isApiEnvelope, type ApiEnvelope } from './apiClient'
 
 export type TaskStatus = 'draft' | 'active' | 'archived'
 
@@ -39,15 +38,6 @@ export interface TaskDetailResponse {
 export interface SaveAssetsResponse {
   saved_count: number
   assets: AssetMeta[]
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isApiEnvelope(value: unknown): value is ApiEnvelope {
-  if (!isRecord(value)) return false
-  return typeof value.success === 'boolean' && Object.prototype.hasOwnProperty.call(value, 'data')
 }
 
 async function parseEnvelope(response: Response): Promise<{ data: Record<string, unknown>; envelope: ApiEnvelope }> {

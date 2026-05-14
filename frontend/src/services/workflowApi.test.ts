@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { postAssistAction, postWorkflowAction, validateGraphWithBackend, UnauthorizedError } from './workflowApi'
 
@@ -59,7 +60,7 @@ describe('workflowApi', () => {
     expect(result.payload).toEqual({ result: { item_selector: '.item' } })
   })
 
-  it('all fetch calls include credentials: include', async () => {
+  it('all fetch calls include Content-Type header via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: {}, warnings: [], meta: {} }),
@@ -67,9 +68,9 @@ describe('workflowApi', () => {
 
     await validateGraphWithBackend({ nodes: [{ id: 'n1', type: 'open_page', data: { url: 'https://example.com' } }], edges: [] })
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
   })
 

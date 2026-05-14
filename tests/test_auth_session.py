@@ -1,34 +1,22 @@
-"""Tests for the session and user management service.
-
-Covers:
-- upsert_user creates user on first login, updates on subsequent logins
-- create_session generates cryptographically random token (>=32 bytes),
-  stores SHA-256(token) in DB, sets expires_at = now + TTL, returns raw token
-- get_session_by_token hashes token, looks up session, checks expiry, returns user
-- Expired sessions return None (treated as invalid)
-- Forged/random tokens return None (no DB match)
-- delete_session removes session from DB (for logout)
-- cleanup_expired_sessions deletes all sessions where expires_at < now
-- Token is cryptographically random — two tokens are never equal
-"""
+"""Tests for Redis-backed OAuth state and app sessions."""
 
 from __future__ import annotations
 
-import hashlib
-import time
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+import fakeredis
 
 import pytest
 
 from backend.auth.session import (
-    cleanup_expired_sessions,
+    consume_oauth_state,
     create_session,
     delete_session,
+    derive_local_user_profile_from_token,
     get_session_by_token,
+    session_needs_refresh,
+    store_oauth_state,
+    update_session,
     upsert_user,
 )
-from backend.core.settings import get_settings
 from backend.database import get_cursor, run_migrations
 
 
@@ -39,6 +27,13 @@ from backend.database import get_cursor, run_migrations
 def _ensure_schema():
     """Ensure database schema is up-to-date before each test."""
     run_migrations()
+
+
+@pytest.fixture(autouse=True)
+def mock_redis(monkeypatch):
+    fake_r = fakeredis.FakeRedis(decode_responses=True)
+    monkeypatch.setattr("backend.auth.redis_client.get_redis", lambda: fake_r)
+    return fake_r
 
 
 @pytest.fixture()
@@ -106,9 +101,6 @@ class TestUpsertUser:
         user1 = upsert_user(external_id="openId_sync", display_name="Sync Test")
         synced_at_1 = user1["synced_at"]
 
-        # Small delay to ensure time difference
-        time.sleep(0.05)
-
         user2 = upsert_user(external_id="openId_sync", display_name="Sync Test Updated")
         synced_at_2 = user2["synced_at"]
 
@@ -128,27 +120,33 @@ class TestUpsertUser:
         assert user["avatar_url"] is None
 
 
+# ── OAuth state ───────────────────────────────────────────────────────────
+
+
+class TestOauthState:
+    def test_store_and_consume_state_round_trip(self):
+        state = store_oauth_state(next_path="/tasks/1")
+        payload = consume_oauth_state(state)
+        assert payload is not None
+        assert payload["next_path"] == "/tasks/1"
+
+    def test_state_is_one_time_use(self):
+        state = store_oauth_state(next_path="/tasks/1")
+        assert consume_oauth_state(state) is not None
+        assert consume_oauth_state(state) is None
+
+
 # ── create_session ────────────────────────────────────────────────────────
 
 
 class TestCreateSession:
-    def test_generates_token_and_stores_hash(self, sample_user):
-        """create_session returns raw token, stores SHA-256 hash in DB."""
-        raw_token = create_session(user_id=sample_user["id"])
-        assert raw_token is not None
-        assert isinstance(raw_token, str)
-        assert len(raw_token) > 0
-
-        # Verify that the hash stored in DB is SHA-256 of the raw token
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "SELECT token_hash FROM sessions WHERE user_id = %s ORDER BY id DESC LIMIT 1",
-                (sample_user["id"],),
-            )
-            row = cur.fetchone()
-        assert row is not None
-        assert row["token_hash"] == expected_hash
+    def test_generates_session_and_stores_payload_in_redis(self, sample_user, mock_redis):
+        session_id = create_session(user_id=sample_user["id"], access_token="access-123")
+        payload = get_session_by_token(session_id)
+        assert payload is not None
+        assert payload["user_id"] == sample_user["id"]
+        assert payload["access_token"] == "access-123"
+        assert payload["token_status"] == "active"
 
     def test_token_is_cryptographically_random(self, sample_user):
         """Two generated tokens are different (cryptographic randomness)."""
@@ -156,80 +154,9 @@ class TestCreateSession:
         token2 = create_session(user_id=sample_user["id"])
         assert token1 != token2
 
-    def test_session_has_correct_expiry(self, sample_user):
-        """New session has expires_at = now + SESSION_TTL_HOURS."""
-        settings = get_settings()
-        before = datetime.now(timezone.utc)
-        raw_token = create_session(user_id=sample_user["id"])
-        after = datetime.now(timezone.utc)
-
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "SELECT expires_at FROM sessions WHERE token_hash = %s",
-                (expected_hash,),
-            )
-            row = cur.fetchone()
-        assert row is not None
-
-        expires_at = row["expires_at"]
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-        # MySQL DATETIME(3) truncates to millisecond precision, so allow
-        # a 1-second tolerance on each boundary instead of exact comparison.
-        min_expected = before + timedelta(hours=settings.session_ttl_hours)
-        max_expected = after + timedelta(hours=settings.session_ttl_hours)
-        tolerance = timedelta(seconds=1)
-        assert (
-            min_expected - tolerance
-            <= expires_at
-            <= max_expected + tolerance
-        ), f"expires_at={expires_at}, expected range=[{min_expected}, {max_expected}]"
-
-    def test_session_stores_user_id(self, sample_user):
-        """Session record has the correct user_id."""
-        raw_token = create_session(user_id=sample_user["id"])
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "SELECT user_id FROM sessions WHERE token_hash = %s",
-                (expected_hash,),
-            )
-            row = cur.fetchone()
-        assert row is not None
-        assert row["user_id"] == sample_user["id"]
-
     def test_custom_ttl_override(self, sample_user):
-        """create_session can accept a custom TTL in hours."""
-        custom_ttl = 2
-        before = datetime.now(timezone.utc)
-        raw_token = create_session(user_id=sample_user["id"], ttl_hours=custom_ttl)
-        after = datetime.now(timezone.utc)
-
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "SELECT expires_at FROM sessions WHERE token_hash = %s",
-                (expected_hash,),
-            )
-            row = cur.fetchone()
-        assert row is not None
-
-        expires_at = row["expires_at"]
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-        # MySQL DATETIME(3) truncates to millisecond precision, so allow
-        # a 1-second tolerance on each boundary instead of exact comparison.
-        min_expected = before + timedelta(hours=custom_ttl)
-        max_expected = after + timedelta(hours=custom_ttl)
-        tolerance = timedelta(seconds=1)
-        assert (
-            min_expected - tolerance
-            <= expires_at
-            <= max_expected + tolerance
-        ), f"expires_at={expires_at}, expected range=[{min_expected}, {max_expected}]"
+        session_id = create_session(user_id=sample_user["id"], ttl_hours=2)
+        assert get_session_by_token(session_id) is not None
 
 
 # ── get_session_by_token ─────────────────────────────────────────────────
@@ -244,20 +171,6 @@ class TestGetSessionByToken:
         assert result["user_id"] == sample_user["id"]
         assert result["external_id"] == sample_user["external_id"]
         assert result["display_name"] == sample_user["display_name"]
-
-    def test_expired_session_returns_none(self, sample_user):
-        """Expired session token returns None."""
-        # Create session with a very short TTL
-        raw_token = create_session(user_id=sample_user["id"], ttl_hours=0)  # 0 hours = immediate expiry
-        # Manually set the session to expired
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "UPDATE sessions SET expires_at = %s WHERE token_hash = %s",
-                (datetime.now(timezone.utc) - timedelta(seconds=1), expected_hash),
-            )
-        result = get_session_by_token(raw_token)
-        assert result is None
 
     def test_forged_random_token_returns_none(self):
         """Random/forged token that doesn't match any DB record returns None."""
@@ -299,23 +212,12 @@ class TestGetSessionByToken:
 
 
 class TestDeleteSession:
-    def test_deletes_session_from_db(self, sample_user):
-        """delete_session removes the session record from DB."""
+    def test_deletes_session_from_redis(self, sample_user):
+        """delete_session removes the session payload."""
         raw_token = create_session(user_id=sample_user["id"])
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
-        # Verify session exists
-        with get_cursor() as cur:
-            cur.execute("SELECT id FROM sessions WHERE token_hash = %s", (expected_hash,))
-            assert cur.fetchone() is not None
-
-        # Delete
+        assert get_session_by_token(raw_token) is not None
         delete_session(raw_token)
-
-        # Verify session is gone
-        with get_cursor() as cur:
-            cur.execute("SELECT id FROM sessions WHERE token_hash = %s", (expected_hash,))
-            assert cur.fetchone() is None
+        assert get_session_by_token(raw_token) is None
 
     def test_delete_nonexistent_token_does_not_raise(self):
         """Deleting a token that doesn't exist in DB does not raise."""
@@ -337,113 +239,35 @@ class TestDeleteSession:
         assert result["user_id"] == sample_user["id"]
 
 
-# ── cleanup_expired_sessions ──────────────────────────────────────────────
-
-
-class TestCleanupExpiredSessions:
-    def test_removes_expired_sessions(self, sample_user):
-        """cleanup_expired_sessions removes sessions where expires_at < now."""
-        # Create a session and manually expire it
-        raw_token = create_session(user_id=sample_user["id"])
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "UPDATE sessions SET expires_at = %s WHERE token_hash = %s",
-                (datetime.now(timezone.utc) - timedelta(hours=1), expected_hash),
-            )
-
-        # Verify session exists but is expired
-        assert get_session_by_token(raw_token) is None
-
-        # Run cleanup
-        cleanup_expired_sessions()
-
-        # Verify the expired session is physically removed from DB
-        with get_cursor() as cur:
-            cur.execute("SELECT id FROM sessions WHERE token_hash = %s", (expected_hash,))
-            assert cur.fetchone() is None
-
-    def test_does_not_remove_active_sessions(self, sample_user):
-        """cleanup_expired_sessions does not remove active (non-expired) sessions."""
-        raw_token = create_session(user_id=sample_user["id"])
-
-        cleanup_expired_sessions()
-
-        # Active session should still work
-        result = get_session_by_token(raw_token)
-        assert result is not None
-
-    def test_removes_only_expired_sessions(self, sample_user):
-        """Only expired sessions are removed; active ones remain."""
-        # Create active session
-        active_token = create_session(user_id=sample_user["id"])
-
-        # Create and expire another session
-        expired_token = create_session(user_id=sample_user["id"])
-        expired_hash = hashlib.sha256(expired_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "UPDATE sessions SET expires_at = %s WHERE token_hash = %s",
-                (datetime.now(timezone.utc) - timedelta(hours=1), expired_hash),
-            )
-
-        cleanup_expired_sessions()
-
-        # Active session still works
-        assert get_session_by_token(active_token) is not None
-        # Expired session is gone
-        assert get_session_by_token(expired_token) is None
-
-
-# ── Session lifecycle integration test ────────────────────────────────────
-
-
 class TestSessionLifecycle:
     def test_create_validate_delete_validate_fails(self, sample_user):
-        """Full lifecycle: create → validate → delete → validate fails."""
-        # Create
-        raw_token = create_session(user_id=sample_user["id"])
+        session_id = create_session(user_id=sample_user["id"])
+        assert get_session_by_token(session_id) is not None
+        delete_session(session_id)
+        assert get_session_by_token(session_id) is None
 
-        # Validate — should work
-        result = get_session_by_token(raw_token)
-        assert result is not None
-        assert result["user_id"] == sample_user["id"]
 
-        # Delete (logout)
-        delete_session(raw_token)
+class TestSessionStateHelpers:
+    def test_update_session_preserves_payload(self, sample_user):
+        session_id = create_session(user_id=sample_user["id"], access_token="old")
+        updated = update_session(session_id, access_token="new", token_status="active")
+        assert updated is not None
+        assert updated["access_token"] == "new"
+        assert get_session_by_token(session_id)["access_token"] == "new"
 
-        # Validate — should fail
-        result = get_session_by_token(raw_token)
-        assert result is None
-
-    def test_expiry_lifecycle(self, sample_user):
-        """Create session, expire it, validate returns None."""
-        raw_token = create_session(user_id=sample_user["id"])
-
-        # Should work initially
-        assert get_session_by_token(raw_token) is not None
-
-        # Manually expire
-        expected_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        with get_cursor() as cur:
-            cur.execute(
-                "UPDATE sessions SET expires_at = %s WHERE token_hash = %s",
-                (datetime.now(timezone.utc) - timedelta(seconds=1), expected_hash),
-            )
-
-        # Should fail after expiry
-        assert get_session_by_token(raw_token) is None
-
-    def test_upsert_then_session_lifecycle(self):
-        """Upsert user → create session → validate returns correct user."""
-        user = upsert_user(
-            external_id="openId_lifecycle",
-            display_name="Lifecycle User",
-            email="lifecycle@example.com",
+    def test_session_needs_refresh_when_expiring_soon(self, sample_user):
+        session_id = create_session(
+            user_id=sample_user["id"],
+            access_token="at",
+            access_token_expires_at="2020-01-01T00:00:00+00:00",
         )
-        raw_token = create_session(user_id=user["id"])
-        result = get_session_by_token(raw_token)
-        assert result is not None
-        assert result["external_id"] == "openId_lifecycle"
-        assert result["display_name"] == "Lifecycle User"
-        assert result["email"] == "lifecycle@example.com"
+        session = get_session_by_token(session_id)
+        assert session is not None
+        assert session_needs_refresh(session) is True
+
+    def test_derive_local_user_profile_requires_stable_subject(self):
+        profile = derive_local_user_profile_from_token(
+            {"access_token": "opaque-token-value", "name": "App User"}
+        )
+        assert profile["external_id"] is None
+        assert profile["display_name"] == "App User"

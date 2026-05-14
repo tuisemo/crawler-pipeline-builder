@@ -9,7 +9,6 @@ from backend.auth.dependencies import (
     require_task_access,
 )
 from backend.auth.session import (
-    cleanup_expired_sessions,
     create_session,
     delete_session,
     get_session_by_token,
@@ -20,7 +19,6 @@ __all__ = [
     "AuthenticatedUser",
     "CurrentUser",
     "TaskAccessUser",
-    "cleanup_expired_sessions",
     "create_session",
     "delete_session",
     "get_current_user",

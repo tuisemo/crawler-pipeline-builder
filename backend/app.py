@@ -16,6 +16,7 @@ from backend.core.api_response import api_response
 from backend.core.app_logging import configure_logging
 from backend.core.settings import get_settings
 from backend.database import close_connection, run_migrations
+from backend.auth.redis_client import close_redis
 
 configure_logging()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,11 +27,13 @@ async def lifespan(app: FastAPI):
     # Startup: initialize database
     run_migrations()
     yield
-    # Shutdown: close database connection
+    # Shutdown: close connections
     close_connection()
+    close_redis()
 
 
 app = FastAPI(title="Scraper Flow Studio API", lifespan=lifespan)
+
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")
 
 

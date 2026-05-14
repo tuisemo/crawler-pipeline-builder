@@ -1,49 +1,67 @@
-"""SQLite connection management for crawler workflow database."""
+"""MySQL connection pool management."""
 
 from __future__ import annotations
 
-import sqlite3
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DATABASE_PATH = _PROJECT_ROOT / "data" / "crawler_workflow.db"
+import pymysql
+from dbutils.pooled_db import PooledDB
+from pymysql.cursors import DictCursor
 
-_connection: sqlite3.Connection | None = None
+from backend.core.settings import get_settings
 
-
-def get_connection() -> sqlite3.Connection:
-    """Get or create the module-level SQLite connection (WAL mode, foreign keys enabled)."""
-    global _connection
-    if _connection is None:
-        _ensure_data_dir()
-        _connection = sqlite3.connect(_DATABASE_PATH, check_same_thread=False)
-        _connection.execute("PRAGMA journal_mode=WAL")
-        _connection.execute("PRAGMA foreign_keys=ON")
-    return _connection
+_pool: PooledDB | None = None
 
 
-def _ensure_data_dir() -> None:
-    """Ensure the data directory exists."""
-    data_dir = _PROJECT_ROOT / "data"
-    data_dir.mkdir(exist_ok=True)
+def _get_pool() -> PooledDB:
+    """Lazy-init MySQL connection pool."""
+    global _pool
+    if _pool is None:
+        s = get_settings()
+        _pool = PooledDB(
+            creator=pymysql,
+            maxconnections=s.db_pool_size,
+            maxshared=0,
+            blocking=True,
+            host=s.db_host,
+            port=int(s.db_port),
+            user=s.db_user,
+            password=s.db_password,
+            database=s.db_name,
+            charset="utf8mb4",
+            collation="utf8mb4_unicode_ci",
+            cursorclass=DictCursor,
+            autocommit=False,
+        )
+    return _pool
 
 
 @contextmanager
-def get_cursor() -> Generator[sqlite3.Cursor, None, None]:
-    """Context manager for temporary cursor usage."""
-    conn = get_connection()
+def get_cursor() -> Generator[DictCursor, None, None]:
+    """Context-managed cursor with automatic commit/rollback."""
+    pool = _get_pool()
+    conn = pool.connection()
     cursor = conn.cursor()
     try:
         yield cursor
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cursor.close()
+        conn.close()
+
+
+def get_connection() -> Any:
+    """Get a raw connection (for migrations)."""
+    return _get_pool().connection()
 
 
 def close_connection() -> None:
-    """Close the module-level SQLite connection."""
-    global _connection
-    if _connection is not None:
-        _connection.close()
-        _connection = None
+    """Shutdown hook: close the entire pool."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None

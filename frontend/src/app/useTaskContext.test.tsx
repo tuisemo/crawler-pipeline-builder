@@ -76,15 +76,15 @@ function TaskContextViewer() {
 
 function renderWithRoute(taskId: string) {
   return render(
-    <AuthProvider>
-      <ConfigProvider>
-        <MemoryRouter initialEntries={[`/tasks/${taskId}`]} initialIndex={0}>
+    <MemoryRouter initialEntries={[`/tasks/${taskId}`]} initialIndex={0}>
+      <AuthProvider>
+        <ConfigProvider>
           <Routes>
             <Route path="/tasks/:taskId" element={<TaskContextViewer />} />
           </Routes>
-        </MemoryRouter>
-      </ConfigProvider>
-    </AuthProvider>,
+        </ConfigProvider>
+      </AuthProvider>
+    </MemoryRouter>,
   )
 }
 

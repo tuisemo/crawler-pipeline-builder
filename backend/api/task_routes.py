@@ -7,6 +7,7 @@ Unauthenticated access returns 401.
 
 from typing import Annotated
 
+import pymysql
 from fastapi import APIRouter, Depends, Query
 
 from backend.auth.dependencies import AuthenticatedUser, require_auth

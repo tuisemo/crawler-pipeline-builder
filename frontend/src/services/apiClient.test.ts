@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { apiFetch, setOnUnauthorized, UnauthorizedError } from './apiClient'
+import {
+  apiFetch,
+  clearStoredSessionId,
+  setOnUnauthorized,
+  setStoredSessionId,
+  UnauthorizedError,
+} from './apiClient'
 
 describe('apiClient', () => {
   const originalFetch = globalThis.fetch
@@ -8,16 +14,20 @@ describe('apiClient', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     setOnUnauthorized(null)
+    clearStoredSessionId()
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
     setOnUnauthorized(null)
+    clearStoredSessionId()
   })
 
-  // ── credentials: 'include' ──────────────────────────────
+  // ── Authorization header ────────────────────────────────
 
-  it('includes credentials: include on all requests', async () => {
+  it('includes Authorization header when sessionId is in sessionStorage', async () => {
+    setStoredSessionId('test-session-123')
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -26,13 +36,30 @@ describe('apiClient', () => {
 
     await apiFetch('/api/tasks')
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/tasks',
-      expect.objectContaining({ credentials: 'include' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ Authorization: 'Bearer test-session-123' }),
     )
   })
 
-  it('includes credentials: include on POST requests', async () => {
+  it('does not include Authorization header when no sessionId is stored', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: {} }),
+    } as Response)
+
+    await apiFetch('/api/tasks')
+
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).not.toEqual(
+      expect.objectContaining({ Authorization: expect.anything() }),
+    )
+  })
+
+  it('includes Authorization header on POST requests', async () => {
+    setStoredSessionId('post-session')
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -41,13 +68,14 @@ describe('apiClient', () => {
 
     await apiFetch('/api/tasks', { method: 'POST', body: JSON.stringify({ name: 'test' }) })
 
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/tasks',
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
       expect.objectContaining({
-        credentials: 'include',
-        method: 'POST',
+        Authorization: 'Bearer post-session',
+        'Content-Type': 'application/json',
       }),
     )
+    expect(callArgs[1]?.method).toBe('POST')
   })
 
   it('includes Content-Type: application/json by default', async () => {
@@ -66,6 +94,8 @@ describe('apiClient', () => {
   })
 
   it('allows overriding headers', async () => {
+    setStoredSessionId('override-session')
+
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -81,6 +111,7 @@ describe('apiClient', () => {
       expect.objectContaining({
         'Content-Type': 'text/plain',
         'X-Custom': 'yes',
+        Authorization: 'Bearer override-session',
       }),
     )
   })
@@ -121,7 +152,6 @@ describe('apiClient', () => {
       json: async () => ({ success: false, error: 'Internal error' }),
     } as Response)
 
-    // Should not throw UnauthorizedError for 500
     const response = await apiFetch('/api/tasks')
     expect(response.status).toBe(500)
     expect(onUnauthorized).not.toHaveBeenCalled()
@@ -151,15 +181,12 @@ describe('apiClient', () => {
       json: async () => ({ success: false, error: 'Not authenticated' }),
     } as Response)
 
-    // Should throw but not crash
     await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
   })
 
   it('clears the onUnauthorized callback when set to null', async () => {
     const onUnauthorized = vi.fn()
     setOnUnauthorized(onUnauthorized)
-
-    // Clear the callback
     setOnUnauthorized(null)
 
     globalThis.fetch = vi.fn().mockResolvedValue({

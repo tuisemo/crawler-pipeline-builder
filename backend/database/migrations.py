@@ -1,4 +1,12 @@
-"""Database migration: create tables and record schema version."""
+"""Database migration: create tables and record schema version.
+
+Schema history:
+  v1 — tasks table without owner_user_id
+  v2 — tasks table with owner_user_id and updated_by_user_id (current)
+
+Sessions and OAuth state are stored in Redis; no database tables are
+needed for them.
+"""
 
 from backend.database.db import get_connection
 from backend.database.models import ALL_DDL, SCHEMA_VERSION
@@ -94,9 +102,9 @@ def run_migrations() -> None:
     tasks table definition with owner_user_id.
 
     When upgrading from schema version 1, ALTER TABLE statements add
-    owner_user_id / updated_by_user_id to the existing tasks table,
-    and existing task data is truncated since owner_user_id is NOT NULL
-    and this is a pre-release app.
+    owner_user_id / updated_by_user_id to the existing tasks table.
+    Existing v1 task data must be deleted beforehand since owner_user_id
+    is NOT NULL and this is a pre-release app (no real data to preserve).
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -108,18 +116,13 @@ def run_migrations() -> None:
             for ddl in ALL_DDL:
                 cursor.execute(ddl)
 
-            # When upgrading from v1, the tasks table exists without
-            # owner_user_id. Truncate existing data first (pre-release,
-            # owner_user_id is NOT NULL), then apply ALTER TABLE changes.
+            # When upgrading from v1, apply ALTER TABLE changes to add
+            # owner_user_id / updated_by_user_id to the existing tasks table.
             if current_version == 1:
-                cursor.execute("DELETE FROM task_assets")
-                cursor.execute("DELETE FROM tasks")
                 _apply_v2_migration(cursor)
 
             # Ensure a system user exists (id=1) so that owner_user_id
             # foreign key is satisfied for backward-compatible code paths.
-            # The task-authorization feature will replace this with real
-            # user-scoped assignment.
             cursor.execute(
                 "INSERT IGNORE INTO users (id, external_id, display_name) "
                 "VALUES (1, '__system__', 'System')"

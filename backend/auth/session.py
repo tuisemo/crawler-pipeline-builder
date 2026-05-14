@@ -1,25 +1,11 @@
-"""Session and user management service.
-
-Provides:
-- upsert_user: creates or updates a local user mirror from user center data
-- create_session: generates a cryptographically random token, stores its
-  SHA-256 hash in the DB, and returns the raw token
-- get_session_by_token: validates a session token and returns user info
-- delete_session: removes a session (for logout)
-- cleanup_expired_sessions: removes all expired sessions from the DB
-
-Security invariants:
-- Token is generated using secrets.token_urlsafe (>= 32 bytes of entropy)
-- Only the SHA-256 hash of the token is stored in the database
-- Expired sessions are treated as invalid (return None)
-- Non-existent / forged tokens return None (no information leakage)
-"""
+"""Redis-backed OAuth state and app-session management."""
 
 from __future__ import annotations
 
-import hashlib
+import base64
+import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from backend.core.settings import get_settings
@@ -32,20 +18,46 @@ _TOKEN_ENTROPY_BYTES = 32  # 256 bits of entropy
 
 
 def _generate_token() -> str:
-    """Generate a cryptographically random session token.
-
-    Uses ``secrets.token_urlsafe`` with at least 32 bytes of entropy,
-    producing a URL-safe base64 string.
-    """
+    """Generate a cryptographically random token."""
     return secrets.token_urlsafe(_TOKEN_ENTROPY_BYTES)
 
 
-def _hash_token(raw_token: str) -> str:
-    """Return the SHA-256 hex digest of a raw session token."""
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+def generate_code_verifier() -> str:
+    """Generate a PKCE code verifier."""
+    return secrets.token_urlsafe(48)
 
 
-# ── User management ──────────────────────────────────────────────────────
+def _redis_key(prefix: str, namespace: str, key: str) -> str:
+    """Build a namespaced Redis key: ``{prefix}:{namespace}:{key}``."""
+    return f"{prefix}:{namespace}:{key}"
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _decode_jwt_payload(token_value: str | None) -> dict[str, Any]:
+    if not token_value or not isinstance(token_value, str) or token_value.count(".") != 2:
+        return {}
+    _, payload, _ = token_value.split(".", 2)
+    padding = "=" * (-len(payload) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(payload + padding)
+        data = json.loads(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+# ── User management (MySQL) ───────────────────────────────────────────────
 
 
 def upsert_user(
@@ -74,31 +86,16 @@ def upsert_user(
     now = datetime.now(timezone.utc)
 
     with get_cursor() as cur:
-        # Check if user exists
         cur.execute(
-            "SELECT id FROM users WHERE external_id = %s",
-            (external_id,),
+            """INSERT INTO users (external_id, display_name, email, avatar_url, synced_at)
+               VALUES (%s, %s, %s, %s, %s)
+               ON DUPLICATE KEY UPDATE
+                   display_name = VALUES(display_name),
+                   email = VALUES(email),
+                   avatar_url = VALUES(avatar_url),
+                   synced_at = VALUES(synced_at)""",
+            (external_id, display_name, email, avatar_url, now),
         )
-        existing = cur.fetchone()
-
-        if existing:
-            # Update existing user
-            cur.execute(
-                """UPDATE users
-                   SET display_name = %s,
-                       email = %s,
-                       avatar_url = %s,
-                       synced_at = %s
-                   WHERE external_id = %s""",
-                (display_name, email, avatar_url, now, external_id),
-            )
-        else:
-            # Insert new user
-            cur.execute(
-                """INSERT INTO users (external_id, display_name, email, avatar_url, synced_at)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (external_id, display_name, email, avatar_url, now),
-            )
 
         # Fetch the full user record
         cur.execute(
@@ -109,120 +106,211 @@ def upsert_user(
         return cur.fetchone()
 
 
-# ── Session management ───────────────────────────────────────────────────
+# ── Session management (Redis) ────────────────────────────────────────────
+
+
+def store_oauth_state(
+    *,
+    next_path: str,
+    code_verifier: str | None = None,
+    ttl_seconds: int | None = None,
+) -> str:
+    """Create a one-time OAuth state record in Redis and return its value."""
+    from backend.auth.redis_client import get_redis
+
+    settings = get_settings()
+    state = _generate_token()
+    payload = {
+        "next_path": next_path,
+        "code_verifier": code_verifier,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    effective_ttl_seconds = ttl_seconds if ttl_seconds is not None else settings.oauth_state_ttl_seconds
+    key = _redis_key(settings.redis_key_prefix, "auth:state", state)
+    get_redis().set(key, json.dumps(payload), ex=effective_ttl_seconds if effective_ttl_seconds > 0 else 1)
+    return state
+
+
+def consume_oauth_state(state: str) -> dict[str, Any] | None:
+    """Return and delete a one-time OAuth state payload atomically."""
+    from backend.auth.redis_client import get_redis
+
+    settings = get_settings()
+    key = _redis_key(settings.redis_key_prefix, "auth:state", state)
+    r = get_redis()
+    # Use Lua script for atomic GET+DELETE (compatible with Redis < 6.2 which lacks GETDEL)
+    lua_script = """
+    local v = redis.call('GET', KEYS[1])
+    if v then
+        redis.call('DEL', KEYS[1])
+    end
+    return v
+    """
+    try:
+        raw = r.eval(lua_script, 1, key)
+    except Exception:
+        # Fallback for environments that don't support EVAL (e.g. fakeredis)
+        raw = r.get(key)
+        if raw is not None:
+            r.delete(key)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 def create_session(
     *,
     user_id: int,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+    access_token_expires_at: str | None = None,
     ttl_hours: int | None = None,
 ) -> str:
-    """Create a new session for the given user.
+    """Create a new Redis-backed app session and return its sessionId."""
+    from backend.auth.redis_client import get_redis
 
-    Generates a cryptographically random token, stores its SHA-256 hash
-    in the ``sessions`` table along with the ``user_id`` and an
-    ``expires_at`` timestamp, and returns the raw token (which should
-    be set as an HttpOnly cookie).
-
-    Args:
-        user_id: The local user ID to associate the session with.
-        ttl_hours: Override the default session TTL (from settings).
-                   Falls back to ``settings.session_ttl_hours`` if None.
-
-    Returns:
-        The raw session token (to be set as a cookie value).
-    """
     settings = get_settings()
-    effective_ttl = ttl_hours if ttl_hours is not None else settings.session_ttl_hours
+    effective_ttl_hours = ttl_hours if ttl_hours is not None else settings.session_ttl_hours
+    ttl_seconds = effective_ttl_hours * 3600
 
-    raw_token = _generate_token()
-    token_hash = _hash_token(raw_token)
-    now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(hours=effective_ttl)
-
+    # Fetch user info to embed in the session payload
     with get_cursor() as cur:
         cur.execute(
-            """INSERT INTO sessions (user_id, token_hash, created_at, expires_at)
-               VALUES (%s, %s, %s, %s)""",
-            (user_id, token_hash, now, expires_at),
+            "SELECT id, external_id, display_name, email, avatar_url FROM users WHERE id = %s",
+            (user_id,),
         )
+        user_row = cur.fetchone()
 
-    return raw_token
+    if user_row is None:
+        raise ValueError(f"User {user_id} not found")
+
+    session_id = _generate_token()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    payload = {
+        "session_id": session_id,
+        "user_id": user_row["id"],
+        "external_id": user_row["external_id"],
+        "display_name": user_row["display_name"],
+        "email": user_row.get("email"),
+        "avatar_url": user_row.get("avatar_url"),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "access_token_expires_at": access_token_expires_at,
+        "token_status": "active",
+        "token_checked_at": now_iso,
+        "created_at": now_iso,
+        "last_seen_at": now_iso,
+    }
+
+    r = get_redis()
+    key = _redis_key(settings.redis_key_prefix, "auth:session", session_id)
+    r.set(key, json.dumps(payload), ex=ttl_seconds if ttl_seconds > 0 else 1)
+
+    return session_id
 
 
 def get_session_by_token(raw_token: str) -> dict[str, Any] | None:
-    """Look up a session by its raw token value.
+    """Look up an app session by sessionId."""
+    from backend.auth.redis_client import get_redis
 
-    Hashes the provided token, queries the ``sessions`` table, checks
-    expiry, and—if valid—returns the associated user information.
+    settings = get_settings()
+    key = _redis_key(settings.redis_key_prefix, "auth:session", raw_token)
 
-    Args:
-        raw_token: The raw session token (as received from the cookie).
+    r = get_redis()
+    raw = r.get(key)
+    if raw is None:
+        return None
 
-    Returns:
-        A dict with ``user_id``, ``external_id``, ``display_name``,
-        ``email``, ``avatar_url``, ``session_id``, and ``expires_at``
-        if the session is valid and not expired; ``None`` otherwise.
-    """
-    token_hash = _hash_token(raw_token)
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return payload
+
+
+def update_session(raw_token: str, **patch: Any) -> dict[str, Any] | None:
+    """Update a session payload in Redis while preserving its remaining TTL."""
+    from backend.auth.redis_client import get_redis
+
+    settings = get_settings()
+    key = _redis_key(settings.redis_key_prefix, "auth:session", raw_token)
+    r = get_redis()
+    current = get_session_by_token(raw_token)
+    if current is None:
+        return None
+
+    current.update(patch)
+    ttl = r.ttl(key)
+    if ttl is None or ttl <= 0:
+        ttl = max(settings.session_ttl_hours * 3600, 1)
+    r.set(key, json.dumps(current), ex=ttl)
+    return current
+
+
+def derive_local_user_profile_from_token(token: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort local identity derivation from OAuth2 token payload/claims."""
+    access_token = token.get("access_token")
+    id_token = token.get("id_token")
+    access_claims = _decode_jwt_payload(access_token if isinstance(access_token, str) else None)
+    id_claims = _decode_jwt_payload(id_token if isinstance(id_token, str) else None)
+    claims: dict[str, Any] = {**access_claims, **id_claims}
+
+    def first_non_empty(*values: Any) -> str | None:
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    external_id = first_non_empty(
+        token.get("open_id"),
+        token.get("openId"),
+        claims.get("openId"),
+        claims.get("open_id"),
+        claims.get("sub"),
+        claims.get("uid"),
+        claims.get("user_id"),
+    )
+    display_name = first_non_empty(
+        claims.get("name"),
+        claims.get("display_name"),
+        claims.get("preferred_username"),
+        claims.get("nickname"),
+        token.get("name"),
+        external_id,
+        "OAuth User",
+    ) or external_id
+
+    return {
+        "external_id": external_id,
+        "display_name": display_name,
+        "email": first_non_empty(claims.get("email")),
+        "avatar_url": first_non_empty(
+            claims.get("avatar_url"),
+            claims.get("picture"),
+            claims.get("avatar"),
+        ),
+    }
+
+
+def session_needs_refresh(session: dict[str, Any], *, skew_seconds: int = 60) -> bool:
+    expires_at = _parse_iso_datetime(session.get("access_token_expires_at"))
+    if expires_at is None:
+        return False
     now = datetime.now(timezone.utc)
-
-    with get_cursor() as cur:
-        cur.execute(
-            """SELECT s.id AS session_id, s.user_id, s.expires_at,
-                      u.external_id, u.display_name, u.email, u.avatar_url
-               FROM sessions s
-               JOIN users u ON u.id = s.user_id
-               WHERE s.token_hash = %s""",
-            (token_hash,),
-        )
-        row = cur.fetchone()
-
-    if row is None:
-        return None
-
-    # Check expiry
-    expires_at = row["expires_at"]
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    if expires_at <= now:
-        return None
-
-    return row
+    return expires_at <= now or (expires_at - now).total_seconds() <= skew_seconds
 
 
 def delete_session(raw_token: str) -> None:
-    """Delete a session by its raw token value.
+    """Delete a session by its sessionId."""
+    from backend.auth.redis_client import get_redis
 
-    Used for logout. If the token does not match any session, this is
-    a no-op (does not raise).
+    settings = get_settings()
+    key = _redis_key(settings.redis_key_prefix, "auth:session", raw_token)
 
-    Args:
-        raw_token: The raw session token (as received from the cookie).
-    """
-    token_hash = _hash_token(raw_token)
-
-    with get_cursor() as cur:
-        cur.execute(
-            "DELETE FROM sessions WHERE token_hash = %s",
-            (token_hash,),
-        )
-
-
-def cleanup_expired_sessions() -> int:
-    """Remove all expired sessions from the database.
-
-    Deletes every session row where ``expires_at < NOW()``.
-
-    Returns:
-        The number of deleted session rows.
-    """
-    now = datetime.now(timezone.utc)
-
-    with get_cursor() as cur:
-        cur.execute(
-            "DELETE FROM sessions WHERE expires_at < %s",
-            (now,),
-        )
-        return cur.rowcount
+    r = get_redis()
+    r.delete(key)

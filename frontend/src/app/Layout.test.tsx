@@ -4,6 +4,7 @@ import { render, screen, waitFor, cleanup, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import { AuthProvider } from '../auth/AuthProvider'
+import { clearStoredSessionId, setStoredSessionId } from '../services/apiClient'
 import Layout from './Layout'
 
 // ── jsdom polyfills for Antd ──────────────────────────────
@@ -69,18 +70,18 @@ function TasksPage() {
 
 function renderApp(initialPath: string = '/') {
   return render(
-    <AuthProvider>
-      <ConfigProvider>
-        <MemoryRouter initialEntries={[initialPath]} initialIndex={0}>
+    <MemoryRouter initialEntries={[initialPath]} initialIndex={0}>
+      <AuthProvider>
+        <ConfigProvider>
           <Routes>
             <Route path="/" element={<Layout />}>
               <Route index element={<HomePage />} />
               <Route path="tasks" element={<TasksPage />} />
             </Route>
           </Routes>
-        </MemoryRouter>
-      </ConfigProvider>
-    </AuthProvider>,
+        </ConfigProvider>
+      </AuthProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -92,6 +93,7 @@ describe('Layout AppHeader', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: {
         ...originalLocation,
@@ -105,6 +107,7 @@ describe('Layout AppHeader', () => {
   afterEach(() => {
     cleanup()
     globalThis.fetch = originalFetch
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -112,6 +115,7 @@ describe('Layout AppHeader', () => {
   })
 
   it('shows user display_name and 退出 button when authenticated', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
 
     renderApp()
@@ -150,11 +154,11 @@ describe('Layout AppHeader', () => {
     expect(window.location.href).toContain('/api/auth/login')
   })
 
-  it('clicking 退出 calls logout and redirects', async () => {
-    const logoutUrl = 'https://user-center/auth/web/#/logout?redirectUri=%2F&channel=default'
+  it('clicking 退出 calls logout and navigates home', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(mockFetchSuccess({ user: mockUser }))
-      .mockResolvedValueOnce(mockFetchSuccess({ logoutUriConfig: { default: logoutUrl } }))
+      .mockResolvedValueOnce(mockFetchSuccess({ loggedOut: true }))
 
     renderApp()
 
@@ -167,12 +171,12 @@ describe('Layout AppHeader', () => {
       logoutBtn.click()
     })
 
-    await waitFor(() => {
-      expect(window.location.href).toBe(logoutUrl)
-    })
+    // After logout, sessionStorage should be cleared
+    expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
   })
 
   it('renders children content (Outlet)', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
 
     renderApp()
@@ -183,6 +187,7 @@ describe('Layout AppHeader', () => {
   })
 
   it('shows Scraper Flow Studio brand in header', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
 
     renderApp()

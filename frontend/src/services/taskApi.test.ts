@@ -13,96 +13,100 @@ describe('taskApi', () => {
     globalThis.fetch = originalFetch
   })
 
-  // ── credentials: 'include' ──────────────────────────────
+  // ── apiFetch header forwarding ──────────────────────────
 
-  it('listTasks includes credentials: include', async () => {
+  it('listTasks sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { items: [], total: 0 } }),
     } as Response)
 
     await listTasks()
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
   })
 
-  it('createTask includes credentials: include', async () => {
+  it('createTask sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { task: { id: 1, name: 'test', description: null, target_url: null, status: 'draft', created_at: '', updated_at: '' } } }),
     } as Response)
 
     await createTask({ name: 'test' })
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include', method: 'POST' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
+    expect(callArgs[1]?.method).toBe('POST')
   })
 
-  it('getTask includes credentials: include', async () => {
+  it('getTask sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { task: { id: 1, name: 'test', description: null, target_url: null, status: 'draft', created_at: '', updated_at: '' }, assets: [] } }),
     } as Response)
 
     await getTask(1)
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
   })
 
-  it('updateTask includes credentials: include', async () => {
+  it('updateTask sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { task: { id: 1, name: 'updated', description: null, target_url: null, status: 'draft', created_at: '', updated_at: '' } } }),
     } as Response)
 
     await updateTask(1, { name: 'updated' })
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include', method: 'PUT' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
+    expect(callArgs[1]?.method).toBe('PUT')
   })
 
-  it('deleteTask includes credentials: include', async () => {
+  it('deleteTask sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { task: { id: 1, name: 'test', description: null, target_url: null, status: 'draft', created_at: '', updated_at: '' } } }),
     } as Response)
 
     await deleteTask(1)
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include', method: 'DELETE' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
+    expect(callArgs[1]?.method).toBe('DELETE')
   })
 
-  it('saveTaskAssets includes credentials: include', async () => {
+  it('saveTaskAssets sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { saved_count: 1, assets: [] } }),
     } as Response)
 
     await saveTaskAssets(1, { schema: '{}' })
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include', method: 'POST' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
+    expect(callArgs[1]?.method).toBe('POST')
   })
 
-  it('getTaskAsset includes credentials: include', async () => {
+  it('getTaskAsset sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: { asset_type: 'schema', version: 1, content: '{}', created_at: '' } }),
     } as Response)
 
     await getTaskAsset(1, 'schema')
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ credentials: 'include' }),
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[1]?.headers).toEqual(
+      expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
   })
 

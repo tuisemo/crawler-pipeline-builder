@@ -1,7 +1,7 @@
 """FastAPI dependency injection for authentication.
 
 Provides:
-- get_current_user: reads session cookie, validates session, returns user object or raises 401
+- get_current_user: reads the Authorization bearer header, validates session, returns user object or raises 401
 - require_auth: forces authentication on any route it's applied to
 - require_task_access: checks that current user owns the specified task, returns 404 if not owner
 
@@ -11,12 +11,13 @@ Public endpoints (/, /static/*, /api/auth/*) are NOT protected.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 
-from backend.auth.session import get_session_by_token
-from backend.core.settings import get_settings
+from backend.auth.session import get_session_by_token, session_needs_refresh, update_session
+from backend.auth.user_center_client import UserCenterError, refresh_access_token
 
 
 # ── Data models ───────────────────────────────────────────────────────────
@@ -25,7 +26,17 @@ from backend.core.settings import get_settings
 class AuthenticatedUser:
     """Lightweight user object extracted from a valid session."""
 
-    __slots__ = ("user_id", "external_id", "display_name", "email", "avatar_url")
+    __slots__ = (
+        "user_id",
+        "external_id",
+        "display_name",
+        "email",
+        "avatar_url",
+        "session_id",
+        "token_status",
+        "access_token_expires_at",
+        "refresh_token_present",
+    )
 
     def __init__(
         self,
@@ -35,12 +46,20 @@ class AuthenticatedUser:
         display_name: str,
         email: str | None = None,
         avatar_url: str | None = None,
+        session_id: str | None = None,
+        token_status: str | None = None,
+        access_token_expires_at: str | None = None,
+        refresh_token_present: bool = False,
     ) -> None:
         self.user_id = user_id
         self.external_id = external_id
         self.display_name = display_name
         self.email = email
         self.avatar_url = avatar_url
+        self.session_id = session_id
+        self.token_status = token_status
+        self.access_token_expires_at = access_token_expires_at
+        self.refresh_token_present = refresh_token_present
 
     def __repr__(self) -> str:
         return f"AuthenticatedUser(user_id={self.user_id}, display_name={self.display_name!r})"
@@ -49,32 +68,78 @@ class AuthenticatedUser:
 # ── Dependencies ─────────────────────────────────────────────────────────
 
 
-async def get_current_user(request: Request) -> AuthenticatedUser:
-    """Extract and validate the session cookie from the request.
+async def _resolve_authenticated_session(raw_token: str) -> dict:
+    session = get_session_by_token(raw_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    Reads the session cookie (name configured via SESSION_COOKIE_NAME),
-    hashes it, looks up the session in the database, checks expiry, and
-    returns an AuthenticatedUser if valid.
+    if session.get("token_status") in {"revoked", "expired", "refresh_failed"}:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if not session_needs_refresh(session):
+        update_session(
+            raw_token,
+            last_seen_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return get_session_by_token(raw_token) or session
+
+    refresh_token = session.get("refresh_token")
+    if not isinstance(refresh_token, str) or not refresh_token.strip():
+        update_session(
+            raw_token,
+            token_status="expired",
+            last_seen_at=datetime.now(timezone.utc).isoformat(),
+        )
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    try:
+        refreshed = await refresh_access_token(refresh_token)
+    except UserCenterError:
+        update_session(
+            raw_token,
+            token_status="refresh_failed",
+            last_seen_at=datetime.now(timezone.utc).isoformat(),
+        )
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    expires_at = refreshed.get("expires_at")
+    if isinstance(expires_at, (int, float)):
+        expires_at_iso = datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat()
+    else:
+        expires_in = refreshed.get("expires_in")
+        expires_at_iso = (
+            (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+            if isinstance(expires_in, (int, float))
+            else session.get("access_token_expires_at")
+        )
+    updated = update_session(
+        raw_token,
+        access_token=refreshed.get("access_token"),
+        refresh_token=refreshed.get("refresh_token") or refresh_token,
+        access_token_expires_at=expires_at_iso,
+        token_status="active",
+        token_checked_at=datetime.now(timezone.utc).isoformat(),
+        last_seen_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return updated or get_session_by_token(raw_token) or session
+
+
+async def get_current_user(request: Request) -> AuthenticatedUser:
+    """Extract and validate the Authorization bearer token from the request.
 
     Raises:
-        HTTPException(401): If no cookie is present, or the session is
-            invalid, expired, or forged.
+        HTTPException(401): If the Authorization header is missing,
+            malformed, or references an unknown session.
     """
-    settings = get_settings()
-    token = request.cookies.get(settings.session_cookie_name)
-
-    if not token:
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(
             status_code=401,
             detail="Not authenticated",
         )
 
-    session = get_session_by_token(token)
-    if not session:
-        raise HTTPException(
-            status_code=401,
-            detail="Not authenticated",
-        )
+    session = await _resolve_authenticated_session(token.strip())
 
     return AuthenticatedUser(
         user_id=session["user_id"],
@@ -82,6 +147,10 @@ async def get_current_user(request: Request) -> AuthenticatedUser:
         display_name=session["display_name"],
         email=session.get("email"),
         avatar_url=session.get("avatar_url"),
+        session_id=session.get("session_id"),
+        token_status=session.get("token_status"),
+        access_token_expires_at=session.get("access_token_expires_at"),
+        refresh_token_present=bool(session.get("refresh_token")),
     )
 
 

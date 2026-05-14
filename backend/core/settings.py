@@ -111,6 +111,16 @@ class CrawlerWorkflowSettings:
     db_name: str = "crawler_workflow"
     db_pool_size: int = 10
     db_max_overflow: int = 20
+    secret_key: str = "change-me-in-production"
+
+    # ── Redis ──
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_key_prefix: str = "crawler_workflow"
+    redis_sentinel_nodes: str = ""
+    redis_sentinel_master: str = "mymaster"
+    redis_sentinel_password: str = ""
+    redis_password: str = ""
+    redis_db: int = 0
 
     # ── Auth / User Center ──
     user_center_base_uri: str = ""
@@ -118,8 +128,9 @@ class CrawlerWorkflowSettings:
     user_center_client_secret: str = ""
     user_center_scope: str = "basic"
     user_center_redirect_uri: str = ""
+    user_center_frontend_url: str = ""
     session_ttl_hours: int = 24
-    session_cookie_name: str = "session_token"
+    oauth_state_ttl_seconds: int = 600
 
     @classmethod
     def from_env(cls) -> "CrawlerWorkflowSettings":
@@ -155,14 +166,24 @@ class CrawlerWorkflowSettings:
             db_name=_read_value(config, "DB_NAME", "crawler_workflow"),
             db_pool_size=_read_int(config, "DB_POOL_SIZE", 10),
             db_max_overflow=_read_int(config, "DB_MAX_OVERFLOW", 20),
+            secret_key=_read_value(config, "SECRET_KEY", "change-me-in-production"),
+            # ── Redis ──
+            redis_url=_read_value(config, "REDIS_URL", "redis://127.0.0.1:6379/0"),
+            redis_key_prefix=_read_value(config, "REDIS_KEY_PREFIX", "crawler_workflow"),
+            redis_sentinel_nodes=_read_value(config, "REDIS_SENTINEL_NODES", ""),
+            redis_sentinel_master=_read_value(config, "REDIS_SENTINEL_MASTER", "mymaster"),
+            redis_sentinel_password=_read_value(config, "REDIS_SENTINEL_PASSWORD", ""),
+            redis_password=_read_value(config, "REDIS_PASSWORD", ""),
+            redis_db=_read_int(config, "REDIS_DB", 0),
             # ── Auth / User Center ──
             user_center_base_uri=_read_value(config, "USER_CENTER_BASE_URI", ""),
             user_center_client_id=_read_value(config, "USER_CENTER_CLIENT_ID", ""),
             user_center_client_secret=_read_value(config, "USER_CENTER_CLIENT_SECRET", ""),
             user_center_scope=_read_value(config, "USER_CENTER_SCOPE", "basic"),
             user_center_redirect_uri=_read_value(config, "USER_CENTER_REDIRECT_URI", ""),
+            user_center_frontend_url=_read_value(config, "USER_CENTER_FRONTEND_URL", ""),
             session_ttl_hours=_read_int(config, "SESSION_TTL_HOURS", 24),
-            session_cookie_name=_read_value(config, "SESSION_COOKIE_NAME", "session_token"),
+            oauth_state_ttl_seconds=_read_int(config, "OAUTH_STATE_TTL_SECONDS", 600),
         )
 
 

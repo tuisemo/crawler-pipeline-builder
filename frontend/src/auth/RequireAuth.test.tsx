@@ -4,6 +4,7 @@ import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { RequireAuth } from './RequireAuth'
 import { AuthProvider } from './AuthProvider'
+import { clearStoredSessionId, setStoredSessionId } from '../services/apiClient'
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -59,8 +60,8 @@ function WorkbenchPage() {
  */
 function renderApp(initialPath: string) {
   return render(
-    <AuthProvider>
-      <MemoryRouter initialEntries={[initialPath]} initialIndex={0}>
+    <MemoryRouter initialEntries={[initialPath]} initialIndex={0}>
+      <AuthProvider>
         <Routes>
           <Route path="/" element={<PublicPage />} />
           <Route
@@ -88,8 +89,8 @@ function renderApp(initialPath: string) {
             }
           />
         </Routes>
-      </MemoryRouter>
-    </AuthProvider>,
+      </AuthProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -101,6 +102,7 @@ describe('RequireAuth', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: {
         ...originalLocation,
@@ -114,6 +116,7 @@ describe('RequireAuth', () => {
   afterEach(() => {
     cleanup()
     globalThis.fetch = originalFetch
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
@@ -121,6 +124,7 @@ describe('RequireAuth', () => {
   })
 
   it('shows loading indicator while auth is being checked', () => {
+    setStoredSessionId('session-123')
     // Never resolves — simulates in-flight /api/auth/me
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}))
 
@@ -133,6 +137,7 @@ describe('RequireAuth', () => {
   })
 
   it('renders protected content when authenticated', async () => {
+    setStoredSessionId('session-123')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
 
     renderApp('/tasks')
@@ -195,6 +200,7 @@ describe('RequireAuth', () => {
   })
 
   it('does not flash login redirect while auth is loading', () => {
+    setStoredSessionId('session-123')
     // Auth check never resolves
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}))
 
@@ -209,6 +215,7 @@ describe('RequireAuth', () => {
   })
 
   it('after auth resolves as authenticated, protected content shows', async () => {
+    setStoredSessionId('session-123')
     // Start with loading, then resolve as authenticated
     let resolveMe: (value: unknown) => void
     const mePromise = new Promise((resolve) => {

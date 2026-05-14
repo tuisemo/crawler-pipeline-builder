@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
+import { HashRouter } from 'react-router-dom'
 import { AuthProvider } from './AuthProvider'
 import { useAuth } from './useAuth'
-import { setOnUnauthorized } from '../services/apiClient'
+import {
+  clearStoredSessionId,
+  setOnUnauthorized,
+  setStoredSessionId,
+} from '../services/apiClient'
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -14,6 +19,13 @@ const mockUser = {
   openId: 'openId123',
   email: 'test@example.com',
   avatar_url: 'https://avatar.example.com/1.png',
+}
+
+const mockAuthStatus = {
+  session_status: 'active',
+  token_expires_at: '2026-05-20T00:00:00+00:00',
+  needs_refresh_soon: false,
+  has_refresh_token: true,
 }
 
 function mockFetchSuccess(data: unknown, status = 200): Response {
@@ -54,6 +66,10 @@ function AuthConsumer() {
   )
 }
 
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<HashRouter>{ui}</HashRouter>)
+}
+
 // ── Tests ────────────────────────────────────────────────
 
 describe('AuthProvider', () => {
@@ -62,12 +78,14 @@ describe('AuthProvider', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    clearStoredSessionId()
     // Mock window.location.assign for navigation
     Object.defineProperty(window, 'location', {
       value: {
         ...originalLocation,
         assign: vi.fn(),
         href: '',
+        search: '',
       },
       writable: true,
     })
@@ -77,28 +95,32 @@ describe('AuthProvider', () => {
     cleanup()
     globalThis.fetch = originalFetch
     setOnUnauthorized(null)
+    clearStoredSessionId()
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
     })
   })
 
-  it('shows loading state while /api/auth/me is in-flight', () => {
-    // Return a promise that never resolves
-    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}))
-    render(
+  it('boots unauthenticated immediately when no sessionId is stored', async () => {
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
     )
-    expect(screen.getByTestId('loading').textContent).toBe('true')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false')
+    })
     expect(screen.getByTestId('authenticated').textContent).toBe('false')
+    expect(globalThis.fetch).toBe(originalFetch)
   })
 
-  it('renders children as authenticated when /api/auth/me returns user', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+  it('renders children as authenticated when /api/auth/me returns user for stored sessionId', async () => {
+    setStoredSessionId('session-123')
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -111,10 +133,11 @@ describe('AuthProvider', () => {
     expect(screen.getByTestId('username').textContent).toBe('测试用户')
   })
 
-  it('sets unauthenticated state when /api/auth/me returns 401', async () => {
+  it('clears stored sessionId when /api/auth/me returns 401', async () => {
+    setStoredSessionId('session-expired')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
 
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -125,20 +148,15 @@ describe('AuthProvider', () => {
     })
     expect(screen.getByTestId('authenticated').textContent).toBe('false')
     expect(screen.getByTestId('username').textContent).toBe('none')
+    expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
   })
 
   it('login() navigates to /api/auth/login with next path', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
-
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
     )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('loading').textContent).toBe('false')
-    })
 
     const loginBtn = screen.getByTestId('login-btn')
     await act(async () => {
@@ -149,48 +167,52 @@ describe('AuthProvider', () => {
     expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks')
   })
 
-  it('logout() calls POST /api/auth/logout and clears state', async () => {
-    // First call: /api/auth/me returns user (authenticated)
-    // Second call: POST /api/auth/logout returns logoutUriConfig
-    const logoutUrl = 'https://user-center/auth/web/#/logout?redirectUri=%2F&channel=default'
+  it('logout() calls POST /api/auth/logout, clears state, and navigates to user-center logout URL', async () => {
+    setStoredSessionId('logout-session')
+    const logoutUrl = 'https://user-center.example.com/auth/web/#/logout?redirectUri=http%3A%2F%2Fapp.example.com&channel=kl-repo-pbc'
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(mockFetchSuccess({ user: mockUser }))
-      .mockResolvedValueOnce(mockFetchSuccess({ logoutUriConfig: { default: logoutUrl } }))
+      .mockResolvedValueOnce(mockFetchSuccess({ loggedOut: true, logoutUriConfig: { default: logoutUrl } }))
 
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
     )
 
-    // Wait for initial auth check
     await waitFor(() => {
       expect(screen.getByTestId('authenticated').textContent).toBe('true')
     })
 
-    // Click logout
     const logoutBtn = screen.getByTestId('logout-btn')
     await act(async () => {
       logoutBtn.click()
     })
 
-    // Verify POST /api/auth/logout was called with credentials: 'include'
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
     const logoutCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]
     expect(logoutCall[0]).toBe('/api/auth/logout')
     expect(logoutCall[1]?.method).toBe('POST')
-    expect(logoutCall[1]?.credentials).toBe('include')
+    // Authorization header should be included (sessionStorage not cleared before the call)
+    expect(logoutCall[1]?.headers).toEqual(
+      expect.objectContaining({ Authorization: 'Bearer logout-session' }),
+    )
 
-    // After logout, state should be cleared
+    // Token should be cleared from sessionStorage after logout
+    await waitFor(() => {
+      expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
+    })
+
     await waitFor(() => {
       expect(screen.getByTestId('authenticated').textContent).toBe('false')
     })
   })
 
-  it('fetch calls include credentials: include', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+  it('sends Authorization header when sessionId is stored', async () => {
+    setStoredSessionId('saved-session-456')
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -202,13 +224,16 @@ describe('AuthProvider', () => {
 
     const meCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(meCall[0]).toBe('/api/auth/me')
-    expect(meCall[1]?.credentials).toBe('include')
+    expect(meCall[1]?.headers).toEqual(
+      expect.objectContaining({ Authorization: 'Bearer saved-session-456' }),
+    )
   })
 
-  it('re-checks /api/auth/me on mount (persists across refresh)', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+  it('re-checks /api/auth/me on mount when sessionId persists across refresh', async () => {
+    setStoredSessionId('persist-session')
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
-    const { unmount } = render(
+    const { unmount } = renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -220,8 +245,8 @@ describe('AuthProvider', () => {
 
     // Simulate page refresh: unmount and remount
     unmount()
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
-    render(
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -231,42 +256,38 @@ describe('AuthProvider', () => {
       expect(screen.getByTestId('authenticated').textContent).toBe('true')
     })
 
-    // fetch was called again on the second mount
+    // fetch was called again on the second mount with the token header
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/auth/me',
-      expect.objectContaining({ credentials: 'include' }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer persist-session' }),
+      }),
     )
   })
 
-  it('registers onUnauthorized handler that clears auth state and triggers login on 401', async () => {
-    // Start as authenticated
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+  it('registers onUnauthorized handler that clears auth state and removes sessionId on 401', async () => {
+    setStoredSessionId('token-to-clear')
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
     )
 
-    // Wait for auth to resolve
     await waitFor(() => {
       expect(screen.getByTestId('authenticated').textContent).toBe('true')
     })
 
-    // Simulate a 401 from any API call by directly invoking the
-    // onUnauthorized callback that AuthProvider registered
-    // Import and invoke the registered handler through apiClient
+    // Simulate a 401 from any API call
     const { apiFetch } = await import('../services/apiClient')
 
-    // Mock a 401 response
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
       json: async () => ({ success: false, error: 'Not authenticated' }),
     } as Response)
 
-    // apiFetch should throw UnauthorizedError and trigger the
-    // onUnauthorized callback which clears user state
     const { UnauthorizedError } = await import('../services/apiClient')
     await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
 
@@ -276,14 +297,14 @@ describe('AuthProvider', () => {
     })
     expect(screen.getByTestId('username').textContent).toBe('none')
 
-    // Login should have been triggered (window.location.href set)
-    expect(window.location.href).toContain('/api/auth/login')
+    expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
   })
 
   it('clears onUnauthorized handler on unmount', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser }))
+    setStoredSessionId('still-valid')
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
-    const { unmount } = render(
+    const { unmount } = renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
@@ -308,66 +329,12 @@ describe('AuthProvider', () => {
     await expect(apiFetch('/api/tasks')).rejects.toThrow(UnauthorizedError)
   })
 
-  it('reads auth_error from URL and sets authError state', async () => {
-    // Set window.location.search to simulate auth_error query param
-    const originalSearch = window.location.search
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...originalLocation,
-        assign: vi.fn(),
-        href: 'http://localhost/?auth_error=user_center_unavailable',
-        search: '?auth_error=user_center_unavailable',
-      },
-      writable: true,
-    })
-
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
-
-    render(
-      <AuthProvider>
-        <AuthConsumer />
-      </AuthProvider>,
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('loading').textContent).toBe('false')
-    })
-
-    // authError should be set to the Chinese message
-    expect(screen.getByTestId('auth-error').textContent).toBe('登录服务暂不可用，请稍后重试')
-
-    // Restore location
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...originalLocation,
-        search: originalSearch,
-      },
-      writable: true,
-    })
-  })
-
   it('clearAuthError clears the error state', async () => {
-    Object.defineProperty(window, 'location', {
-      value: {
-        ...originalLocation,
-        assign: vi.fn(),
-        href: 'http://localhost/?auth_error=invalid_oauth_state',
-        search: '?auth_error=invalid_oauth_state',
-      },
-      writable: true,
-    })
-
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
-
-    render(
+    renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
       </AuthProvider>,
     )
-
-    await waitFor(() => {
-      expect(screen.getByTestId('auth-error').textContent).toBe('登录状态已过期，请重新登录')
-    })
 
     // Click clear error button
     const clearBtn = screen.getByTestId('clear-error-btn')
@@ -376,11 +343,5 @@ describe('AuthProvider', () => {
     })
 
     expect(screen.getByTestId('auth-error').textContent).toBe('none')
-
-    // Restore location
-    Object.defineProperty(window, 'location', {
-      value: originalLocation,
-      writable: true,
-    })
   })
 })

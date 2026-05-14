@@ -1,10 +1,11 @@
 /**
  * API client for auth endpoints.
  *
- * All calls include `credentials: 'include'` so the HttpOnly session
- * cookie is sent automatically.  The frontend never sees the
- * user-center access_token — only the BFF session cookie.
+ * All calls go through the shared apiClient which automatically
+ * adds the app sessionId bearer token when present.
  */
+
+import { apiFetch, isRecord, isApiEnvelope, UnauthorizedError, type ApiEnvelope } from './apiClient'
 
 // ── Types ────────────────────────────────────────────────
 
@@ -17,26 +18,21 @@ export interface AuthUser {
   avatar_url: string | null
 }
 
+export interface AuthStatus {
+  session_status: string
+  token_expires_at: string | null
+  needs_refresh_soon: boolean
+  has_refresh_token: boolean
+}
+
+export interface MeResponse {
+  user: AuthUser
+  auth: AuthStatus
+}
+
 export interface LogoutResponse {
-  logoutUriConfig: Record<string, string>
-}
-
-// ── Helpers ──────────────────────────────────────────────
-
-interface ApiEnvelope {
-  success: boolean
-  error?: string | null
-  error_code?: string | null
-  data?: unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function parseEnvelope(raw: unknown): ApiEnvelope {
-  if (isRecord(raw) && typeof raw.success === 'boolean') return raw as unknown as ApiEnvelope
-  return { success: false, error: 'Invalid response' }
+  loggedOut: boolean
+  logoutUriConfig?: Record<string, string>
 }
 
 // ── Public API ───────────────────────────────────────────
@@ -44,21 +40,37 @@ function parseEnvelope(raw: unknown): ApiEnvelope {
 /**
  * Fetch the currently authenticated user.
  *
- * Calls `GET /api/auth/me`.  Returns the user object when the
- * session cookie is valid, or `null` when unauthenticated (401).
+ * Calls `GET /api/auth/me`. Returns the user object when the
+ * sessionId is valid, or `null` when unauthenticated (401).
  */
-export async function fetchMe(): Promise<AuthUser | null> {
+export async function fetchMe(): Promise<MeResponse | null> {
   try {
-    const response = await fetch('/api/auth/me', { credentials: 'include' })
-    if (response.status === 401) return null
+    const response = await apiFetch('/api/auth/me')
 
     const raw: unknown = await response.json().catch(() => ({}))
-    const envelope = parseEnvelope(raw)
-    if (!envelope.success || !isRecord(envelope.data)) return null
+    const envelope: ApiEnvelope = isApiEnvelope(raw)
+      ? raw
+      : { success: false, error: 'Invalid response' }
 
-    const user = (envelope.data as Record<string, unknown>).user
-    if (!isRecord(user)) return null
-    return user as unknown as AuthUser
+    if (!response.ok || !envelope.success || !isRecord(envelope.data)) {
+      throw new Error(envelope.error || 'Failed to fetch current user')
+    }
+
+    if (!isRecord(envelope.data.user)) {
+      throw new Error('Invalid current user payload')
+    }
+    return envelope.data as unknown as MeResponse
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return null
+    }
+    throw error
+  }
+}
+
+export async function tryFetchMe(): Promise<MeResponse | null> {
+  try {
+    return await fetchMe()
   } catch {
     return null
   }
@@ -68,9 +80,7 @@ export async function fetchMe(): Promise<AuthUser | null> {
  * Initiate the login flow.
  *
  * Navigates the browser to the BFF login endpoint which will
- * redirect to the user-center OAuth2 authorize URL.  The `next`
- * parameter tells the BFF where to redirect after successful
- * authentication.
+ * redirect to the user-center OAuth2 authorize URL.
  */
 export function login(nextPath: string = '/'): void {
   window.location.href = `/api/auth/login?next=${encodeURIComponent(nextPath)}`
@@ -79,20 +89,20 @@ export function login(nextPath: string = '/'): void {
 /**
  * Log out the current user.
  *
- * Calls `POST /api/auth/logout` to destroy the server-side session
- * and clear the cookie, then returns the logoutUriConfig for
- * user-center redirect.
+ * Calls `POST /api/auth/logout` to destroy the server-side session.
+ * The frontend should clear its stored sessionId and navigate home.
  */
 export async function logout(): Promise<LogoutResponse | null> {
   try {
-    const response = await fetch('/api/auth/logout', {
+    const response = await apiFetch('/api/auth/logout', {
       method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
     })
 
     const raw: unknown = await response.json().catch(() => ({}))
-    const envelope = parseEnvelope(raw)
+    const envelope: ApiEnvelope = isApiEnvelope(raw)
+      ? raw
+      : { success: false, error: 'Invalid response' }
+
     if (!envelope.success || !isRecord(envelope.data)) return null
 
     return envelope.data as unknown as LogoutResponse

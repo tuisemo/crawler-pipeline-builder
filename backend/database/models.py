@@ -1,4 +1,12 @@
-"""MySQL DDL definitions for crawler workflow database."""
+"""MySQL DDL definitions for crawler workflow database.
+
+Only business-critical persistent data lives here:
+- users        — local mirror of user-center identity
+- tasks        — crawler task records
+- task_assets  — versioned assets attached to tasks
+
+Sessions and OAuth state are stored in Redis (see backend/auth/session.py).
+"""
 
 from __future__ import annotations
 
@@ -25,23 +33,6 @@ CREATE TABLE IF NOT EXISTS users (
     created_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_external_id (external_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-"""
-
-# ── Sessions (server-side session storage, token hash) ──────────────────
-
-SESSIONS_DDL = """
-CREATE TABLE IF NOT EXISTS sessions (
-    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
-    user_id         INT UNSIGNED    NOT NULL,
-    token_hash      CHAR(64)        NOT NULL,
-    created_at      DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    expires_at      DATETIME(3)     NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_sessions_token_hash (token_hash),
-    INDEX idx_sessions_expires (expires_at),
-    CONSTRAINT fk_sessions_user_id
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
@@ -86,14 +77,12 @@ CREATE TABLE IF NOT EXISTS task_assets (
 """
 
 # ── Full DDL for fresh installs ─────────────────────────────────────────
-# Order matters: users before tasks (FK dependency), sessions after users.
-# On fresh install, tasks is created with owner_user_id / updated_by_user_id
-# already included in the CREATE TABLE, so no ALTER TABLE is needed.
+# Order matters: users before tasks (FK dependency).
+# Sessions and OAuth states live in Redis — no DDL needed here.
 
 ALL_DDL = [
     SCHEMA_VERSION_DDL,
     USERS_DDL,
-    SESSIONS_DDL,
     TASKS_DDL,
     TASK_ASSETS_DDL,
 ]

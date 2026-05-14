@@ -7,10 +7,32 @@ Covers:
 - user_center_scope loaded from USER_CENTER_SCOPE with default "basic"
 - user_center_redirect_uri loaded from USER_CENTER_REDIRECT_URI
 - session_ttl_hours loaded from SESSION_TTL_HOURS with default 24
-- session_cookie_name loaded from SESSION_COOKIE_NAME with default "session_token"
+- redis_key_prefix defaults to crawler_workflow
 """
 
 from backend.core.settings import CrawlerWorkflowSettings
+
+import pytest
+
+
+# All user-center env vars that may be set in .env and need clearing for default tests
+_UC_ENV_KEYS = [
+    "USER_CENTER_BASE_URI",
+    "USER_CENTER_CLIENT_ID",
+    "USER_CENTER_CLIENT_SECRET",
+    "USER_CENTER_SCOPE",
+    "USER_CENTER_REDIRECT_URI",
+    "USER_CENTER_FRONTEND_URL",
+]
+
+
+@pytest.fixture(autouse=True)
+def _clear_uc_env(monkeypatch):
+    """Ensure .env values don't leak into default-value tests."""
+    for key in _UC_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    # Also prevent .env file from leaking into default tests
+    monkeypatch.setattr("backend.core.settings.load_env_config", lambda **_: {})
 
 
 # ── user_center_base_uri ──
@@ -77,15 +99,29 @@ def test_user_center_scope_default_is_basic(monkeypatch):
 
 
 def test_user_center_redirect_uri_loaded_from_env(monkeypatch):
-    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "https://app.example.com/api/auth/callback")
+    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "https://app.example.com/auth/callback")
     settings = CrawlerWorkflowSettings.from_env()
-    assert settings.user_center_redirect_uri == "https://app.example.com/api/auth/callback"
+    assert settings.user_center_redirect_uri == "https://app.example.com/auth/callback"
 
 
 def test_user_center_redirect_uri_default_when_not_set(monkeypatch):
     monkeypatch.delenv("USER_CENTER_REDIRECT_URI", raising=False)
     settings = CrawlerWorkflowSettings.from_env()
     assert settings.user_center_redirect_uri == ""
+
+# ── user_center_frontend_url ──
+
+
+def test_user_center_frontend_url_loaded_from_env(monkeypatch):
+    monkeypatch.setenv("USER_CENTER_FRONTEND_URL", "https://app.example.com")
+    settings = CrawlerWorkflowSettings.from_env()
+    assert settings.user_center_frontend_url == "https://app.example.com"
+
+
+def test_user_center_frontend_url_default_when_not_set(monkeypatch):
+    monkeypatch.delenv("USER_CENTER_FRONTEND_URL", raising=False)
+    settings = CrawlerWorkflowSettings.from_env()
+    assert settings.user_center_frontend_url == ""
 
 
 # ── session_ttl_hours ──
@@ -121,16 +157,10 @@ def test_session_ttl_hours_ignores_negative(monkeypatch):
     assert settings.session_ttl_hours == 24
 
 
-# ── session_cookie_name ──
+# ── redis_key_prefix ──
 
 
-def test_session_cookie_name_loaded_from_env(monkeypatch):
-    monkeypatch.setenv("SESSION_COOKIE_NAME", "my_session")
+def test_redis_key_prefix_default_is_crawler_workflow(monkeypatch):
+    monkeypatch.delenv("REDIS_KEY_PREFIX", raising=False)
     settings = CrawlerWorkflowSettings.from_env()
-    assert settings.session_cookie_name == "my_session"
-
-
-def test_session_cookie_name_default_is_session_token(monkeypatch):
-    monkeypatch.delenv("SESSION_COOKIE_NAME", raising=False)
-    settings = CrawlerWorkflowSettings.from_env()
-    assert settings.session_cookie_name == "session_token"
+    assert settings.redis_key_prefix == "crawler_workflow"
