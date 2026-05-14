@@ -37,14 +37,14 @@ export interface TaskDetailResponse {
 
 export interface SaveAssetsResponse {
   saved_count: number
-  assets: AssetMeta[]
+  versions: Record<string, number>
 }
 
 async function parseEnvelope(response: Response): Promise<{ data: Record<string, unknown>; envelope: ApiEnvelope }> {
   const raw: unknown = await response.json().catch(() => ({}))
   const envelope: ApiEnvelope = isApiEnvelope(raw)
     ? raw
-    : { success: false, error: 'Invalid response', data: {} }
+    : { success: false, error: `Invalid response (HTTP ${response.status})`, data: {} }
   const data = envelope.success && isRecord(envelope.data) ? envelope.data : {}
   return { data, envelope }
 }
@@ -135,5 +135,5 @@ export async function saveTaskAssets(
 }
 
 export async function getTaskAsset(taskId: number, assetType: string): Promise<AssetItem | null> {
-  return requestOrNull<AssetItem>(`/api/tasks/${taskId}/assets/${assetType}`)
+  return requestOrNull<AssetItem>(`/api/tasks/${taskId}/assets/${encodeURIComponent(assetType)}`)
 }

@@ -5,8 +5,7 @@ import pytest
 import fakeredis
 from fastapi.testclient import TestClient
 from backend.auth.session import create_session, upsert_user
-from backend.database import get_cursor, run_migrations
-from backend.workflow.services import LEGACY_CONFIG_DEPRECATION_WARNING
+from backend.database import get_cursor, ensure_schema
 from server import app
 
 
@@ -33,7 +32,7 @@ def _setup_auth_for_workflow(client, monkeypatch, mock_redis):
     monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/auth/callback")
     monkeypatch.delenv("ENV", raising=False)
 
-    run_migrations()
+    ensure_schema()
     with get_cursor() as cur:
         cur.execute("DELETE FROM task_assets")
         cur.execute("DELETE FROM tasks")
@@ -65,15 +64,3 @@ def test_validate_workflow_valid(client):
     })
     assert response.status_code == 200
     assert response.json()["success"] is True
-
-
-def test_from_legacy_config_valid(client):
-    response = client.post("/api/workflows/from-legacy-config", json={
-        "url": "http://example.com",
-        "item_selector": ".item",
-        "fields": [{"name": "title", "selector": "h1", "type": "text"}],
-    })
-    assert response.status_code == 200
-    assert response.json()["success"] is True
-    assert LEGACY_CONFIG_DEPRECATION_WARNING in response.json()["warnings"][0]["message"]
-

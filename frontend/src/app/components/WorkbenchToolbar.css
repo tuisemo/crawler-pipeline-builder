@@ -1,0 +1,316 @@
+.ant-toolbar-card {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  box-shadow: 
+    0 1px 2px rgba(15, 23, 42, 0.02),
+    0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.toolbar-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Header Section */
+.toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.toolbar-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.toolbar-logo-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--sd-color-bg-surface);
+  box-shadow: 
+    0 0 0 1px rgba(15, 23, 42, 0.08),
+    0 2px 4px rgba(15, 23, 42, 0.04);
+  flex-shrink: 0;
+}
+
+.toolbar-logo-img {
+  width: 110%;
+  height: 110%;
+  object-fit: cover;
+}
+
+.toolbar-brand-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+
+.toolbar-studio-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--sd-color-ink);
+  letter-spacing: -0.02em;
+}
+
+.toolbar-studio-subtitle {
+  font-size: 12px;
+  color: var(--sd-color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: rgba(15, 23, 42, 0.08);
+  margin: 0 4px;
+}
+
+.toolbar-active-context.ant-tag {
+  margin: 0;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  color: var(--sd-color-ink);
+  font-weight: 500;
+  padding: 2px 10px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-vertical-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.toolbar-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px;
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.04);
+}
+
+.toolbar-control-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-mini-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sd-color-text-tertiary);
+}
+
+/* Belt Section */
+.toolbar-belt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(15, 23, 42, 0.04);
+}
+
+.toolbar-belt-left {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-stats-belt {
+  display: flex;
+  gap: 6px;
+}
+
+.toolbar-stat-pill.ant-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 8px;
+  height: 24px;
+  background: var(--sd-color-bg-surface);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sd-color-text-tertiary);
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sd-color-ink);
+  font-family: var(--sd-font-mono);
+}
+
+.toolbar-stat-pill-active.ant-tag {
+  background: var(--sd-color-warning-soft);
+  border-color: var(--sd-color-warning);
+  color: var(--sd-color-warning) !important;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.toolbar-belt-right {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-actions-rail {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.toolbar-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 16px;
+  border-right: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.toolbar-action-group:last-child {
+  padding-right: 0;
+  border-right: none;
+}
+
+.toolbar-group-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sd-color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 6px;
+  margin-top: 1px;
+}
+
+.toolbar-action-btn.ant-btn {
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  height: 36px;
+  padding: 0 16px;
+  font-size: 14px;
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toolbar-action-btn.ant-btn:hover {
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.2);
+  color: var(--sd-color-ink) !important;
+}
+
+.toolbar-action-btn.ant-btn:active {
+  transform: translateY(0) scale(0.96);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.toolbar-action-btn.ant-btn:disabled {
+  background: rgba(15, 23, 42, 0.04) !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+  color: var(--sd-color-text-muted) !important;
+  transform: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+.toolbar-action-btn-primary.ant-btn-primary {
+  background: var(--sd-color-primary);
+  border-color: var(--sd-color-primary);
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+.toolbar-action-btn-primary.ant-btn-primary:hover {
+  background: #1e293b !important;
+  border-color: #1e293b !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.30), 0 0 0 2px rgba(15, 23, 42, 0.10) !important;
+}
+
+.toolbar-toggle-btn.ant-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px !important;
+  border-color: transparent;
+  background: transparent;
+  color: var(--sd-color-text-secondary);
+}
+
+.toolbar-toggle-btn.ant-btn-primary {
+  background: var(--sd-color-bg-surface) !important;
+  color: var(--sd-color-ink) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+}
+
+.toolbar-toggle-btn.ant-btn:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--sd-color-ink);
+}
+
+.toolbar-extension-pill.ant-tag {
+  margin: 0;
+  border-radius: 6px;
+  font-weight: 500;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: none;
+}
+
+.pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  box-shadow: 0 0 8px currentColor;
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1); }
+}

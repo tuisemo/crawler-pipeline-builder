@@ -16,6 +16,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { WorkflowEdge, WorkflowNode } from '../workflowState'
 import type { WorkflowNodeData, WorkflowNodeType } from '../workflowContracts'
 import { decorateWorkflowEdges } from './workflowEdgeDecorators'
+import './WorkflowCanvas.css'
 
 const nodeTypeLabels: Record<WorkflowNodeType, string> = {
   open_page: 'Open Page',

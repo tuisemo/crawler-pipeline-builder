@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button, Space, Typography, Modal, Form, Input, message, Dropdown, Row, Col, Card, Statistic, Pagination } from 'antd'
 import { 
   PlusOutlined, 
@@ -8,9 +8,21 @@ import {
 import { useNavigate } from 'react-router-dom'
 import type { Task } from '../services/taskApi'
 import { listTasks, createTask, deleteTask } from '../services/taskApi'
+import './TaskListPage.css'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
+
+function getTaskSourceLabel(targetUrl: string | null): string {
+  if (!targetUrl) {
+    return '本地数据集'
+  }
+  try {
+    return new URL(targetUrl).hostname || targetUrl
+  } catch {
+    return targetUrl
+  }
+}
 
 export default function TaskListPage() {
   const navigate = useNavigate()
@@ -22,8 +34,25 @@ export default function TaskListPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
+  const pendingRefreshFailureMessageRef = useRef<string | null>(null)
+  const lastLoadedPageRef = useRef(currentPage)
+  const skipNextFetchPageRef = useRef<number | null>(null)
+  const pageCacheRef = useRef<Record<number, { items: Task[]; total: number }>>({})
+
+  async function refreshTasks(page: number) {
+    const res = await listTasks(page, pageSize)
+    pageCacheRef.current[page] = { items: res.items, total: res.total }
+    lastLoadedPageRef.current = page
+    setTasks(res.items)
+    setTotalTasks(res.total)
+  }
 
   useEffect(() => {
+    if (skipNextFetchPageRef.current === currentPage) {
+      skipNextFetchPageRef.current = null
+      return
+    }
+
     let cancelled = false
 
     async function fetchTasks(page: number) {
@@ -31,12 +60,24 @@ export default function TaskListPage() {
       try {
         const res = await listTasks(page, pageSize)
         if (!cancelled) {
+          pendingRefreshFailureMessageRef.current = null
+          lastLoadedPageRef.current = page
+          pageCacheRef.current[page] = { items: res.items, total: res.total }
           setTasks(res.items)
           setTotalTasks(res.total)
         }
       } catch {
         if (!cancelled) {
-          message.error('加载任务列表失败')
+          if (page !== lastLoadedPageRef.current) {
+            setCurrentPage(lastLoadedPageRef.current)
+          }
+          const pendingMessage = pendingRefreshFailureMessageRef.current
+          pendingRefreshFailureMessageRef.current = null
+          if (pendingMessage) {
+            message.warning(pendingMessage)
+          } else {
+            message.error('加载任务列表失败')
+          }
         }
       } finally {
         if (!cancelled) {
@@ -53,20 +94,36 @@ export default function TaskListPage() {
   }, [currentPage, pageSize])
 
   async function handleCreate() {
+    let values: { name: string; description?: string; target_url?: string }
     try {
-      const values = await form.validateFields()
-      setSubmitting(true)
-      await createTask(values as { name: string; description?: string; target_url?: string })
+      values = await form.validateFields()
+    } catch {
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await createTask(values)
+    } catch {
+      message.error('创建任务失败')
+      setSubmitting(false)
+      return
+    }
+
+    try {
       message.success('任务创建成功')
       setCreateModalOpen(false)
       form.resetFields()
-      setCurrentPage(1)
-      await listTasks(1, pageSize).then(res => {
-        setTasks(res.items)
-        setTotalTasks(res.total)
-      })
+
+      if (currentPage !== 1) {
+        pendingRefreshFailureMessageRef.current = '任务已创建，但列表刷新失败'
+        setCurrentPage(1)
+        return
+      }
+
+      await refreshTasks(1)
     } catch {
-      message.error('创建任务失败')
+      message.warning('任务已创建，但列表刷新失败')
     } finally {
       setSubmitting(false)
     }
@@ -75,26 +132,63 @@ export default function TaskListPage() {
   async function handleDelete(taskId: number) {
     try {
       await deleteTask(taskId)
-      message.success('任务已归档')
-      await listTasks(currentPage, pageSize).then(res => {
-        setTasks(res.items)
-        setTotalTasks(res.total)
-      })
     } catch {
       message.error('归档任务失败')
+      return
+    }
+
+    const nextPage = tasks.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage
+    const expectedTotalTasks = Math.max(0, totalTasks - 1)
+
+    try {
+      message.success('任务已归档')
+
+      if (nextPage !== currentPage) {
+        try {
+          const res = await listTasks(nextPage, pageSize)
+          pageCacheRef.current[nextPage] = { items: res.items, total: res.total }
+          lastLoadedPageRef.current = nextPage
+          skipNextFetchPageRef.current = nextPage
+          setTasks(res.items)
+          setTotalTasks(res.total)
+          setCurrentPage(nextPage)
+          return
+        } catch {
+          const cachedPage = pageCacheRef.current[nextPage]
+          if (cachedPage) {
+            skipNextFetchPageRef.current = nextPage
+            lastLoadedPageRef.current = nextPage
+            setTasks(cachedPage.items)
+            setTotalTasks(expectedTotalTasks)
+            setCurrentPage(nextPage)
+          } else {
+            skipNextFetchPageRef.current = nextPage
+            lastLoadedPageRef.current = nextPage
+            setTasks([])
+            setTotalTasks(expectedTotalTasks)
+            setCurrentPage(nextPage)
+          }
+          message.warning('任务已归档，但列表刷新失败')
+          return
+        }
+      }
+
+      await refreshTasks(nextPage)
+    } catch {
+      message.warning('任务已归档，但列表刷新失败')
     }
   }
 
   return (
-    <div className="command-center-container tech-blueprint-bg" style={{ minHeight: '100vh', padding: '0 0 60px 0' }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 60px' }}>
+    <div className="command-center-container tech-blueprint-bg">
+      <div className="task-list-wrapper">
         {/* --- Header Section --- */}
-        <header style={{ padding: '40px 0 32px 0', borderBottom: 'var(--sd-border-subtle)', marginBottom: 40, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <header className="task-list-header">
           <div>
-            <Title level={2} style={{ color: 'var(--sd-color-text-primary)', margin: 0, fontSize: 32, fontWeight: 800, letterSpacing: '-0.02em' }}>
+            <Title level={2} style={{ color: 'var(--sd-color-text-primary)', margin: 0, fontSize: 32, letterSpacing: '-0.02em' }}>
               任务调度中心
             </Title>
-            <div className="mono" style={{ color: '#999', fontSize: 10, marginTop: 4 }}>数据记录: {totalTasks.toString().padStart(3, '0')} // 当前页码: {currentPage}</div>
+            <div className="mono" style={{ color: '#999', fontSize: 12, marginTop: 4 }}>数据记录: {totalTasks.toString().padStart(3, '0')} // 当前页码: {currentPage}</div>
           </div>
           <Button 
             type="primary" 
@@ -106,7 +200,6 @@ export default function TaskListPage() {
               border: 'none', 
               height: 42, 
               padding: '0 24px',
-              fontWeight: 600,
               borderRadius: 6
             }}
           >
@@ -122,44 +215,31 @@ export default function TaskListPage() {
                 正在同步系统资源...
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 40 }}>
+              <div className="task-list-items">
                 {tasks.map((task) => (
                   <div 
                     key={task.id} 
-                    className="tech-card-horizontal" 
+                    className="task-card-horizontal" 
                     onClick={() => navigate(`/tasks/${task.id}`)}
-                    style={{ 
-                      background: '#fff',
-                      border: '1px solid #eee',
-                      borderRadius: 12,
-                      padding: '16px 24px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      position: 'relative',
-                      overflow: 'hidden'
-                    }}
                   >
-                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 24 }}>
-                        <div className="mono" style={{ width: 40, color: '#ccc', fontSize: 11 }}>#{task.id.toString().padStart(3, '0')}</div>
+                      <div className="task-card-content">
+                        <div className="mono task-id-badge">#{task.id.toString().padStart(3, '0')}</div>
                         
-                        <div style={{ minWidth: 240 }}>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: '#000', marginBottom: 2 }}>{task.name}</div>
-                          <div className="mono" style={{ fontSize: 10, color: '#999' }}>
-                            来源标识: {task.target_url ? new URL(task.target_url).hostname : '本地数据集'}
+                        <div className="task-info">
+                          <div className="task-title">{task.name}</div>
+                          <div className="mono task-source">
+                            来源标识: {getTaskSourceLabel(task.target_url)}
                           </div>
                         </div>
 
-                        <div style={{ flex: 1, paddingRight: 40 }}>
+                        <div className="task-description">
                           <Text type="secondary" style={{ fontSize: 12, lineHeight: 1.5 }} ellipsis={{ tooltip: task.description }}>
                             {task.description || '当前任务暂无业务逻辑描述...'}
                           </Text>
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                      <div className="task-actions">
                         <Space>
                           <span className={`glowing-dot ${task.status === 'active' ? 'success' : 'warning'}`} />
                           <span style={{ fontSize: 13, fontWeight: 500, color: task.status === 'active' ? 'var(--sd-color-success)' : '#999' }}>
@@ -184,7 +264,7 @@ export default function TaskListPage() {
                     </div>
 
                     {/* Subtle hover indicator */}
-                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--sd-color-primary)', opacity: 0 }} className="hover-indicator" />
+                    <div className="hover-indicator" />
                   </div>
                 ))}
                 
@@ -211,23 +291,23 @@ export default function TaskListPage() {
 
           {/* Side Info (Right) */}
           <Col span={6}>
-             <div style={{ position: 'sticky', top: 40 }}>
+             <div className="sticky-info-col">
                 <Card style={{ borderRadius: 12, border: '1px solid #eee', marginBottom: 20 }}>
-                   <div className="mono" style={{ fontSize: 10, color: '#999', marginBottom: 16 }}>运行状态概览</div>
-                   <Statistic title="活跃任务资源" value={tasks.filter(t=>t.status==='active').length} valueStyle={{ fontSize: 24, fontWeight: 800, color: 'var(--sd-color-success)' }} />
-                   <div style={{ marginTop: 20, fontSize: 11, color: '#888' }}>
+                   <div className="mono" style={{ fontSize: 12, color: '#999', marginBottom: 16 }}>运行状态概览</div>
+                   <Statistic title="活跃任务资源" value={tasks.filter(t=>t.status==='active').length} valueStyle={{ fontSize: 24, color: 'var(--sd-color-success)' }} />
+                   <div style={{ marginTop: 20, fontSize: 12, color: '#888' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                          <span>核心组件状态</span>
                          <span style={{ color: 'var(--sd-color-success)' }}>运行正常</span>
                       </div>
-                      <div style={{ height: 2, background: '#f5f5f5', borderRadius: 1 }}>
-                         <div style={{ width: '92%', height: '100%', background: 'var(--sd-color-primary)' }} />
+                      <div className="progress-bar-track">
+                         <div className="progress-bar-fill" />
                       </div>
                    </div>
                 </Card>
 
-                <div style={{ background: 'rgba(0,0,0,0.02)', padding: 20, borderRadius: 12, border: '1px dashed #eee' }}>
-                   <div className="mono" style={{ fontSize: 10, color: '#bbb', marginBottom: 12 }}>快速操作指引</div>
+                <div className="quick-guide-box">
+                   <div className="mono" style={{ fontSize: 12, color: '#bbb', marginBottom: 12 }}>快速操作指引</div>
                    <div style={{ fontSize: 12, color: '#888', lineHeight: 1.6 }}>
                       点击列表项可快速进入“工作站”，支持可视化流程编排与自动化部署。
                    </div>
@@ -239,7 +319,7 @@ export default function TaskListPage() {
 
       {/* --- Create Modal --- */}
       <Modal
-        title={<span className="mono" style={{ letterSpacing: '0.1em', fontWeight: 700 }}>初始化采集任务</span>}
+        title={<span className="mono" style={{ letterSpacing: '0.1em' }}>初始化采集任务</span>}
         open={createModalOpen}
         onOk={handleCreate}
         onCancel={() => {

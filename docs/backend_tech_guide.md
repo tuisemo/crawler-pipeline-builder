@@ -125,8 +125,7 @@ backend/
 │   └── app_logging.py              # 日志与审计
 ├── database/                       # MySQL 持久化
 │   ├── db.py                       # 连接池管理
-│   ├── models.py                   # DDL 定义（表结构）
-│   └── migrations.py               # Schema 迁移
+│   ├── models.py                   # DDL 定义（表结构）+ ensure_schema()
 ├── auth/                           # 认证与授权
 │   ├── oauth_config.py             # OAuth2 客户端配置
 │   ├── redis_client.py             # Redis 连接管理
@@ -214,7 +213,7 @@ flowchart TD
 @asynccontextmanager
 async def lifespan(app):
     # ── Startup ──
-    run_migrations()         # 执行数据库迁移（幂等）
+    ensure_schema()           # 创建所有表（CREATE TABLE IF NOT EXISTS，幂等）
     yield
     # ── Shutdown ──
     close_connection()       # 关闭 MySQL 连接池
@@ -222,7 +221,7 @@ async def lifespan(app):
 ```
 
 **要点**：
-- 迁移在每次启动时执行，通过 `IF NOT EXISTS` 和 `schema_version` 表保证幂等
+- `ensure_schema()` 在每次启动时执行，通过 `CREATE TABLE IF NOT EXISTS` 保证幂等，无版本号追踪
 - 关闭操作确保资源正确释放
 
 ---
@@ -390,38 +389,28 @@ CREATE TABLE task_assets (
 | `detail_batch_config` | 详情批处理配置 |
 | `detail_batch_script` | 详情批处理脚本 |
 
-### 4.3 迁移机制
+### 4.3 Schema 启动机制
 
 ```
-backend/database/migrations.py
+backend/database/models.py → ensure_schema()
 ```
 
-迁移策略采用 **版本号追踪** 模式：
+每次应用启动时，`ensure_schema()` 遍历 `ALL_DDL` 列表，通过 `CREATE TABLE IF NOT EXISTS` 确保所有表存在：
 
-```mermaid
-flowchart TD
-    START["run_migrations()"] --> READ["读取 schema_version 表"]
-    READ --> V{"当前版本"}
-    V -->|"version = 0<br/>新安装"| FRESH["执行全部 DDL<br/>CREATE TABLE IF NOT EXISTS"]
-    V -->|"version = 1<br/>旧版升级"| UPGRADE["ALTER TABLE 添加<br/>owner_user_id / updated_by_user_id"]
-    V -->|"version ≥ 2<br/>最新"| SKIP["跳过迁移"]
-    FRESH --> SYS["INSERT IGNORE 系统用户<br/>id=1, external_id='__system__'"]
-    UPGRADE --> SYS
-    SYS --> RECORD["INSERT IGNORE schema_version<br/>记录版本号 = 2"]
-    RECORD --> DONE["迁移完成"]
-    SKIP --> DONE
+```python
+def ensure_schema() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        for ddl in ALL_DDL:
+            cursor.execute(ddl)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 ```
 
-**幂等保证**：
-- `CREATE TABLE IF NOT EXISTS` 防止重复建表
-- `INSERT IGNORE INTO schema_version` 防止重复版本记录
-- `_column_exists()` / `_constraint_exists()` / `_index_exists()` 在 ALTER 前检查
-
-**特殊处理**：迁移时自动创建 `id=1, external_id='__system__'` 的系统用户，确保外键约束满足。
-
-> **💡 补充说明：系统用户 `__system__` 是干什么的？**
->
-> v1 版本的 tasks 表没有 `owner_user_id` 字段。v2 迁移添加了 `owner_user_id INT UNSIGNED NOT NULL`，这意味着旧数据必须有 `owner_user_id` 才能满足 NOT NULL 约束。由于这是预发布阶段（没有真实数据需要保留），迁移脚本创建了一个系统用户（id=1），供向后兼容的代码路径使用。正式运行后，所有新任务都会绑定真实的 `owner_user_id`，系统用户不会被主动使用。
+**幂等保证**：所有 DDL 使用 `CREATE TABLE IF NOT EXISTS`，可安全重复调用。Schema 变更时直接修改 `ALL_DDL` 中的 `CREATE TABLE` 语句，清除数据库后重启应用即可。
 
 ---
 
@@ -615,7 +604,6 @@ REDIS_SENTINEL_NODES 为空 → Standalone 模式（REDIS_URL）
 | 端点 | 说明 | 核心流程 |
 |------|------|---------|
 | `POST /validate` | 校验 DSL 图 | validation.py |
-| `POST /from-legacy-config` | 旧配置转换 | services.py（兼容接口，已废弃） |
 | `POST /to-prompt` | 图 → Prompt | compiler + prompting |
 | `POST /compile-plan` | 图 → 执行计划 | compiler.py |
 | `POST /generate-skeleton` | 生成确定性骨架脚本 | compiler + codegen |
@@ -1556,10 +1544,9 @@ sequenceDiagram
 
 ### 14.4 数据库变更
 
-1. 在 `backend/database/models.py` 添加新 DDL
-2. 在 `backend/database/models.py` 递增 `SCHEMA_VERSION`
-3. 在 `backend/database/migrations.py` 的 `run_migrations()` 添加迁移逻辑
-4. 使用 `_column_exists()` / `_constraint_exists()` / `_index_exists()` 保证幂等
+1. 在 `backend/database/models.py` 修改对应的 DDL 语句
+2. 清除数据库（删除旧表），重启应用让 `ensure_schema()` 重建
+3. 当前阶段不保留历史数据，无需增量迁移
 
 ### 14.5 常见错误排查
 

@@ -55,16 +55,16 @@ Crawler orchestration can mutate browser state and write files. Destructive or o
 
 ### Foundation
 
-- **Harbor Mist** (#F3F7FB): primary app background, a cool and quiet base for long sessions.
-- **Ice Surface** (#FFFFFF): panel and card surfaces.
+- **Ice Surface** (#FFFFFF): primary app background, panel, and card surfaces.
 - **Pale Blueprint** (#EFF6FF): selected or gently highlighted surfaces.
 - **Dock Slate** (#0F172A): code, DSL, and raw diagnostic surfaces.
 
 ### Primary & Interactive
 
-- **Command Blue** (#2563EB): primary actions, active navigation, selected nodes, focus rings.
+- **Primary Command** (#0F172A): primary actions, active navigation, focus rings (Ink Black).
 - **Signal Cyan** (#06B6D4): secondary technical accents, field count indicators, selector assistance.
 - **Graph Indigo** (#4F46E5): graph-specific emphasis, flow badges, active workflow structure.
+- **Action Blue** (#2563EB): tertiary technical focus, selection highlights (formerly Command Blue).
 
 ### Feedback
 
@@ -83,7 +83,7 @@ Crawler orchestration can mutate browser state and write files. Destructive or o
 
 Usage rules:
 
-- Use Command Blue only for active controls and primary completion paths.
+- Use Primary Command (#0F172A) for active controls and primary completion paths.
 - Keep destructive actions red and visually isolated from common workflow controls.
 - Use dark surfaces only where users read or edit structured text: code, prompt, DSL, JSON.
 - Avoid purple as the default SaaS accent; use indigo only for graph semantics.
@@ -137,15 +137,15 @@ Desktop layout should use a stable grid:
 The command bar is a bright operational header. It should combine product identity, workflow summary, and action buttons without becoming a crowded ribbon.
 
 - Surface: Ice Surface (#FFFFFF), subtle lower shadow.
-- Primary action: filled Command Blue.
-- Secondary actions: outlined, white background, blue-gray stroke.
+- Primary action: filled Primary Command (#0F172A).
+- Secondary actions: outlined, white background, slate stroke.
 - Running action: disabled peers plus spinner inside the active button.
 
 ### Workspace Switcher
 
 Panel toggles should look like mode controls, not random utility buttons.
 
-- Active state: Command Blue fill.
+- Active state: Primary Command fill.
 - Inactive state: white surface with Structural Border.
 - Labels should match visible zones: "节点库", "属性配置", "执行结果", "DSL 编辑器".
 
@@ -165,7 +165,7 @@ Nodes are compact execution cards.
 
 - Width: 200-230px.
 - Radius: 14px.
-- Selected state: Command Blue stroke plus soft blue halo.
+- Selected state: Primary Command stroke plus soft gray halo.
 - Type badge: pill-shaped, pale blue background.
 - Summary text: single-line truncation.
 - Handles: visible blue points with white border.
@@ -256,3 +256,4 @@ When modifying the frontend:
 4. Treat script, prompt, DSL, and records as first-class artifacts.
 5. Verify real UI behavior with a headed browser after layout changes.
 6. Do not introduce overlapping drawers unless a focused modal task truly requires it.
+7. Use the Ant Design **Compact Algorithm** to maintain high information density across all operational surfaces.

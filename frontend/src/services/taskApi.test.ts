@@ -86,7 +86,7 @@ describe('taskApi', () => {
   it('saveTaskAssets sends headers via apiFetch', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ success: true, data: { saved_count: 1, assets: [] } }),
+      json: async () => ({ success: true, data: { saved_count: 1, versions: {} } }),
     } as Response)
 
     await saveTaskAssets(1, { schema: '{}' })
@@ -108,6 +108,17 @@ describe('taskApi', () => {
     expect(callArgs[1]?.headers).toEqual(
       expect.objectContaining({ 'Content-Type': 'application/json' }),
     )
+  })
+
+  it('getTaskAsset encodes asset type in the request path', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { asset_type: 'schema/preview?draft=1', version: 1, content: '{}', created_at: '' } }),
+    } as Response)
+
+    await getTaskAsset(1, 'schema/preview?draft=1')
+    const callArgs = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(callArgs[0]).toBe('/api/tasks/1/assets/schema%2Fpreview%3Fdraft%3D1')
   })
 
   // ── 401 handling ────────────────────────────────────────

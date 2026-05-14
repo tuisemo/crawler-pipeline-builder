@@ -1,6 +1,6 @@
 import type { WorkflowGraph } from '../workflow/workflowContracts'
 
-export const PROMPT_DRAFTS_STORAGE_KEY = 'crawler-workflow.prompt-drafts.v1'
+export const PROMPT_DRAFTS_STORAGE_KEY = 'scraper-flow-prompt-drafts'
 
 export type SavedPromptDraft = {
   text: string

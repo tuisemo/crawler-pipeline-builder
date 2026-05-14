@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import fakeredis
 
 from backend.auth.session import create_session, upsert_user
-from backend.database import get_cursor, run_migrations
+from backend.database import get_cursor, ensure_schema
 from server import app
 
 
@@ -30,7 +30,7 @@ def _setup_auth(monkeypatch):
     monkeypatch.setenv("USER_CENTER_SCOPE", "basic")
     monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/auth/callback")
     monkeypatch.delenv("ENV", raising=False)
-    run_migrations()
+    ensure_schema()
     with get_cursor() as cur:
         cur.execute("DELETE FROM task_assets")
         cur.execute("DELETE FROM tasks")
@@ -70,14 +70,24 @@ def test_workflow_success_response_uses_transport_envelope_only(monkeypatch):
 
 
 def test_workflow_domain_fields_are_nested_under_data(monkeypatch):
-    """Legacy config conversion response nests domain fields under data."""
+    """Workflow compile-plan response nests domain fields under data."""
     token = _setup_auth(monkeypatch)
     response = client.post(
-        "/api/workflows/from-legacy-config",
+        "/api/workflows/compile-plan",
         json={
-            "url": "http://example.com",
-            "item_selector": ".item",
-            "fields": [{"name": "title", "selector": "h1", "type": "text"}],
+            "graph": {
+                "nodes": [
+                    {"id": "n1", "type": "open_page", "data": {"url": "http://example.com"}},
+                    {"id": "n2", "type": "select_list", "data": {"item_selector": ".item"}},
+                    {"id": "n3", "type": "extract_field", "data": {"fields": [{"name": "title", "selector": "h1", "type": "text"}]}},
+                    {"id": "n4", "type": "emit_record", "data": {}},
+                ],
+                "edges": [
+                    {"id": "e1", "source": "n1", "target": "n2"},
+                    {"id": "e2", "source": "n2", "target": "n3"},
+                    {"id": "e3", "source": "n3", "target": "n4"},
+                ],
+            },
         },
         headers=_get_auth_headers(token),
     )
@@ -85,8 +95,8 @@ def test_workflow_domain_fields_are_nested_under_data(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert "graph" not in payload
-    assert payload["data"]["graph"]["nodes"][0]["type"] == "open_page"
+    assert "entry_url" not in payload
+    assert payload["data"]["plan"]["entry_url"] == "http://example.com"
 
 
 def test_validation_errors_use_the_same_envelope(monkeypatch):
@@ -105,4 +115,3 @@ def test_validation_errors_use_the_same_envelope(monkeypatch):
     assert payload["error_code"] == "request_validation_error"
     assert payload["data"] == {}
     assert payload["meta"]["detail"]
-

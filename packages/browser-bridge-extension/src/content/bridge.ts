@@ -76,27 +76,40 @@ window.addEventListener('message', (event) => {
     payload: event.data.payload,
   }
 
-  chrome.runtime.sendMessage(request, (response: ExtensionResponse<unknown> | undefined) => {
-    if (chrome.runtime.lastError) {
-      respond(event.data.requestId, {
-        ok: false,
-        error: {
-          code: 'extension_unreachable',
-          message: chrome.runtime.lastError.message || 'Extension unreachable',
-        },
-      })
-      return
-    }
+  try {
+    chrome.runtime.sendMessage(request, (response: ExtensionResponse<unknown> | undefined) => {
+      if (chrome.runtime.lastError) {
+        respond(event.data.requestId, {
+          ok: false,
+          error: {
+            code: 'extension_unreachable',
+            message: chrome.runtime.lastError.message || 'Extension unreachable',
+          },
+        })
+        return
+      }
 
+      respond(
+        event.data.requestId,
+        response ?? {
+          ok: false,
+          error: {
+            code: 'extension_unreachable',
+            message: 'Empty extension response',
+          },
+        },
+      )
+    })
+  } catch (error) {
     respond(
       event.data.requestId,
-      response ?? {
+      {
         ok: false,
         error: {
           code: 'extension_unreachable',
-          message: 'Empty extension response',
+          message: error instanceof Error ? error.message : 'Extension unreachable',
         },
       },
     )
-  })
+  }
 })

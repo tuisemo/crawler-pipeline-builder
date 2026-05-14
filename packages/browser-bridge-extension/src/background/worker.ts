@@ -156,11 +156,12 @@ async function resolveTargetTabId(targetUrl?: string, senderTabId?: number): Pro
     return reusableTab.id;
   }
 
-  // 3. Create a new tab if no match found
-  console.log("[Bridge] No matching tab found, creating new one.");
-  const createdTab = await chrome.tabs.create({ url: normalizedTargetUrl, active: true });
-  if (typeof createdTab.id !== "number") {
-    throw new Error("Failed to create target tab");
+  // 3. Create a new window if no match found
+  console.log("[Bridge] No matching tab found, creating new window.");
+  const createdWindow = await chrome.windows.create({ url: normalizedTargetUrl, focused: true });
+  const createdTab = createdWindow.tabs?.[0];
+  if (!createdTab || typeof createdTab.id !== "number") {
+    throw new Error("Failed to create target tab in new window");
   }
   managedTabId = createdTab.id;
   managedTargetUrl = normalizedTargetUrl;

@@ -1,7 +1,11 @@
-export async function copyText(text: string) {
+export async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // fallback path
+    }
   }
   const textarea = document.createElement('textarea')
   textarea.value = text
@@ -10,8 +14,12 @@ export async function copyText(text: string) {
   textarea.style.left = '-9999px'
   document.body.appendChild(textarea)
   textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
+  try {
+    document.execCommand('copy')
+    return true
+  } finally {
+    document.body.removeChild(textarea)
+  }
 }
 
 export function formatSavedAt(savedAt?: number) {

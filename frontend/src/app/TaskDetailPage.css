@@ -1,0 +1,66 @@
+.tech-workspace {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tech-sidebar {
+  width: 340px; 
+  border-right: var(--sd-border-subtle); 
+  padding: 28px 28px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sd-color-bg-surface);
+  overflow-y: auto;
+}
+
+.tech-main {
+  flex: 1; 
+  padding: 32px 48px; 
+  overflow-y: auto;
+}
+
+.tech-card-horizontal {
+  background: var(--sd-color-bg-surface); 
+  border: var(--sd-border-subtle); 
+  border-radius: var(--sd-radius-md); 
+  padding: 20px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.tech-card-horizontal:hover {
+  border-color: var(--sd-color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  transform: translateX(4px);
+}
+
+.task-metadata-row {
+  display: flex; 
+  justify-content: space-between; 
+  border-bottom: 1px dashed rgba(15, 23, 42, 0.1); 
+  padding-bottom: 8px;
+}
+
+.task-description-block {
+  background: var(--sd-color-bg-base); 
+  padding: 32px; 
+  border-radius: var(--sd-radius-lg); 
+  border: var(--sd-border-subtle);
+  color: var(--sd-color-text-secondary);
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.asset-icon-wrapper {
+  width: 40px; 
+  height: 40px; 
+  background: rgba(0,0,0,0.02); 
+  border-radius: 8px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+}

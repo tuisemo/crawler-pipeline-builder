@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Browser Bridge for Crawler",
+  "name": "Scraper Flow Studio Bridge",
   "version": "1.0.0",
-  "description": "General purpose browser bridge for web crawlers and RPA tasks.",
+  "description": "Browser Bridge for Scraper Flow Studio workbench.",
   "permissions": [
     "tabs",
     "scripting",

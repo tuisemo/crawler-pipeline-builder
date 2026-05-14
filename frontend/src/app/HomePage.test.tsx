@@ -139,6 +139,19 @@ describe('HomePage auth UX', () => {
     expect(screen.queryByText('登录')).toBeNull()
   })
 
+  it('hides 登录 button while restoring an existing session', async () => {
+    setStoredSessionId('session-123')
+    globalThis.fetch = vi.fn(() => new Promise(() => {})) as typeof fetch
+
+    renderHomePage()
+
+    await waitFor(() => {
+      expect(screen.getByText('进入工作站')).toBeTruthy()
+    })
+
+    expect(screen.queryByText('登录')).toBeNull()
+  })
+
   it('clicking 登录 button in hero triggers login flow', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
 

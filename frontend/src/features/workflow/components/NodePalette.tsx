@@ -1,5 +1,6 @@
 import { Button, Card, Flex, Tag, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import './NodePalette.css'
 import type { WorkflowNodeType } from '../workflowContracts'
 
 export type PaletteItem = {
@@ -46,7 +47,7 @@ export function NodePalette({ items, onAddNode }: NodePaletteProps) {
             <div style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
               <Typography.Text code style={{ fontSize: 11, fontWeight: 500, fontFamily: 'var(--sd-font-mono)' }}>{item.type}</Typography.Text>
               <div style={{ marginTop: 2 }}>
-                <Typography.Text style={{ color: 'var(--sd-color-ink)', fontSize: 13, fontWeight: 600, letterSpacing: '-0.32px' }}>{item.label}</Typography.Text>
+                <Typography.Text style={{ color: 'var(--sd-color-ink)', fontSize: 13, letterSpacing: '-0.32px' }}>{item.label}</Typography.Text>
                 <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '2px 0 0', lineHeight: 1.4 }}>
                   {item.detail}
                 </Typography.Paragraph>

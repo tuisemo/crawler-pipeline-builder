@@ -17,7 +17,7 @@ import {
   type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import './App.css'
+import './WorkbenchPage.css'
 import {
   applyDslTextChange,
   toCanonicalGraph,
@@ -68,9 +68,14 @@ export default function WorkbenchPage() {
   const isApplyingDslRef = useRef(false)
   const dslValidationRequestIdRef = useRef(0)
   const pendingSelectionRef = useRef<string | null>(null)
+  const nodesRef = useRef(nodes)
 
   const [canvasFitToken, setCanvasFitToken] = useState(0)
   const [generationMode, setGenerationMode] = useState<ScriptGenerationMode>('lite')
+
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
 
   // Load workflow_graph asset from task on mount
   useEffect(() => {
@@ -240,7 +245,7 @@ export default function WorkbenchPage() {
         (edge) => edge.source === connection.source && edge.target === connection.target,
       )
       if (exists) return currentEdges
-      const sourceNode = nodes.find((node) => node.id === connection.source)
+      const sourceNode = nodesRef.current.find((node) => node.id === connection.source)
       const outgoingCount = currentEdges.filter((edge) => edge.source === connection.source).length
       const isConditionSource = sourceNode?.type === 'condition'
       const inferredBranch: CanonicalWorkflowEdge['branch'] | undefined = isConditionSource
@@ -262,25 +267,30 @@ export default function WorkbenchPage() {
         label: inferredLabel,
       }, currentEdges)
     })
-  }, [nodes])
+  }, [])
 
   async function handleDslChange(value: string | undefined) {
     const nextText = value ?? ''
     setDslText(nextText)
-    const result = await applyDslTextChange(
-      { nodes, edges, selectedNodeId }, nextText, dslValidationRequestIdRef, validateGraphWithBackend,
-    )
-    if (result.requestId !== dslValidationRequestIdRef.current) return
-    if (result.applied) {
-      isApplyingDslRef.current = true
-      setNodes(result.nodes)
-      setEdges(result.edges)
-      setSelectedNodeId(result.selectedNodeId)
-      setCanvasFitToken((token) => token + 1)
+    try {
+      const result = await applyDslTextChange(
+        { nodes, edges, selectedNodeId }, nextText, dslValidationRequestIdRef, validateGraphWithBackend,
+      )
+      if (result.requestId !== dslValidationRequestIdRef.current) return
+      if (result.applied) {
+        isApplyingDslRef.current = true
+        setNodes(result.nodes)
+        setEdges(result.edges)
+        setSelectedNodeId(result.selectedNodeId)
+        setCanvasFitToken((token) => token + 1)
+      }
+      setDslText(result.dslText)
+      setDslStatus(result.dslStatus)
+      setDslFeedback(result.dslFeedback)
+    } catch (err) {
+      setDslStatus('schema-error')
+      setDslFeedback(err instanceof Error ? err.message : 'DSL 解析异常')
     }
-    setDslText(result.dslText)
-    setDslStatus(result.dslStatus)
-    setDslFeedback(result.dslFeedback)
   }
 
   function addPaletteNode(type: WorkflowNodeType) {
@@ -421,6 +431,7 @@ export default function WorkbenchPage() {
       await saveTaskAssets(taskId, assets)
       message.success('已保存到任务')
     } catch (err) {
+      console.error('[WorkbenchPage] saveToTask failed:', err)
       message.error(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSaveToTaskLoading(false)
@@ -443,7 +454,7 @@ export default function WorkbenchPage() {
           title="任务不存在"
           subTitle="该任务可能已被删除，或者您没有访问权限。"
           extra={
-            <Button type="primary" onClick={goBack} style={{ background: '#000', border: 'none', borderRadius: 8, fontWeight: 600 }}>
+            <Button type="primary" onClick={goBack} style={{ background: '#000', border: 'none', borderRadius: 8 }}>
               返回任务列表
             </Button>
           }
@@ -565,7 +576,7 @@ export default function WorkbenchPage() {
             <Tag color="default" style={{ borderRadius: 6, margin: 0, border: 'none', background: 'rgba(15, 23, 42, 0.05)' }}>
               {activeWorkspaceLabel}
             </Tag>
-            <Tag color="blue" style={{ borderRadius: 6, margin: 0, border: 'none', background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb' }}>
+            <Tag color="default" style={{ borderRadius: 6, margin: 0, border: 'none', background: 'rgba(15, 23, 42, 0.08)', color: 'var(--sd-color-primary)' }}>
               {selectedNodeId ? `节点: ${selectedNodeId}` : '未选择节点'}
             </Tag>
           </div>

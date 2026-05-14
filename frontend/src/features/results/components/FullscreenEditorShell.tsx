@@ -3,6 +3,7 @@ import { Button } from 'antd'
 import { FullscreenOutlined, FullscreenExitOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import { copyText } from './resultHelpers'
 
 export type FullscreenEditorShellProps = {
   value: string
@@ -46,9 +47,9 @@ export function FullscreenEditorShell({
   }, [fullscreen])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(value)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
+    const ok = await copyText(value)
+    setCopied(ok)
+    if (ok) setTimeout(() => setCopied(false), 1800)
   }
 
   return (
@@ -128,7 +129,7 @@ export function FullscreenEditorShell({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: 14 }}>{label}</span>
+              <span style={{ color: '#e2e8f0', fontSize: 14 }}>{label}</span>
               <span style={{ color: '#94a3b8', fontSize: 12 }}>按 ESC 或点击外部退出全屏</span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>

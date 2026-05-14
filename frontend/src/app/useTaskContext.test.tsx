@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react'
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import { AuthProvider } from '../auth/AuthProvider'
 import { useTaskContext } from './useTaskContext'
@@ -71,6 +71,19 @@ function TaskContextViewer() {
       <span data-testid="taskName">{task?.name ?? 'none'}</span>
       <span data-testid="taskId">{String(taskId)}</span>
     </div>
+  )
+}
+
+function TaskContextRouteShell() {
+  const navigate = useNavigate()
+
+  return (
+    <>
+      <button type="button" data-testid="go-999" onClick={() => navigate('/tasks/999')}>
+        go
+      </button>
+      <TaskContextViewer />
+    </>
   )
 }
 
@@ -170,6 +183,56 @@ describe('useTaskContext 404 handling', () => {
 
     expect(screen.getByTestId('errorKind').textContent).toBe('none')
     expect(screen.getByTestId('taskName').textContent).toBe('测试任务')
+  })
+
+  it('clears stale task data when navigating to a missing task', async () => {
+    const firstTask = {
+      id: 1,
+      name: '任务一',
+      description: 'first',
+      target_url: 'https://example.com/1',
+      status: 'active',
+      created_at: '2026-01-01T00:00:00',
+      updated_at: '2026-01-01T00:00:00',
+    }
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/auth/me')) {
+        return Promise.resolve(mockFetchSuccess({ user: mockUser }))
+      }
+      if (url.includes('/api/tasks/1')) {
+        return Promise.resolve(mockFetchSuccess({ task: firstTask, assets: [] }))
+      }
+      if (url.includes('/api/tasks/999')) {
+        return Promise.resolve(mockFetch404())
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) } as Response)
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/tasks/1']} initialIndex={0}>
+        <AuthProvider>
+          <ConfigProvider>
+            <Routes>
+              <Route path="/tasks/:taskId" element={<TaskContextRouteShell />} />
+            </Routes>
+          </ConfigProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('taskName').textContent).toBe('任务一')
+    })
+
+    fireEvent.click(screen.getByTestId('go-999'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('errorKind').textContent).toBe('not_found')
+    })
+
+    expect(screen.getByTestId('taskName').textContent).toBe('none')
+    expect(screen.getByTestId('error').textContent).toBe('任务不存在')
   })
 })
 

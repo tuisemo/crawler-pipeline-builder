@@ -32,11 +32,14 @@ export function useTaskContext(): TaskContext {
     if (!taskId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTask(null)
+      setError(null)
+      setErrorKind(null)
       setLoading(false)
       return
     }
 
     let cancelled = false
+    setTask(null)
     setLoading(true)
     setError(null)
     setErrorKind(null)

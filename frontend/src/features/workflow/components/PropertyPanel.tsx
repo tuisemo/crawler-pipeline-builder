@@ -11,6 +11,7 @@ import {
   Typography,
 } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
+import './PropertyPanel.css'
 import type { WorkflowNode } from '../workflowState'
 import type { AssistApplyMode, CanonicalWorkflowEdge, ExtractionField, WorkflowNodeData } from '../workflowContracts'
 import {
@@ -265,7 +266,7 @@ export function PropertyPanel({
               label: '基础信息',
               children: (
                 <Space orientation="vertical" size={8} style={{ width: '100%' }}>
-                  <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>AI 回填策略</Typography.Text>}>
+                  <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>AI 回填策略</Typography.Text>}>
                     <Select
                       value={assistApplyMode}
                       options={[
@@ -278,11 +279,11 @@ export function PropertyPanel({
                       仅当前节点：只改选中节点。当前 + 关联节点：同时回填 `extract_field` / `paginate` / `select_list` 关联配置。
                     </Typography.Paragraph>
                   </Form.Item>
-                  <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>节点类型</Typography.Text>}>
+                  <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>节点类型</Typography.Text>}>
                     <Input value={selectedNode.type} readOnly />
                   </Form.Item>
                   <Form.Item
-                    label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>显示名称</Typography.Text>}
+                    label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>显示名称</Typography.Text>}
                     validateStatus={normalizeText(selectedNode.data.label) ? undefined : 'warning'}
                     help={normalizeText(selectedNode.data.label) ? undefined : '建议填写业务语义名称，便于图上排查问题。'}
                   >

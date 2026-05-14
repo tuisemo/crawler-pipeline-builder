@@ -1,0 +1,43 @@
+.properties-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.properties-panel .ant-card {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.properties-panel .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 16px 20px;
+}
+
+.properties-panel input,
+.properties-panel .ant-input,
+.properties-panel .ant-input-affix-wrapper,
+.properties-panel .ant-select-selector,
+.properties-panel .ant-input-number {
+  width: 100% !important;
+}
+
+.properties-panel input[placeholder*="选择器"],
+.properties-panel input[placeholder*="selector"] {
+  font-family: var(--sd-font-mono);
+  font-size: 12.5px;
+}

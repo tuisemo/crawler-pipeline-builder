@@ -23,7 +23,6 @@ from backend.workflow.schemas import (
     WorkflowNode,
     WorkflowEdge,
     NodeData,
-    FromLegacyConfigRequest,
     ToPromptRequest,
     GenerateCrawlerRequest,
     GenerateDetailBatchRunnerRequest,
@@ -32,7 +31,6 @@ from backend.workflow.schemas import (
 )
 from backend.workflow.services import (
     validate_graph,
-    convert_legacy_config,
     compile_plan,
     format_script,
     graph_to_prompt,
@@ -41,8 +39,6 @@ from backend.workflow.services import (
     generate_crawler,
     save_script,
     WorkflowValidationError,
-    WorkflowConversionError,
-    LEGACY_CONFIG_DEPRECATION_WARNING,
     PromptGenerationError,
     ScriptPersistenceError,
 )
@@ -193,64 +189,6 @@ def test_validate_graph_rejects_unsupported_node_types():
     with pytest.raises(WorkflowValidationError) as exc_info:
         validate_graph(request)
     assert exc_info.value.error_code == "unsupported_node_type"
-
-
-# ----------------------------------------------------------------------
-# convert_legacy_config tests
-# ----------------------------------------------------------------------
-
-def test_convert_legacy_config_returns_domain_response_on_success():
-    """On success, convert_legacy_config returns FromLegacyConfigResponse, not JSONResponse."""
-    request = FromLegacyConfigRequest(
-        url="http://example.com",
-        item_selector=".item",
-        fields=[{"name": "title", "selector": "h1", "type": "text"}]
-    )
-    result = convert_legacy_config(request)
-    # Should return a domain response, not HTTP response
-    assert result.success is True
-    assert result.graph is not None
-    assert len(result.graph.nodes) == 3  # open_page, select_list, extract_field
-    assert [warning.message for warning in result.warnings] == [LEGACY_CONFIG_DEPRECATION_WARNING]
-
-
-def test_convert_legacy_config_raises_on_blank_url():
-    """Blank URL raises WorkflowConversionError, not JSONResponse."""
-    request = FromLegacyConfigRequest(
-        url="   ",
-        item_selector=".item",
-        fields=[]
-    )
-    with pytest.raises(WorkflowConversionError) as exc_info:
-        convert_legacy_config(request)
-    assert "URL and item_selector are required" in str(exc_info.value)
-
-
-def test_convert_legacy_config_raises_on_blank_item_selector():
-    """Blank item_selector raises WorkflowConversionError, not JSONResponse."""
-    request = FromLegacyConfigRequest(
-        url="http://example.com",
-        item_selector="",
-        fields=[]
-    )
-    with pytest.raises(WorkflowConversionError) as exc_info:
-        convert_legacy_config(request)
-    assert "URL and item_selector are required" in str(exc_info.value)
-
-
-def test_convert_legacy_config_preserves_pagination_node():
-    """When pagination_selector is provided, paginate node is included."""
-    request = FromLegacyConfigRequest(
-        url="http://example.com",
-        item_selector=".item",
-        fields=[{"name": "title", "selector": "h1", "type": "text"}],
-        pagination_selector=".next"
-    )
-    result = convert_legacy_config(request)
-    assert result.success is True
-    assert len(result.graph.nodes) == 4  # includes paginate
-    assert result.graph.nodes[3].type == "paginate"
-    assert [warning.message for warning in result.warnings] == [LEGACY_CONFIG_DEPRECATION_WARNING]
 
 
 # ----------------------------------------------------------------------

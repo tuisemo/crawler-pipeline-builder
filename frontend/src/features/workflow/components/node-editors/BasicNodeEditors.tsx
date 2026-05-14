@@ -47,7 +47,7 @@ export function OpenPageEditor({ selectedNode, updateSelectedNodeData }: NodeEdi
   return (
     <>
       <Form.Item
-        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>目标地址</Typography.Text>}
+        label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>目标地址</Typography.Text>}
         validateStatus={normalizeText(selectedNode.data.url) ? undefined : 'error'}
         help={normalizeText(selectedNode.data.url) ? undefined : '请输入入口 URL。'}
       >
@@ -90,7 +90,7 @@ export function SelectListEditor({
         </Button>
       </Space>
       <Form.Item
-        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>列表选择器</Typography.Text>}
+        label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>列表选择器</Typography.Text>}
         validateStatus={normalizeText(selectedNode.data.item_selector) ? undefined : 'error'}
         help={normalizeText(selectedNode.data.item_selector) ? undefined : '请填写 item_selector。'}
       >
@@ -129,7 +129,7 @@ export function PaginateEditor({
         </Button>
       </Space>
       <Form.Item
-        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>分页选择器</Typography.Text>}
+        label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>分页选择器</Typography.Text>}
         validateStatus={normalizeText(selectedNode.data.pagination_selector) ? undefined : 'error'}
         help={normalizeText(selectedNode.data.pagination_selector) ? undefined : '策略不是 none 时建议填写分页选择器。'}
       >
@@ -140,7 +140,7 @@ export function PaginateEditor({
           onChange={(e) => updateSelectedNodeData({ pagination_selector: e.target.value })}
         />
       </Form.Item>
-      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>分页策略</Typography.Text>}>
+      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>分页策略</Typography.Text>}>
         <Select
           value={String(selectedNode.data.pagination_strategy ?? 'click_next')}
           options={PAGINATION_STRATEGIES}
@@ -162,7 +162,7 @@ export function LoopEditor({ selectedNode, updateSelectedNodeData }: NodeEditorP
         style={{ marginBottom: 12, borderRadius: 10 }}
       />
       <Space size={8} style={{ width: '100%' }}>
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>单条失败策略</Typography.Text>} style={{ flex: 1 }}>
+        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>单条失败策略</Typography.Text>} style={{ flex: 1 }}>
           <Select
             value={String(selectedNode.data.on_error ?? 'skip')}
             options={ON_ERROR_OPTIONS}
@@ -222,7 +222,7 @@ export function ConditionEditor({
         style={{ marginBottom: 12, borderRadius: 10 }}
       />
       <Form.Item
-        label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>条件表达式（simple 模式）</Typography.Text>}
+        label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>条件表达式（simple 模式）</Typography.Text>}
         validateStatus={normalizeText(selectedNode.data.condition) ? undefined : 'warning'}
         help={normalizeText(selectedNode.data.condition) ? undefined : 'simple 模式建议提供条件表达式。'}
       >
@@ -232,7 +232,7 @@ export function ConditionEditor({
           onChange={(e) => updateSelectedNodeData({ condition: e.target.value })}
         />
       </Form.Item>
-      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>表达式模式</Typography.Text>}>
+      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>表达式模式</Typography.Text>}>
         <Select
           value={String(selectedNode.data.expression_mode ?? 'simple')}
           options={EXPRESSION_MODES}
@@ -315,7 +315,7 @@ export function EmitRecordEditor({
         showIcon
         style={{ borderRadius: 10, marginBottom: 12 }}
       />
-      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>输出模式</Typography.Text>}>
+      <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>输出模式</Typography.Text>}>
         <Select
           value={String(selectedNode.data.output_mode ?? 'memory')}
           options={OUTPUT_MODE_OPTIONS}
@@ -323,7 +323,7 @@ export function EmitRecordEditor({
         />
       </Form.Item>
       {String(selectedNode.data.output_mode ?? 'memory') === 'json_file' && (
-        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>JSON 文件路径</Typography.Text>}>
+        <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>JSON 文件路径</Typography.Text>}>
           <Input
             placeholder="output/crawler_output.json"
             value={String(selectedNode.data.json_file_path ?? '')}
@@ -333,14 +333,14 @@ export function EmitRecordEditor({
       )}
       {String(selectedNode.data.output_mode ?? 'memory') === 'sqlite' && (
         <>
-          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>SQLite 文件路径</Typography.Text>}>
+          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>SQLite 文件路径</Typography.Text>}>
             <Input
               placeholder="output/crawler_output.db"
               value={String(selectedNode.data.sqlite_path ?? '')}
               onChange={(e) => updateSelectedNodeData({ sqlite_path: e.target.value })}
             />
           </Form.Item>
-          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>数据表名</Typography.Text>}>
+          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>数据表名</Typography.Text>}>
             <Input
               placeholder="records"
               value={String(selectedNode.data.sqlite_table ?? '')}
@@ -351,14 +351,14 @@ export function EmitRecordEditor({
       )}
       {String(selectedNode.data.output_mode ?? 'memory') !== 'memory' && (
         <>
-          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>写入模式</Typography.Text>}>
+          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>写入模式</Typography.Text>}>
             <Select
               value={String(selectedNode.data.write_mode ?? 'append')}
               options={WRITE_MODE_OPTIONS}
               onChange={(value) => updateSelectedNodeData({ write_mode: value })}
             />
           </Form.Item>
-          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>去重键</Typography.Text>}>
+          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>去重键</Typography.Text>}>
             <Input
               placeholder="detail_url, product_id"
               value={emitDedupeKeys.join(', ')}
@@ -373,7 +373,7 @@ export function EmitRecordEditor({
               多个字段用逗号分隔。留空时，系统会回退到整条记录哈希去重。
             </Typography.Paragraph>
           </Form.Item>
-          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>批量写入条数</Typography.Text>}>
+          <Form.Item label={<Typography.Text type="secondary" style={{ fontSize: 12 }}>批量写入条数</Typography.Text>}>
             <InputNumber
               min={1}
               max={1000}

@@ -1,4 +1,5 @@
 import { Button, Card, Segmented, Space, Spin, Tag, Tooltip, Typography } from 'antd'
+import './WorkbenchToolbar.css'
 import {
   AppstoreOutlined,
   ArrowLeftOutlined,
@@ -112,7 +113,6 @@ export function WorkbenchToolbar({
             {onBack && (
               <>
                 <Button
-                  size="small"
                   icon={<ArrowLeftOutlined />}
                   onClick={onBack}
                   className="toolbar-back-btn"
@@ -130,18 +130,6 @@ export function WorkbenchToolbar({
                 <div className="toolbar-separator" />
               </>
             )}
-            <div className="toolbar-logo-wrapper">
-              <img src="/logo_128.webp" alt="Scraper Flow Studio" className="toolbar-logo-img" />
-            </div>
-            <div className="toolbar-brand-info">
-              <Typography.Text strong className="toolbar-studio-title">
-                Scraper Flow Studio
-              </Typography.Text>
-              <Typography.Text className="toolbar-studio-subtitle">
-                Workflow Orchestration
-              </Typography.Text>
-            </div>
-            <div className="toolbar-separator" />
             <Tag variant="filled" className="toolbar-active-context">
               <NodeIndexOutlined style={{ marginRight: 4 }} />
               {selectedNodeId || '未选择节点'}
@@ -244,7 +232,7 @@ export function WorkbenchToolbar({
                   <div className="toolbar-action-group-inner">
                     <Typography.Text className="toolbar-group-tag">{group.title}</Typography.Text>
                     <Space size={6}>
-                      {group.actions.filter(Boolean).map((action) => {
+                      {group.actions.map((action) => {
                         const cfg = actionConfig[action]
                         const isPrimary = group.primary === action
                         if (!cfg) return null;
@@ -253,7 +241,6 @@ export function WorkbenchToolbar({
                             key={action}
                             id={`btn-action-${action}`}
                             className={`toolbar-action-btn ${isPrimary ? 'toolbar-action-btn-primary' : ''}`}
-                            size="small"
                             type={isPrimary ? 'primary' : 'default'}
                             disabled={runningAction !== null}
                             onClick={() => onRunAction(action)}
@@ -271,12 +258,11 @@ export function WorkbenchToolbar({
                 <div className="toolbar-action-group">
                   <Typography.Text className="toolbar-group-tag">资产</Typography.Text>
                   <Button
-                    size="small"
                     type="default"
                     icon={saveToTaskLoading ? <Spin size="small" /> : <CloudUploadOutlined />}
                     disabled={saveToTaskLoading || runningAction !== null}
                     onClick={onSaveToTask}
-                    style={{ borderColor: 'rgba(37, 99, 235, 0.4)', color: '#2563eb' }}
+                    style={{ borderColor: 'rgba(15, 23, 42, 0.4)', color: 'var(--sd-color-primary)' }}
                   >
                     保存到任务
                   </Button>

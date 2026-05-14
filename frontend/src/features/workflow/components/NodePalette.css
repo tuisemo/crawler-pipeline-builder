@@ -1,0 +1,40 @@
+.node-palette {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.node-palette .ant-card {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.node-palette .ant-card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.node-palette .ant-list-item {
+  cursor: pointer;
+  transition: background 150ms, transform 150ms;
+  border-bottom: var(--sd-border-subtle);
+}
+
+.node-palette .ant-list-item:hover {
+  background: var(--sd-color-bg-selected);
+  transform: translateX(2px);
+}

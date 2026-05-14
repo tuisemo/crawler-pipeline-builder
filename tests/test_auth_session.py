@@ -17,7 +17,7 @@ from backend.auth.session import (
     update_session,
     upsert_user,
 )
-from backend.database import get_cursor, run_migrations
+from backend.database import get_cursor, ensure_schema
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ from backend.database import get_cursor, run_migrations
 @pytest.fixture(autouse=True)
 def _ensure_schema():
     """Ensure database schema is up-to-date before each test."""
-    run_migrations()
+    ensure_schema()
 
 
 @pytest.fixture(autouse=True)

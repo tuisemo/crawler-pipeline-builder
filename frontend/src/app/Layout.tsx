@@ -1,12 +1,13 @@
 import { Layout as AntdLayout, Button, Space, Typography, Avatar, Alert } from 'antd'
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 
 const { Content, Header } = AntdLayout
 const { Text } = Typography
 
 function AppHeader() {
+  const navigate = useNavigate()
   const { isAuthenticated, user, isLoading, login, logout, authError, clearAuthError } = useAuth()
 
   return (
@@ -35,24 +36,34 @@ function AppHeader() {
           zIndex: 100,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-0.02em', color: '#000' }}>
-            Scraper Flow Studio
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            onClick={() => navigate('/')}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            <img
+              src="/logo_128.webp"
+              alt="Scraper Flow Studio"
+              style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }}
+            />
+            <span style={{ letterSpacing: '-0.02em', color: 'var(--sd-color-ink)', fontSize: 15 }}>
+              Scraper Flow Studio
+            </span>
+          </div>
         </div>
 
         <Space size={12} align="center">
           {isLoading ? null : isAuthenticated && user ? (
             <>
-              <Avatar size={28} icon={<UserOutlined />} style={{ backgroundColor: '#000' }} />
-              <Text style={{ fontSize: 13, fontWeight: 500, color: '#333' }}>
+              <Avatar size={24} icon={<UserOutlined />} style={{ backgroundColor: 'var(--sd-color-primary)' }} />
+              <Text style={{ color: 'var(--sd-color-text-secondary)' }}>
                 {user.display_name}
               </Text>
               <Button
                 type="text"
                 icon={<LogoutOutlined />}
                 onClick={logout}
-                style={{ fontSize: 13, color: '#666', padding: '0 8px', height: 32 }}
+                style={{ color: 'var(--sd-color-text-tertiary)', padding: '0 8px' }}
               >
                 退出
               </Button>
@@ -62,7 +73,6 @@ function AppHeader() {
               type="primary"
               size="small"
               onClick={() => login(window.location.hash.replace('#', '') || '/')}
-              style={{ height: 32, fontWeight: 600, borderRadius: 6 }}
             >
               登录
             </Button>
@@ -75,13 +85,16 @@ function AppHeader() {
 
 export default function Layout() {
   return (
-    <AntdLayout style={{ minHeight: '100vh', background: 'var(--sd-color-bg-base)' }}>
+    <AntdLayout style={{ height: '100vh', background: 'var(--sd-color-bg-base)', overflow: 'hidden' }}>
       <AppHeader />
-      <AntdLayout>
+      <AntdLayout style={{ height: 'calc(100vh - 52px)', overflow: 'hidden' }}>
         <Content
+          id="main-content"
           style={{
             background: 'var(--sd-color-bg-base)',
-            overflow: 'auto',
+            height: '100%',
+            overflowY: 'auto',
+            position: 'relative',
           }}
         >
           <Outlet />

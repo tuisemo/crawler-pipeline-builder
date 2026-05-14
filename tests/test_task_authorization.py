@@ -18,7 +18,7 @@ import fakeredis
 from fastapi.testclient import TestClient
 
 from backend.auth.session import create_session, upsert_user
-from backend.database import get_cursor, run_migrations
+from backend.database import get_cursor, ensure_schema
 from server import app
 
 
@@ -42,7 +42,7 @@ def _setup_auth_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/auth/callback")
     monkeypatch.delenv("ENV", raising=False)
 
-    run_migrations()
+    ensure_schema()
     with get_cursor() as cur:
         cur.execute("DELETE FROM task_assets")
         cur.execute("DELETE FROM tasks")

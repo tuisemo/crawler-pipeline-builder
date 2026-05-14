@@ -1,5 +1,6 @@
 import { Spin, Tabs, Typography } from 'antd'
 import { useMemo, useState } from 'react'
+import './ResultsWorkspace.css'
 import { ResultDetails } from './ResultDetails'
 import type { PromptWorkspaceProps } from './components/PromptWorkspace'
 import type { ResultDetailsView } from './ResultDetails'

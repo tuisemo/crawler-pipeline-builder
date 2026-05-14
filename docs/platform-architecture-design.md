@@ -382,8 +382,7 @@ backend/
 ├── database/
 │   ├── __init__.py
 │   ├── db.py            # SQLite 连接管理
-│   ├── models.py        # 表定义（DDL 语句）
-│   └── migrations.py    # 建表与迁移执行
+│   ├── models.py        # 表定义（DDL 语句）+ ensure_schema()
 ├── tasks/
 │   ├── __init__.py
 │   ├── schemas.py       # Pydantic 请求/响应模型
@@ -478,32 +477,33 @@ INDEX_DDLS = [
 ALL_DDLS = [TASKS_DDL, TASK_ASSETS_DDL, *INDEX_DDLS]
 ```
 
-### 4.4 database/migrations.py — 建表执行
+### 4.4 database/models.py — Schema 启动
+
+项目处于 v0.0.0 阶段，不使用版本号追踪或增量迁移。`ensure_schema()` 在每次应用启动时通过 `CREATE TABLE IF NOT EXISTS` 确保所有表存在：
 
 ```python
-"""数据库迁移：首次启动时建表。"""
-
-from backend.database.db import get_cursor
-from backend.database.models import ALL_DDLS
-
-
-def run_migrations():
-    """执行所有 DDL 迁移语句。"""
-    with get_cursor() as cursor:
-        for ddl in ALL_DDLS:
+def ensure_schema() -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        for ddl in ALL_DDL:
             cursor.execute(ddl)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 ```
 
 ### 4.5 集成到 backend/app.py
 
 ```python
-from backend.database.migrations import run_migrations
+from backend.database.models import ensure_schema
 from backend.database.db import close_connection
 from backend.api.task_routes import router as task_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    run_migrations()          # 启动时自动建表
+    ensure_schema()            # 启动时建表（幂等）
     yield
     close_connection()         # 退出时关闭连接
 
@@ -1240,7 +1240,7 @@ export function useTaskContext() {
 
 ### 阶段一：后端数据库 + API
 
-1. 创建 `backend/database/` 模块（db.py、models.py、migrations.py）
+1. 创建 `backend/database/` 模块（db.py、models.py）
 2. 创建 `backend/tasks/` 模块（schemas.py、services.py）
 3. 创建 `backend/api/task_routes.py`
 4. 修改 `backend/app.py` 集成新路由和生命周期 hook
@@ -1270,8 +1270,7 @@ backend/
 ├── database/                    # [新增]
 │   ├── __init__.py
 │   ├── db.py
-│   ├── models.py
-│   └── migrations.py
+│   └── models.py
 ├── tasks/                       # [新增]
 │   ├── __init__.py
 │   ├── schemas.py

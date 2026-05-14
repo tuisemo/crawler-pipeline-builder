@@ -88,7 +88,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logoutFn = useCallback(async () => {
     // Call backend to delete server-side session first
-    const result = await apiLogout()
+    const result = await apiLogout().catch(() => null)
 
     // Only clear local state after the backend confirms logout (or if it fails, clear anyway)
     clearStoredSessionId()

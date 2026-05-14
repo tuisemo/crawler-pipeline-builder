@@ -42,10 +42,10 @@ export default defineConfig(({ mode }) => {
             const packageName = getNodeModulePackageName(id);
             const packagePathMatch = normalized.match(/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(.+)/);
             const packagePath = packagePathMatch?.[1] || "";
-            if (id.includes("monaco-editor") || id.includes("@monaco-editor/react")) {
+            if (normalized.includes("monaco-editor") || normalized.includes("@monaco-editor/react")) {
               return "monaco";
             }
-            if (id.includes("@xyflow/react")) {
+            if (normalized.includes("@xyflow/react")) {
               return "reactflow";
             }
             if (!packageName) {
