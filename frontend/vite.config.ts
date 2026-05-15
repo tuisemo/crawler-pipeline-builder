@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = env.CRAWLER_WORKFLOW_API_PROXY_TARGET || env[legacyProxyKey] || "http://127.0.0.1:8000";
 
   return {
+    base: "./",
     plugins: [react()],
     server: {
       host: "127.0.0.1",

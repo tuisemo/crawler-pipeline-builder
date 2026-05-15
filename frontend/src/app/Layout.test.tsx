@@ -193,7 +193,9 @@ describe('Layout AppHeader', () => {
     renderApp()
 
     await waitFor(() => {
-      expect(screen.getByText('Scraper Flow Studio')).toBeTruthy()
+      // Brand text is split across two <span> elements ("Scraper Flow" + "Studio")
+      expect(screen.getByText('Scraper Flow')).toBeTruthy()
+      expect(screen.getByText('Studio')).toBeTruthy()
     })
   })
 })

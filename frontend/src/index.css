@@ -1,6 +1,7 @@
 :root {
   /* ── Typography ───────────────────────────────────── */
   --sd-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --sd-font-logo: "Outfit", var(--sd-font-ui);
   --sd-font-mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Roboto Mono, Menlo, monospace;
 
   /* ── Foundation (DESIGN.md) ─────────────────────────── */

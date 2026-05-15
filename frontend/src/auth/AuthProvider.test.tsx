@@ -163,8 +163,8 @@ describe('AuthProvider', () => {
       loginBtn.click()
     })
 
-    // login() should set window.location.href to /api/auth/login?next=...
-    expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks')
+    // login() should set window.location.href to ./api/auth/login?next=...
+    expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks')
   })
 
   it('logout() clears sessionStorage and navigates to GET /api/auth/logout', async () => {
@@ -189,8 +189,8 @@ describe('AuthProvider', () => {
     // logout() should clear sessionStorage immediately
     expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
 
-    // logout() should set window.location.href to GET /api/auth/logout with sessionId
-    expect(window.location.href).toBe('/api/auth/logout?sessionId=logout-session')
+    // logout() should set window.location.href to GET ./api/auth/logout with sessionId
+    expect(window.location.href).toBe('./api/auth/logout?sessionId=logout-session')
   })
 
   it('sends Authorization header when sessionId is stored', async () => {

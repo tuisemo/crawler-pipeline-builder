@@ -68,10 +68,30 @@ export class UnauthorizedError extends Error {
   }
 }
 
+// ── Deploy path resolution ──────────────────────────────
+
+/**
+ * Derives the deploy base path from the current page URL.
+ *
+ * HashRouter keeps `window.location.pathname` stable at the deploy
+ * directory (e.g. `/crawler-studio/`).  We use it as the prefix for
+ * API calls so that a single build works under any sub-path without
+ * environment-specific configuration.
+ *
+ * In local dev (Vite proxy, root path) this returns "".
+ */
+function getDeployBase(): string {
+  const { pathname } = window.location
+  // pathname is "/" for local dev → base is ""
+  // pathname is "/crawler-studio/" → base is "/crawler-studio"
+  return pathname === "/" ? "" : pathname.replace(/\/$/, "")
+}
+
 // ── apiFetch ─────────────────────────────────────────────
 
 /**
  * Drop-in replacement for `fetch()` that:
+ * - Resolves API paths relative to the deploy base (works under any sub-path)
  * - Adds the stored app session bearer token when present
  * - Detects 401 and fires the onUnauthorized callback
  * - Throws `UnauthorizedError` on 401
@@ -87,7 +107,8 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     ...(init?.headers as Record<string, string> || {}),
   }
 
-  const response = await fetch(path, {
+  const base = getDeployBase()
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers,
   })

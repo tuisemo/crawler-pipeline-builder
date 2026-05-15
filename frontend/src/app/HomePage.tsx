@@ -10,6 +10,7 @@ import {
   LoginOutlined
 } from '@ant-design/icons'
 import { useAuth } from '../auth/useAuth'
+import logoUrl from '../../public/logo_128.webp'
 
 const { Title, Text } = Typography
 
@@ -174,7 +175,7 @@ export default function HomePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <img src="/logo_128.webp" alt="SFS" style={{ width: 18, height: 18, borderRadius: 4 }} />
+              <img src={logoUrl} alt="SFS" style={{ width: 18, height: 18, borderRadius: 4 }} />
               <span className="mono" style={{ fontWeight: 700, fontSize: 13, letterSpacing: '0.08em', color: '#0F172A' }}>SCRAPER FLOW STUDIO</span>
             </div>
             <span style={{ color: '#CBD5E1', fontSize: 12 }}>© 2026 SEA DATA WORKBENCH</span>

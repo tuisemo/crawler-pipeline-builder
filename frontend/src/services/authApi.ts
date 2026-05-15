@@ -80,9 +80,10 @@ export async function tryFetchMe(): Promise<MeResponse | null> {
  *
  * Navigates the browser to the BFF login endpoint which will
  * redirect to the user-center OAuth2 authorize URL.
+ * Uses a relative path so it works under any deploy sub-path.
  */
 export function login(nextPath: string = '/'): void {
-  window.location.href = `/api/auth/login?next=${encodeURIComponent(nextPath)}`
+  window.location.href = `./api/auth/login?next=${encodeURIComponent(nextPath)}`
 }
 
 /**

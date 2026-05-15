@@ -153,8 +153,8 @@ describe('RequireAuth', () => {
     renderApp('/tasks')
 
     await waitFor(() => {
-      // login() should set window.location.href to /api/auth/login?next=/tasks
-      expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks')
+      // login() should set window.location.href to ./api/auth/login?next=/tasks
+      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks')
     })
 
     // Protected content should NOT be rendered
@@ -167,7 +167,7 @@ describe('RequireAuth', () => {
     renderApp('/tasks/42')
 
     await waitFor(() => {
-      expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks%2F42')
+      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks%2F42')
     })
 
     expect(screen.queryByTestId('task-detail-page')).toBeNull()
@@ -179,7 +179,7 @@ describe('RequireAuth', () => {
     renderApp('/tasks/42/workbench')
 
     await waitFor(() => {
-      expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks%2F42%2Fworkbench')
+      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks%2F42%2Fworkbench')
     })
 
     expect(screen.queryByTestId('workbench-page')).toBeNull()

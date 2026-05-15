@@ -103,10 +103,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Navigate away immediately — do NOT call setUser/setAuthStatus here
     // because that would trigger a React re-render before navigation completes.
+    // Uses a relative path so it works under any deploy sub-path.
     if (sessionId) {
-      window.location.href = `/api/auth/logout?sessionId=${encodeURIComponent(sessionId)}`
+      window.location.href = `./api/auth/logout?sessionId=${encodeURIComponent(sessionId)}`
     } else {
-      window.location.href = '/api/auth/logout'
+      window.location.href = './api/auth/logout'
     }
   }, [])
 

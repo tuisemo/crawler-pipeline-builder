@@ -2,6 +2,7 @@ import { Layout as AntdLayout, Button, Space, Typography, Avatar, Alert } from '
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import logoUrl from '../../public/logo_128.webp'
 
 const { Content, Header } = AntdLayout
 const { Text } = Typography
@@ -42,12 +43,22 @@ function AppHeader() {
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
           >
             <img
-              src="/logo_128.webp"
+              src={logoUrl}
               alt="Scraper Flow Studio"
               style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }}
             />
-            <span style={{ letterSpacing: '-0.02em', color: 'var(--sd-color-ink)', fontSize: 15 }}>
-              Scraper Flow Studio
+            <span style={{ 
+              fontFamily: 'var(--sd-font-logo)', 
+              letterSpacing: '-0.05em', 
+              color: 'var(--sd-color-ink)', 
+              fontSize: 18,
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 5,
+              textTransform: 'uppercase'
+            }}>
+              <span style={{ fontWeight: 800 }}>Scraper Flow</span>
+              <span style={{ fontWeight: 400, opacity: 0.6, fontSize: 14 }}>Studio</span>
             </span>
           </div>
         </div>
