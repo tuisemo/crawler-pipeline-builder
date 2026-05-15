@@ -167,11 +167,9 @@ describe('AuthProvider', () => {
     expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks')
   })
 
-  it('logout() calls POST /api/auth/logout, clears state, and navigates to home page', async () => {
+  it('logout() clears sessionStorage and navigates to GET /api/auth/logout', async () => {
     setStoredSessionId('logout-session')
-    globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce(mockFetchSuccess({ user: mockUser }))
-      .mockResolvedValueOnce(mockFetchSuccess({ loggedOut: true }))
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
     renderWithRouter(
       <AuthProvider>
@@ -188,23 +186,11 @@ describe('AuthProvider', () => {
       logoutBtn.click()
     })
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-    const logoutCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]
-    expect(logoutCall[0]).toBe('/api/auth/logout')
-    expect(logoutCall[1]?.method).toBe('POST')
-    // Authorization header should be included (sessionStorage not cleared before the call)
-    expect(logoutCall[1]?.headers).toEqual(
-      expect.objectContaining({ Authorization: 'Bearer logout-session' }),
-    )
+    // logout() should clear sessionStorage immediately
+    expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
 
-    // Token should be cleared from sessionStorage after logout
-    await waitFor(() => {
-      expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
-    })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('authenticated').textContent).toBe('false')
-    })
+    // logout() should set window.location.href to GET /api/auth/logout with sessionId
+    expect(window.location.href).toBe('/api/auth/logout?sessionId=logout-session')
   })
 
   it('sends Authorization header when sessionId is stored', async () => {

@@ -4,7 +4,6 @@ import { createContext, useEffect, useState, useCallback, type ReactNode } from 
 import {
   fetchMe,
   login as apiLogin,
-  logout as apiLogout,
   type AuthUser,
   type AuthStatus,
 } from '../services/authApi'
@@ -87,16 +86,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   const logoutFn = useCallback(async () => {
-    // Call backend to delete server-side session and notify user-center gateway
-    await apiLogout().catch(() => null)
+    // Use browser redirect to GET /api/auth/logout so the backend can:
+    // 1. Delete the local Redis session
+    // 2. Notify user-center /public/logout to clean gateway session
+    // 3. Redirect browser to the frontend home page
+    //
+    // CRITICAL: Clear sessionStorage and navigate away BEFORE any React state
+    // update. If we call setUser(null) first, React re-renders and RequireAuth
+    // detects !isAuthenticated, which calls login() → overwrites
+    // window.location.href with /api/auth/login → auto-re-login because SSO
+    // session is still active on the user-center domain.
+    const sessionId = getStoredSessionId()
 
-    // Clear local auth state
+    // Clear sessionStorage first so the reloaded app knows there is no session
     clearStoredSessionId()
-    setUser(null)
-    setAuthStatus(null)
 
-    // Reload the home page (full navigation clears all in-memory state)
-    window.location.href = window.location.origin + window.location.pathname
+    // Navigate away immediately — do NOT call setUser/setAuthStatus here
+    // because that would trigger a React re-render before navigation completes.
+    if (sessionId) {
+      window.location.href = `/api/auth/logout?sessionId=${encodeURIComponent(sessionId)}`
+    } else {
+      window.location.href = '/api/auth/logout'
+    }
   }, [])
 
   const clearAuthErrorFn = useCallback(() => {

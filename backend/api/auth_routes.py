@@ -350,20 +350,42 @@ async def logout(current_user: CurrentUser):
 @router.get("/logout")
 async def logout_redirect(request: Request):
     """Browser-initiated full logout: delete local session then redirect to
-    user-center SSO logout, which finally redirects back to the frontend.
+    the frontend home page.
 
     Flow:
-      1. Browser hits GET /api/auth/logout
+      1. Browser hits GET /api/auth/logout?sessionId=<token>
       2. Delete local Redis session
-      3. Redirect to user-center GET /logout (Spring Security clears JSESSIONID)
-         — user-center logoutSuccessHandler returns empty body, so we use an
-           intermediate HTML page to redirect back.
+      3. Best-effort: notify user-center /public/logout to clean gateway session
+      4. Redirect browser to the frontend home page
+
+    Note: the user-center's Spring Security SSO session (JSESSIONID) cannot
+    be cleared via browser redirect because the gateway SessionInterceptor
+    blocks requests that lack an x-session-id header. The SSO session
+    expires naturally based on its TTL. The key defence against auto-re-login
+    is that the frontend logoutFn navigates away via window.location.href
+    BEFORE any React state update that would trigger RequireAuth → login().
     """
     settings = get_settings()
     frontend_home_url = _build_frontend_home_url(settings)
 
-    token = _extract_bearer_token(request)
+    # Accept session token from query param (browser redirect) or Authorization header
+    token = request.query_params.get("sessionId") or _extract_bearer_token(request)
+
+    # Read session before deletion to obtain the user-center access_token
+    raw_session = None
     if token:
+        from backend.auth.session import get_session_by_token
+        raw_session = get_session_by_token(token)
         delete_session(token)
 
+    # Best-effort: notify user-center /public/logout to clean gateway x-session-id
+    access_token = raw_session.get("access_token") if raw_session else None
+    if access_token:
+        try:
+            await call_usercenter_logout(access_token=access_token)
+            logger.info("User center gateway logout completed (GET logout)")
+        except (UserCenterError, Exception) as exc:
+            logger.warning("User center gateway logout failed (non-fatal, GET): %s", exc)
+
+    logger.info("Redirecting to frontend home after logout: %s", frontend_home_url)
     return RedirectResponse(url=frontend_home_url, status_code=302)
