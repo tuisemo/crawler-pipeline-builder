@@ -40,7 +40,7 @@
 .task-metadata-row {
   display: flex; 
   justify-content: space-between; 
-  border-bottom: 1px dashed rgba(15, 23, 42, 0.1); 
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.10); 
   padding-bottom: 8px;
 }
 

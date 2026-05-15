@@ -18,15 +18,7 @@
 }
 
 .home-hero-bg-accent {
-  position: absolute;
-  top: -10%;
-  right: -10%;
-  width: 50vw;
-  height: 50vw;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, transparent 70%);
-  border-radius: 50%;
-  filter: blur(80px);
-  z-index: 1;
+  display: none; /* Blue glow removed per DESIGN.md — no decorative gradients */
 }
 
 .home-hero-inner {
@@ -57,7 +49,7 @@
 }
 
 .home-hero-title span {
-  color: var(--sd-color-info);
+  color: var(--sd-color-ink);
   position: relative;
 }
 
@@ -103,8 +95,8 @@
 .home-bento-item.large {
   grid-column: span 2;
   grid-row: span 2;
-  background: var(--sd-color-ink);
-  color: var(--sd-color-bg-surface);
+  background: var(--sd-color-surface-dark);
+  color: var(--sd-color-on-dark);
   border: none;
 }
 
@@ -114,22 +106,22 @@
 
 /* Dark Contrast Section */
 .home-dark-section {
-  background: var(--sd-color-ink);
-  color: var(--sd-color-bg-surface);
+  background: var(--sd-color-surface-dark);
+  color: var(--sd-color-on-dark);
   padding: 80px 24px;
   position: relative;
   overflow: hidden;
 }
 
 .home-dark-section h2 {
-  color: var(--sd-color-bg-surface);
+  color: var(--sd-color-on-dark);
   font-size: 48px;
   margin-bottom: 40px;
 }
 
 /* Modern Footer */
 .home-footer {
-  background: var(--sd-color-bg-selected);
+  background: var(--sd-color-bg-surface);
   border-top: var(--sd-border-subtle);
   padding: 80px 24px 40px;
 }

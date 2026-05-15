@@ -4,48 +4,62 @@
   --sd-font-mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Roboto Mono, Menlo, monospace;
 
   /* ── Foundation (DESIGN.md) ─────────────────────────── */
-  --sd-color-bg-base: #FFFFFF;        /* Ice Surface */
-  --sd-color-bg-surface: #FFFFFF;     /* Ice Surface */
-  --sd-color-bg-layout: #FFFFFF;      /* Ice Surface */
+  --sd-color-bg-base: #FFFFFF;        /* Canvas — pure white */
+  --sd-color-bg-surface: #fafafa;     /* Soft Surface — install-snippet / chip / alternating row */
+  --sd-color-bg-layout: #FFFFFF;      /* Canvas */
   --sd-color-bg-elevated: #FFFFFF;
-  --sd-color-bg-selected: #EFF6FF;    /* Pale Blueprint */
-  --sd-color-bg-code: #0F172A;        /* Dock Slate */
+  --sd-color-bg-selected: #f5f5f5;    /* Soft hover/selected tint, neutral gray */
+  --sd-color-bg-code: #171717;        /* Surface Dark — code / dark card */
+  --sd-color-surface-dark: #171717;   /* Surface Dark — inverted sections */
 
   /* ── Primary & Interactive (DESIGN.md) ──────────────── */
-  --sd-color-primary: #0F172A;        /* Primary Command (Ink Black) */
-  --sd-color-accent: #0F172A;         /* Primary Command */
-  --sd-color-action: #2563EB;         /* Action Blue */
-  --sd-color-cyan: #06B6D4;           /* Signal Cyan */
-  --sd-color-indigo: #4F46E5;         /* Graph Indigo */
+  --sd-color-primary: #000000;        /* Pure Black — the brand */
+  --sd-color-primary-pressed: #090909; /* Ink Deep — pressed state */
+  --sd-color-accent: #000000;
 
   /* ── Text (DESIGN.md) ─────────────────────────────── */
-  --sd-color-text-primary: #0F172A;   /* Ink Black */
-  --sd-color-text-secondary: #334155; /* Readable Slate */
-  --sd-color-text-tertiary: #64748B;  /* Muted Steel */
-  --sd-color-text-muted: #64748B;     /* Muted Steel */
-  --sd-color-text-code: #DBEAFE;      /* Code text on dark surface */
-  --sd-color-ink: #0F172A;
+  --sd-color-text-primary: #000000;   /* Ink — headlines, primary nav */
+  --sd-color-text-secondary: #525252; /* Charcoal — list items, secondary copy */
+  --sd-color-text-body: #737373;      /* Body — default paragraph copy */
+  --sd-color-text-tertiary: #737373;  /* Body — same as body, muted utility */
+  --sd-color-text-muted: #a3a3a3;     /* Mute — captions, lowest-emphasis */
+  --sd-color-text-code: #e5e7eb;      /* Code text on dark surface */
+  --sd-color-ink: #000000;            /* Ink — alias for primary text */
+  --sd-color-on-dark: #ffffff;        /* Text on surface-dark */
+  --sd-color-on-dark-mute: rgba(255, 255, 255, 0.7); /* Secondary text on dark */
 
-  /* ── Semantic Accents (DESIGN.md) ─────────────────── */
+  /* ── Semantic Accents ─────────────────────────────── */
   --sd-color-success: #16A34A;        /* Verified Green */
   --sd-color-warning: #F59E0B;        /* Caution Amber */
   --sd-color-error: #DC2626;          /* Fault Red */
-  --sd-color-info: #64748B;           /* Info Slate */
 
-  /* ── Borders (DESIGN.md) ──────────────────────────── */
-  --sd-border-subtle: 1px solid #E2E8F0;       /* Soft Border */
-  --sd-border-strong: 1px solid #CBD5E1;       /* Structural Border */
-  --sd-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --sd-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --sd-glow-blue: 0 0 15px rgba(15, 23, 42, 0.15);
+  /* ── Node category functional colors (workflow canvas) ── */
+  --sd-color-collect: #06b6d4;
+  --sd-color-collect-soft: rgba(6, 182, 212, 0.10);
+  --sd-color-transform: #4f46e5;
+  --sd-color-transform-soft: rgba(79, 70, 229, 0.10);
+  --sd-color-output: #16a34a;
+  --sd-color-output-soft: rgba(22, 163, 74, 0.10);
+
+  /* ── Borders (DESIGN.md hairline system) ──────────── */
+  --sd-border-subtle: 1px solid #e5e5e5;       /* Hairline — card border, dividers */
+  --sd-border-strong: 1px solid #d4d4d4;       /* Hairline Strong — emphasis dividers */
+  --sd-color-border: #e5e5e5;
+  --sd-color-border-strong: #d4d4d4;
+
+  /* ── Shadows (light application-level depth only) ─── */
+  --sd-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --sd-shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --sd-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --sd-shadow-deep: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
 
   /* ── Radius (DESIGN.md) ──────────────────────────── */
-  --sd-radius-sm: 8px;
-  --sd-radius-md: 12px;
-  --sd-radius-lg: 16px;
-  --sd-radius-node: 14px;
-  --sd-radius-pill: 9999px;
-  --sd-radius-code: 10px;
+  --sd-radius-sm: 6px;                /* Inline code chips, command tags */
+  --sd-radius-md: 8px;                /* Dropdowns, rare medium surfaces */
+  --sd-radius-lg: 12px;               /* Cards, terminal mockup */
+  --sd-radius-node: 12px;             /* Workflow nodes — same as card */
+  --sd-radius-pill: 9999px;           /* Buttons (pill), search inputs */
+  --sd-radius-code: 6px;
 
   /* ── Global rendering ─────────────────────────────── */
   font-family: var(--sd-font-ui);
@@ -55,8 +69,8 @@
   -moz-osx-font-smoothing: grayscale;
   color: var(--sd-color-text-primary);
   background-color: var(--sd-color-bg-base);
-  
-  /* Technical Blueprint Pattern */
+
+  /* Technical Blueprint Pattern — kept for application surface texture */
   --sd-pattern-dot: radial-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px);
   --sd-pattern-grid: linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px),
                      linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px);

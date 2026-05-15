@@ -57,7 +57,7 @@
   min-width: 0;
   min-height: 360px;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--sd-radius-lg);
   background: var(--sd-color-bg-surface);
   box-shadow: var(--sd-shadow-panel);
@@ -68,7 +68,7 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: var(--sd-radius-lg);
   background: var(--sd-color-bg-surface);
   box-shadow: var(--sd-shadow-panel);
@@ -90,7 +90,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 14px 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   background: var(--sd-color-bg-base);
 }
 
@@ -114,10 +114,10 @@
 .bottom-dock-collapsed {
   flex-shrink: 0;
   min-height: 40px;
-  border: 1px dashed rgba(15, 23, 42, 0.18);
+  border: 1px dashed rgba(0, 0, 0, 0.15);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
-  color: var(--sd-color-text);
+  color: var(--sd-color-text-primary);
   font-weight: 500;
   cursor: pointer;
   display: flex;
@@ -139,7 +139,7 @@
 }
 
 .workspace-switcher .ant-space-compact {
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   padding: 2px;
   border-radius: 8px;
   background: var(--sd-color-bg-surface);
@@ -190,7 +190,7 @@
 /* ── Workspace Drawer ───────────────────────────── */
 
 .workspace-drawer .ant-drawer-content {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
   border-top-left-radius: 14px;
   border-top-right-radius: 14px;
 }
@@ -220,7 +220,7 @@
   margin: 0;
   padding-inline: 8px;
   border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   background: var(--sd-color-bg-surface);
 }
 

@@ -1,11 +1,11 @@
 .ant-toolbar-card {
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.10);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   box-shadow: 
-    0 1px 2px rgba(15, 23, 42, 0.02),
-    0 8px 24px rgba(15, 23, 42, 0.04);
+    0 1px 2px rgba(0, 0, 0, 0.02),
+    0 8px 24px rgba(0, 0, 0, 0.04);
 }
 
 .toolbar-shell {
@@ -39,8 +39,8 @@
   overflow: hidden;
   background: var(--sd-color-bg-surface);
   box-shadow: 
-    0 0 0 1px rgba(15, 23, 42, 0.08),
-    0 2px 4px rgba(15, 23, 42, 0.04);
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.04);
   flex-shrink: 0;
 }
 
@@ -75,14 +75,14 @@
 .toolbar-separator {
   width: 1px;
   height: 20px;
-  background: rgba(15, 23, 42, 0.08);
+  background: rgba(0, 0, 0, 0.08);
   margin: 0 4px;
 }
 
 .toolbar-active-context.ant-tag {
   margin: 0;
-  background: rgba(15, 23, 42, 0.04);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   color: var(--sd-color-ink);
   font-weight: 500;
@@ -102,7 +102,7 @@
 .toolbar-vertical-divider {
   width: 1px;
   height: 16px;
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .toolbar-view-controls {
@@ -110,9 +110,9 @@
   align-items: center;
   gap: 12px;
   padding: 4px 8px;
-  background: rgba(15, 23, 42, 0.03);
+  background: rgba(0, 0, 0, 0.03);
   border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .toolbar-control-item {
@@ -134,7 +134,7 @@
   justify-content: space-between;
   gap: 16px;
   padding-top: 4px;
-  border-top: 1px solid rgba(15, 23, 42, 0.04);
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .toolbar-belt-left {
@@ -155,9 +155,9 @@
   padding: 0 8px;
   height: 24px;
   background: var(--sd-color-bg-surface);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 6px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 .stat-label {
@@ -198,7 +198,7 @@
   align-items: center;
   gap: 8px;
   padding-right: 16px;
-  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .toolbar-action-group:last-child {
@@ -222,15 +222,15 @@
   height: 36px;
   padding: 0 16px;
   font-size: 14px;
-  border-color: rgba(15, 23, 42, 0.1);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .toolbar-action-btn.ant-btn:hover {
   transform: translateY(-1.5px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
-  border-color: rgba(15, 23, 42, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.20);
   color: var(--sd-color-ink) !important;
 }
 
@@ -240,8 +240,8 @@
 }
 
 .toolbar-action-btn.ant-btn:disabled {
-  background: rgba(15, 23, 42, 0.04) !important;
-  border-color: rgba(15, 23, 42, 0.06) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
   color: var(--sd-color-text-muted) !important;
   transform: none !important;
   box-shadow: none !important;
@@ -252,14 +252,14 @@
   background: var(--sd-color-primary);
   border-color: var(--sd-color-primary);
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.20);
 }
 
 .toolbar-action-btn-primary.ant-btn-primary:hover {
-  background: #1e293b !important;
-  border-color: #1e293b !important;
+  background: #111111 !important;
+  border-color: #111111 !important;
   color: #ffffff !important;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.30), 0 0 0 2px rgba(15, 23, 42, 0.10) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(0, 0, 0, 0.10) !important;
 }
 
 .toolbar-toggle-btn.ant-btn {
@@ -278,12 +278,12 @@
 .toolbar-toggle-btn.ant-btn-primary {
   background: var(--sd-color-bg-surface) !important;
   color: var(--sd-color-ink) !important;
-  border-color: rgba(15, 23, 42, 0.1) !important;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.10) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
 }
 
 .toolbar-toggle-btn.ant-btn:hover {
-  background: rgba(15, 23, 42, 0.05);
+  background: rgba(0, 0, 0, 0.05);
   color: var(--sd-color-ink);
 }
 

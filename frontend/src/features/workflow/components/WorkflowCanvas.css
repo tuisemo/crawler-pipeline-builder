@@ -8,7 +8,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: var(--sd-radius-lg);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--sd-shadow-card);
@@ -21,7 +21,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: var(--sd-radius-node);
   background: var(--sd-color-bg-surface);
   box-shadow: var(--sd-shadow-card);
@@ -34,7 +34,7 @@
 }
 
 .canvas-node-card.selected {
-  box-shadow: var(--sd-shadow-deep), 0 0 0 3px rgba(37, 99, 235, 0.16);
+  box-shadow: var(--sd-shadow-deep), 0 0 0 3px rgba(0, 0, 0, 0.12);
 }
 
 .canvas-node-card strong,
@@ -103,7 +103,7 @@
 }
 
 .canvas-node-card.node-category-source {
-  background: rgba(239, 246, 255, 0.72);
+  background: rgba(250, 250, 250, 0.9);
 }
 
 .canvas-node-card.node-category-collector {
@@ -128,14 +128,14 @@
 
 .react-flow__edge-path,
 .react-flow__connection-path {
-  stroke: rgba(51, 65, 85, 0.85);
+  stroke: rgba(0, 0, 0, 0.45);
   stroke-width: 3.0;
 }
 
 .react-flow__minimap,
 .react-flow__controls {
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   border-radius: var(--sd-radius-lg);
   background: rgba(255, 255, 255, 0.92);
   box-shadow: var(--sd-shadow-card);
@@ -149,7 +149,7 @@
 }
 
 .react-flow__controls button:hover {
-  background: rgba(37, 99, 235, 0.08);
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .canvas-surface {
@@ -193,7 +193,7 @@
 .canvas-region.ant-card > .ant-card-head {
   flex-shrink: 0;
   padding: 0 16px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .canvas-region.ant-card > .ant-card-body {

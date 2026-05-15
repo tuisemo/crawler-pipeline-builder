@@ -2,8 +2,8 @@ import { theme, type ThemeConfig } from 'antd'
 
 /**
  * Ant Design Theme Configuration: Compact Mission Control
- * Strictly aligned with DESIGN.md and user feedback.
- * Uses #0F172A (Ink Black) as the primary technical accent.
+ * Aligned with DESIGN.md — pure black/gray system.
+ * Uses #000000 (Pure Black) as the primary brand accent.
  */
 export const antdTheme: ThemeConfig = {
   token: {
@@ -11,40 +11,41 @@ export const antdTheme: ThemeConfig = {
     fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Helvetica, Arial, sans-serif',
     fontSize: 14,
 
-    // Foundation (DESIGN.md Section 3)
-    colorPrimary: '#0F172A',        // Ink Black
-    colorInfo: '#0F172A',
+    // Foundation (DESIGN.md)
+    colorPrimary: '#000000',        // Pure Black
+    colorInfo: '#000000',
     colorSuccess: '#16A34A',        // Verified Green
     colorWarning: '#F59E0B',        // Caution Amber
     colorError: '#DC2626',          // Fault Red
 
     // Backgrounds
-    colorBgBase: '#FFFFFF',         // Ice Surface
-    colorBgLayout: '#FFFFFF',       // Ice Surface
-    colorBgContainer: '#FFFFFF',    // Ice Surface
+    colorBgBase: '#FFFFFF',         // Canvas
+    colorBgLayout: '#FFFFFF',       // Canvas
+    colorBgContainer: '#FFFFFF',    // Canvas
     colorBgElevated: '#FFFFFF',
 
     // Text
-    colorText: '#0F172A',
-    colorTextSecondary: '#334155',
-    colorTextTertiary: '#64748B',
+    colorText: '#000000',           // Ink
+    colorTextSecondary: '#525252',  // Charcoal
+    colorTextTertiary: '#737373',   // Body
+    colorTextQuaternary: '#a3a3a3', // Mute
 
-    // Borders & Shadows
-    colorBorder: '#E2E8F0',
-    colorBorderSecondary: '#CBD5E1',
-    borderRadius: 6,                // Compact sharp corners
+    // Borders & Shadows — hairline system
+    colorBorder: '#e5e5e5',         // Hairline
+    colorBorderSecondary: '#d4d4d4', // Hairline Strong
+    borderRadius: 6,                // Keep existing compact corners
     borderRadiusSM: 4,
-    borderRadiusLG: 10,
+    borderRadiusLG: 12,             // Cards
     borderRadiusXS: 2,
 
     // Interactive
-    colorLink: '#0F172A',
-    colorLinkHover: '#334155',
-    controlHeight: 28,               // Global compact control height
+    colorLink: '#000000',
+    colorLinkHover: '#525252',
+    controlHeight: 28,
 
-    // Custom Box Shadows
-    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.02)',
-    boxShadowSecondary: '0 8px 24px rgba(15, 23, 42, 0.06)',
+    // Shadows — minimal application depth
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+    boxShadowSecondary: '0 4px 12px rgba(0, 0, 0, 0.06)',
   },
   components: {
     Button: {
@@ -56,7 +57,7 @@ export const antdTheme: ThemeConfig = {
     },
     Card: {
       borderRadiusLG: 12,
-      colorBorderSecondary: 'rgba(15, 23, 42, 0.06)',
+      colorBorderSecondary: '#e5e5e5',
     },
     Input: {
       borderRadius: 6,
@@ -74,20 +75,20 @@ export const antdTheme: ThemeConfig = {
       fontSize: 14,
     },
     Table: {
-      headerBg: '#EFF6FF',
-      headerColor: '#334155',
+      headerBg: '#fafafa',          // Soft Surface (was blue-tinted #EFF6FF)
+      headerColor: '#525252',       // Charcoal
       headerBorderRadius: 6,
       borderRadius: 8,
       fontSize: 14,
     },
     Tag: {
-      borderRadiusSM: 9999,
+      borderRadiusSM: 6,
       fontSize: 13,
     },
     Tabs: {
       fontWeightStrong: 700,
-      itemSelectedColor: '#0F172A',
-      inkBarColor: '#0F172A',
+      itemSelectedColor: '#000000',
+      inkBarColor: '#000000',
       fontSize: 14,
     },
     Collapse: {
@@ -149,3 +150,4 @@ export const antdTheme: ThemeConfig = {
     },
   },
 }
+
