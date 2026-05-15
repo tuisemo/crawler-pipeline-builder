@@ -189,7 +189,7 @@ USER_CENTER_BASE_URI=https://test.zhongshu.tech/pbc/usercenter
 ### 5.3 启动服务
 
 ```bash
-python server.py -p 8000
+python main.py -p 8000
 ```
 
 后端监听 `127.0.0.1:8000`，只接受 Nginx 转发的本地请求。
@@ -215,7 +215,7 @@ npm run build
 
 # 4. 后端：安装依赖并启动
 pip install .
-python server.py -p 8000
+python main.py -p 8000
 
 # 5. Nginx
 #    确保 server_name / SSL / alias 路径正确

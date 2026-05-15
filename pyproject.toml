@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["server"]
+py-modules = ["main"]
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

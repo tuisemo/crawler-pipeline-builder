@@ -67,7 +67,7 @@ uv run python scripts/db_init.py --dry-run
 
 ```bash
 uv sync
-python server.py
+python main.py
 ```
 
 后端默认地址：`http://127.0.0.1:8000`
@@ -114,7 +114,7 @@ uv run python scripts/db_init.py --create-db
 
 ```text
 scraper-flow-studio/
-├── server.py                  # 根目录兼容启动入口（支持 --port 参数）
+├── main.py                    # 应用启动入口（支持 --port 参数）
 ├── backend/                   # 后端实现
 │   ├── app.py                 # FastAPI 应用入口（lifespan / 异常处理 / 路由注册）
 │   ├── api/                   # FastAPI 路由层
