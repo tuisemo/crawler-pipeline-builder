@@ -31,8 +31,12 @@ export default defineConfig(({ mode }) => {
       port: 3101,
       strictPort: true,
     },
+    css: {
+      devSourcemap: true,
+    },
     build: {
       chunkSizeWarningLimit: 700,
+      cssMinify: "esbuild",
       rollupOptions: {
         output: {
           manualChunks(id) {

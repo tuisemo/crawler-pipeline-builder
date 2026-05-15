@@ -126,136 +126,13 @@ body {
 
 /* ── Animations ─────────────────────────────────── */
 
-@keyframes pulse-glow-light {
-  0% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.15); }
-  100% { opacity: 0.6; transform: scale(1); }
-}
-
 @keyframes float-loop {
   0% { transform: translateY(0px); }
   50% { transform: translateY(-10px); }
   100% { transform: translateY(0px); }
 }
 
-@keyframes scan-line {
-  0% { transform: translateY(-100%); }
-  50% { transform: translateY(300px); }
-  100% { transform: translateY(-100%); }
-}
-
-@keyframes spin-slow {
-  from { transform: translate(-50%, -50%) rotateX(90deg) rotateZ(0deg); }
-  to { transform: translate(-50%, -50%) rotateX(90deg) rotateZ(360deg); }
-}
-
-@keyframes marquee-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.animate-float {
-  animation: float-loop 6s infinite ease-in-out;
-}
-
-.tech-log-stream {
-  font-family: var(--sd-font-mono);
-  font-size: 12px;
-  color: var(--sd-color-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  opacity: 0.5;
-  display: flex;
-  gap: 40px;
-}
-
-.tech-log-inner {
-  display: flex;
-  gap: 40px;
-  animation: marquee-scroll 20s linear infinite;
-}
-
-.glowing-dot.success { background: var(--sd-color-success); box-shadow: 0 0 8px var(--sd-color-success); }
-.glowing-dot.warning { background: var(--sd-color-warning); box-shadow: 0 0 8px var(--sd-color-warning); }
-.glowing-dot.error { background: var(--sd-color-error); box-shadow: 0 0 8px var(--sd-color-error); }
-
 /* ── Page Layouts ───────────────────────────────── */
-
-/* Command Center Grid */
-.command-center-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
-  padding: 32px;
-}
-
-/* Tech Card */
-.tech-card {
-  background: var(--sd-color-bg-surface);
-  border: var(--sd-border-subtle);
-  border-radius: var(--sd-radius-md);
-  padding: 24px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  box-shadow: var(--sd-shadow-sm);
-}
-
-.tech-card:hover {
-  border-color: rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
-  box-shadow: var(--sd-shadow-md);
-}
-
-.tech-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--sd-color-primary);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.tech-card:hover::before {
-  opacity: 1;
-}
-
-/* Technical Workspace */
-.tech-workspace {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.tech-sidebar {
-  width: 320px;
-  border-right: var(--sd-border-subtle);
-  background: var(--sd-color-bg-surface);
-  display: flex;
-  flex-direction: column;
-}
-
-.tech-main {
-  flex: 1;
-  overflow-y: auto;
-  background-color: var(--sd-color-bg-base);
-  background-image: var(--sd-pattern-grid);
-  background-size: 80px 80px;
-  position: relative;
-}
-
-/* Add a vignette to further reduce blankness */
-.tech-main::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 50%, transparent 0%, rgba(0,0,0,0.02) 100%);
-  pointer-events: none;
-}
 
 /* ── Global Utility Overrides ───────────────────── */
 

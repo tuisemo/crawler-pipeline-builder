@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../auth/useAuth'
 import logoUrl from '../../public/logo_128.webp'
 
-const { Title, Text } = Typography
+Typography
 
 const GridBackground = () => (
   <div style={{ 

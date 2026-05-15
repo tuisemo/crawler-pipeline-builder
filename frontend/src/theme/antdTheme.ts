@@ -1,4 +1,4 @@
-import { theme, type ThemeConfig } from 'antd'
+import { type ThemeConfig } from 'antd'
 
 /**
  * Ant Design Theme Configuration: Compact Mission Control

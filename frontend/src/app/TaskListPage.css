@@ -126,6 +126,8 @@
 
 .task-source {
   font-size: 12px;
+  color: var(--sd-color-text-tertiary);
+}
 
 .task-description {
   flex: 1;
