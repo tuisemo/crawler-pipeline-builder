@@ -18,7 +18,7 @@ const GridBackground = () => (
     position: 'absolute', 
     inset: 0, 
     zIndex: 0, 
-    backgroundImage: 'linear-gradient(rgba(0,0,0,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.025) 1px, transparent 1px)',
+    backgroundImage: 'linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px)',
     backgroundSize: '60px 60px',
     maskImage: 'radial-gradient(ellipse 80% 70% at 60% 40%, black, transparent)',
     pointerEvents: 'none'
@@ -47,7 +47,7 @@ export default function HomePage() {
   const { isAuthenticated, isLoading, login } = useAuth()
 
   return (
-    <div className="home-root" style={{ background: '#FAFBFC', overflow: 'hidden' }}>
+    <div className="home-root" style={{ background: '#FFFFFF', overflow: 'hidden' }}>
       <GridBackground />
       <GlowOrb color="rgba(15,23,42,0.08)" size={600} top="-10%" left="50%" />
       <GlowOrb color="rgba(6,182,212,0.06)" size={400} top="50%" left="20%" />
@@ -63,9 +63,8 @@ export default function HomePage() {
       }}>
         <div style={{ flex: 1, maxWidth: 620 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-             <img src="/logo_128.webp" alt="SFS" style={{ width: 20, height: 20, borderRadius: 4 }} />
              <span style={{ fontFamily: 'var(--sd-font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--sd-color-text-tertiary)', letterSpacing: '0.15em' }}>
-               CRAWLER WORKFLOW V1.0
+               ADVANCED WEB SCRAPING INFRASTRUCTURE
              </span>
           </div>
           

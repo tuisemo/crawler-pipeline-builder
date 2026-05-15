@@ -202,6 +202,24 @@ export default function WorkbenchPage() {
     }
   }, [nodes, selectedNodeId])
 
+  // Automatically optimize layout when structural changes occur or on initialization
+  const prevStructureRef = useRef({ nodeCount: nodes.length, edgeCount: edges.length })
+  useEffect(() => {
+    const nodeCount = nodes.length
+    const edgeCount = edges.length
+    
+    // Trigger if count changed (structural change) OR if we just loaded from taskId
+    const structureChanged = nodeCount !== prevStructureRef.current.nodeCount || edgeCount !== prevStructureRef.current.edgeCount
+    
+    if (structureChanged && nodeCount > 0) {
+      const nextNodes = autoLayoutNodes(nodes, edges)
+      setNodes(nextNodes)
+      setCanvasFitToken((t) => t + 1)
+    }
+    
+    prevStructureRef.current = { nodeCount, edgeCount }
+  }, [nodes.length, edges.length, edges, nodes]) // Depend on lengths for triggering, but need nodes/edges for layout
+
   useEffect(() => {
     if (isApplyingDslRef.current) {
       isApplyingDslRef.current = false

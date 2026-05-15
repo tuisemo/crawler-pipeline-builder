@@ -9,42 +9,9 @@ Covers:
 from __future__ import annotations
 
 import pytest
-import fakeredis
-from fastapi.testclient import TestClient
 
 from backend.auth.session import create_session, upsert_user
-from backend.database import get_cursor, ensure_schema
-from server import app
-
-
-@pytest.fixture(autouse=True)
-def mock_redis(monkeypatch):
-    fake_r = fakeredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("backend.auth.redis_client.get_redis", lambda: fake_r)
-    return fake_r
-
-
-@pytest.fixture(autouse=True)
-def _setup_auth_environment(monkeypatch: pytest.MonkeyPatch):
-    """Prepare auth env vars and clean DB tables before each test."""
-    monkeypatch.setenv("USER_CENTER_BASE_URI", "https://user-center.example.com")
-    monkeypatch.setenv("USER_CENTER_CLIENT_ID", "crawler-client")
-    monkeypatch.setenv("USER_CENTER_CLIENT_SECRET", "crawler-secret")
-    monkeypatch.setenv("USER_CENTER_SCOPE", "basic")
-    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/auth/callback")
-    monkeypatch.delenv("ENV", raising=False)
-
-    ensure_schema()
-    with get_cursor() as cur:
-        cur.execute("DELETE FROM task_assets")
-        cur.execute("DELETE FROM tasks")
-        cur.execute("DELETE FROM users")
-
-
-@pytest.fixture()
-def client():
-    with TestClient(app) as c:
-        yield c
+from backend.database import get_cursor
 
 
 @pytest.fixture()

@@ -167,12 +167,11 @@ describe('AuthProvider', () => {
     expect(window.location.href).toBe('/api/auth/login?next=%2Ftasks')
   })
 
-  it('logout() calls POST /api/auth/logout, clears state, and navigates to user-center logout URL', async () => {
+  it('logout() calls POST /api/auth/logout, clears state, and navigates to home page', async () => {
     setStoredSessionId('logout-session')
-    const logoutUrl = 'https://user-center.example.com/auth/web/#/logout?redirectUri=http%3A%2F%2Fapp.example.com&channel=kl-repo-pbc'
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce(mockFetchSuccess({ user: mockUser }))
-      .mockResolvedValueOnce(mockFetchSuccess({ loggedOut: true, logoutUriConfig: { default: logoutUrl } }))
+      .mockResolvedValueOnce(mockFetchSuccess({ loggedOut: true }))
 
     renderWithRouter(
       <AuthProvider>

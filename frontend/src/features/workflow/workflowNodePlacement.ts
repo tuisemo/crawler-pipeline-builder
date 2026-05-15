@@ -1,7 +1,11 @@
-import type { WorkflowNode } from './workflowState'
+import dagre from 'dagre'
+import type { WorkflowNode, WorkflowEdge } from './workflowState'
 import type { WorkflowNodeType } from './workflowContracts'
-import type { WorkflowEdge } from './workflowState'
 
+const NODE_WIDTH = 230
+const NODE_HEIGHT = 100
+
+// Existing grid-based placement logic for newly added nodes
 const GRID_COLUMNS = 3
 const GRID_X_GAP = 240
 const GRID_Y_GAP = 120
@@ -47,83 +51,39 @@ export function resolveNextNodePosition(currentNodes: WorkflowNode[], paletteOpe
   }
 }
 
+/**
+ * Automatically optimize the layout of nodes using the dagre library.
+ * This provides a cleaner hierarchical layout than basic grid or topological sorting.
+ */
 export function autoLayoutNodes(
   nodes: WorkflowNode[],
-  edges: WorkflowEdge[]
+  edges: WorkflowEdge[],
+  direction = 'LR'
 ): WorkflowNode[] {
-  const inDegree: Record<string, number> = {}
-  const adj: Record<string, string[]> = {}
+  if (nodes.length === 0) return []
 
-  nodes.forEach((n) => {
-    inDegree[n.id] = 0
-    adj[n.id] = []
+  const dagreGraph = new dagre.graphlib.Graph()
+  dagreGraph.setDefaultEdgeLabel(() => ({}))
+  dagreGraph.setGraph({ rankdir: direction, nodesep: 70, ranksep: 120 })
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
   })
 
-  edges.forEach((e) => {
-    if (adj[e.source] && inDegree[e.target] !== undefined) {
-      adj[e.source].push(e.target)
-      inDegree[e.target]++
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target)
+  })
+
+  dagre.layout(dagreGraph)
+
+  return nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id)
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition.x - NODE_WIDTH / 2,
+        y: nodeWithPosition.y - NODE_HEIGHT / 2,
+      },
     }
   })
-
-  const queue: string[] = []
-  nodes.forEach((n) => {
-    if (inDegree[n.id] === 0) queue.push(n.id)
-  })
-
-  const nodeRank: Record<string, number> = {}
-  const layers: string[][] = []
-  let currentLayer = queue
-  let rank = 0
-
-  while (currentLayer.length > 0) {
-    layers.push([...currentLayer])
-    const nextLayer: string[] = []
-
-    currentLayer.forEach((id) => {
-      nodeRank[id] = rank
-      adj[id].forEach((target) => {
-        inDegree[target]--
-        if (inDegree[target] === 0) {
-          nextLayer.push(target)
-        }
-      })
-    })
-
-    currentLayer = nextLayer
-    rank++
-  }
-
-  nodes.forEach((n) => {
-    if (nodeRank[n.id] === undefined) {
-      layers.push([n.id])
-      nodeRank[n.id] = layers.length - 1
-    }
-  })
-
-  const startX = 60
-  const startY = 140
-  const xGap = 280
-  const yGap = 160
-
-  const layoutedNodes = nodes.map((node) => ({ ...node }))
-  const layoutedMap = new Map(layoutedNodes.map((n) => [n.id, n]))
-
-  layers.forEach((layerNodes, layerIndex) => {
-    const x = startX + layerIndex * xGap
-    const totalLayerHeight = (layerNodes.length - 1) * yGap
-    const layerStartY = startY - totalLayerHeight / 2
-
-    layerNodes.forEach((nodeId, i) => {
-      const node = layoutedMap.get(nodeId)
-      if (node) {
-        node.position = {
-          x,
-          y: Math.max(80, layerStartY + i * yGap),
-        }
-      }
-    })
-  })
-
-  return layoutedNodes
 }

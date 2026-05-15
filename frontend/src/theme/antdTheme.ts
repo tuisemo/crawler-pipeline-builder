@@ -14,7 +14,7 @@ export const antdTheme: ThemeConfig = {
     // Foundation (DESIGN.md)
     colorPrimary: '#000000',        // Pure Black
     colorInfo: '#000000',
-    colorSuccess: '#16A34A',        // Verified Green
+    colorSuccess: '#36c46aff',        // Verified Green
     colorWarning: '#F59E0B',        // Caution Amber
     colorError: '#DC2626',          // Fault Red
 

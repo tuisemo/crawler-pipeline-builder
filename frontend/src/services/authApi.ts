@@ -32,7 +32,6 @@ export interface MeResponse {
 
 export interface LogoutResponse {
   loggedOut: boolean
-  logoutUriConfig?: Record<string, string>
 }
 
 // ── Public API ───────────────────────────────────────────

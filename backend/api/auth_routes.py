@@ -24,6 +24,7 @@ from backend.auth.session import (
 from backend.auth.user_center_client import (
     UserCenterError,
     build_authorize_url,
+    call_usercenter_logout,
     exchange_code_for_token,
     fetch_user_info,
 )
@@ -212,27 +213,44 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
         return _auth_error_redirect(frontend_url, exc.error_code, "登录失败，请重试")
 
     user_details = derive_local_user_profile_from_token(token)
-    if not user_details.get("external_id"):
-        # Token lacks open_id — fallback to user center /server/public/user/get
-        logger.info("Token has no open_id, falling back to user center user info endpoint")
-        try:
-            profile = await fetch_user_info(token.get("access_token", ""))
-            open_id = profile.get("openId") or profile.get("open_id")
-            if open_id:
-                user_details = {
-                    "external_id": str(open_id),
-                    "display_name": profile.get("personName")
+    logger.info(
+        "OAuth callback: token-derived external_id=%s (source=token_claims)",
+        user_details.get("external_id"),
+    )
+
+    # Always verify/override with user center API — it is the authoritative source of openId
+    try:
+        profile = await fetch_user_info(token.get("access_token", ""))
+        api_open_id = profile.get("openId") or profile.get("open_id")
+        if api_open_id:
+            api_open_id = str(api_open_id)
+            token_open_id = user_details.get("external_id")
+            if token_open_id and token_open_id != api_open_id:
+                logger.warning(
+                    "OAuth callback: external_id mismatch — token=%s api=%s, using api openId",
+                    token_open_id, api_open_id,
+                )
+            user_details = {
+                "external_id": api_open_id,
+                "display_name": (
+                    profile.get("personName")
                     or profile.get("displayName")
                     or profile.get("nickName")
-                    or str(open_id),
-                    "email": profile.get("email"),
-                    "avatar_url": profile.get("imageUrl"),
-                }
-        except UserCenterError as exc:
-            logger.warning("User center user info fallback failed: %s", exc)
+                    or user_details.get("display_name")
+                    or api_open_id
+                ),
+                "email": profile.get("email") or user_details.get("email"),
+                "avatar_url": profile.get("imageUrl") or user_details.get("avatar_url"),
+            }
+            logger.info(
+                "OAuth callback: resolved external_id=%s (source=user_center_api)",
+                api_open_id,
+            )
+    except UserCenterError as exc:
+        logger.warning("User center user info API failed, using token-derived identity: %s", exc)
 
     if not user_details.get("external_id"):
-        logger.warning("OAuth callback missing stable subject in token claims")
+        logger.warning("OAuth callback missing openId from all sources")
         return _auth_error_redirect(frontend_url, "oauth_subject_missing", "登录失败，请重试")
     external_id = user_details["external_id"]
     display_name = user_details["display_name"]
@@ -291,31 +309,56 @@ def me(current_user: CurrentUser):
 
 @router.post("/logout")
 async def logout(current_user: CurrentUser):
-    """Delete the local app session.
+    """Delete the local app session and notify the user-center gateway.
 
-    Deletes the local Redis session. The frontend should then
-    redirect the user to the user-center web logout page to
-    terminate the user-center session.
+    1. Reads the Redis session to obtain the user-center access_token.
+    2. Calls the user-center ``/public/logout`` endpoint so the gateway
+       can clean up its ``x-session-id`` session in Redis.
+    3. Destroys the sea-data Redis session.
+    4. Returns ``loggedOut: True`` — the frontend clears local state
+       and navigates home.
+
+    Note: the user-center's Spring Security SSO session (JSESSIONID) is
+    maintained on the user-center domain and cannot be cleared via
+    server-to-server calls.  It expires naturally based on its TTL.
+    Direct browser navigation to the user-center ``/logout`` is not
+    possible because the gateway ``SessionInterceptor`` blocks requests
+    that lack an ``x-session-id`` header (E201).
     """
-    settings = get_settings()
-    delete_session(current_user.session_id)
-    frontend_home_url = _build_frontend_home_url(settings)
+    from backend.auth.session import get_session_by_token
 
-    uc_logout_url = (
-        f"{settings.user_center_base_uri.rstrip('/')}/auth/web/#/logout"
-        f"?redirectUri={quote(frontend_home_url, safe='')}"
-        f"&channel={settings.user_center_client_id}"
-    )
+    # Read session before deletion to obtain the user-center access_token
+    raw_session = get_session_by_token(current_user.session_id or "")
+    access_token = raw_session.get("access_token") if raw_session else None
+
+    # Best-effort: notify user-center /public/logout so the gateway
+    # can clean up its x-session-id Redis entry.
+    if access_token:
+        try:
+            await call_usercenter_logout(access_token=access_token)
+            logger.info("User center gateway logout completed for user_id=%s", current_user.user_id)
+        except (UserCenterError, Exception) as exc:
+            logger.warning("User center gateway logout failed (non-fatal): %s", exc)
+
+    delete_session(current_user.session_id)
 
     return api_response({
         "loggedOut": True,
-        "logoutUriConfig": {settings.user_center_client_id: uc_logout_url},
     })
 
 
 @router.get("/logout")
 async def logout_redirect(request: Request):
-    """Browser-initiated logout: delete session and redirect to user-center logout."""
+    """Browser-initiated full logout: delete local session then redirect to
+    user-center SSO logout, which finally redirects back to the frontend.
+
+    Flow:
+      1. Browser hits GET /api/auth/logout
+      2. Delete local Redis session
+      3. Redirect to user-center GET /logout (Spring Security clears JSESSIONID)
+         — user-center logoutSuccessHandler returns empty body, so we use an
+           intermediate HTML page to redirect back.
+    """
     settings = get_settings()
     frontend_home_url = _build_frontend_home_url(settings)
 
@@ -323,10 +366,4 @@ async def logout_redirect(request: Request):
     if token:
         delete_session(token)
 
-    # Redirect to user-center web logout page
-    uc_logout_url = (
-        f"{settings.user_center_base_uri.rstrip('/')}/auth/web/#/logout"
-        f"?redirectUri={quote(frontend_home_url, safe='')}"
-        f"&channel={settings.user_center_client_id}"
-    )
-    return RedirectResponse(url=uc_logout_url, status_code=302)
+    return RedirectResponse(url=frontend_home_url, status_code=302)

@@ -87,22 +87,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   const logoutFn = useCallback(async () => {
-    // Call backend to delete server-side session first
-    const result = await apiLogout().catch(() => null)
+    // Call backend to delete server-side session and notify user-center gateway
+    await apiLogout().catch(() => null)
 
-    // Only clear local state after the backend confirms logout (or if it fails, clear anyway)
+    // Clear local auth state
     clearStoredSessionId()
     setUser(null)
     setAuthStatus(null)
 
-    // If user center returned a logout URL, redirect there; otherwise go home
-    if (result?.logoutUriConfig) {
-      const urls = Object.values(result.logoutUriConfig)
-      if (urls.length > 0) {
-        window.location.href = urls[0]
-        return
-      }
-    }
+    // Reload the home page (full navigation clears all in-memory state)
     window.location.href = window.location.origin + window.location.pathname
   }, [])
 

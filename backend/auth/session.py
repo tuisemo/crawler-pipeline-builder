@@ -267,7 +267,12 @@ def update_session(raw_token: str, **patch: Any) -> dict[str, Any] | None:
 
 
 def derive_local_user_profile_from_token(token: dict[str, Any]) -> dict[str, Any]:
-    """Best-effort local identity derivation from OAuth2 token payload/claims."""
+    """Best-effort local identity derivation from OAuth2 token payload/claims.
+
+    Only uses ``openId`` / ``open_id`` fields as the external user identifier.
+    Other claim fields (``sub``, ``uid``, ``user_id``) are deliberately excluded
+    to avoid identity fragmentation across different login sessions.
+    """
     access_token = token.get("access_token")
     id_token = token.get("id_token")
     access_claims = _decode_jwt_payload(access_token if isinstance(access_token, str) else None)
@@ -281,13 +286,10 @@ def derive_local_user_profile_from_token(token: dict[str, Any]) -> dict[str, Any
         return None
 
     external_id = first_non_empty(
-        token.get("open_id"),
         token.get("openId"),
+        token.get("open_id"),
         claims.get("openId"),
         claims.get("open_id"),
-        claims.get("sub"),
-        claims.get("uid"),
-        claims.get("user_id"),
     )
     display_name = first_non_empty(
         claims.get("name"),

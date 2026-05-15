@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import fakeredis
-
 import pytest
 
 from backend.auth.session import (
@@ -27,13 +25,6 @@ from backend.database import get_cursor, ensure_schema
 def _ensure_schema():
     """Ensure database schema is up-to-date before each test."""
     ensure_schema()
-
-
-@pytest.fixture(autouse=True)
-def mock_redis(monkeypatch):
-    fake_r = fakeredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("backend.auth.redis_client.get_redis", lambda: fake_r)
-    return fake_r
 
 
 @pytest.fixture()

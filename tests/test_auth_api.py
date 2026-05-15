@@ -5,44 +5,11 @@ from __future__ import annotations
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-import fakeredis
 from fastapi.testclient import TestClient
 
 from backend.auth.session import consume_oauth_state
-from backend.database import get_cursor, ensure_schema
+from backend.database import get_cursor
 from server import app
-
-
-@pytest.fixture(autouse=True)
-def mock_redis(monkeypatch):
-    """Mock Redis using fakeredis."""
-    fake_r = fakeredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("backend.auth.redis_client.get_redis", lambda: fake_r)
-    return fake_r
-
-
-@pytest.fixture(autouse=True)
-def _setup_auth_environment(monkeypatch: pytest.MonkeyPatch):
-    """Prepare auth env vars and clean DB tables before each test."""
-    monkeypatch.setenv("USER_CENTER_BASE_URI", "https://user-center.example.com")
-    monkeypatch.setenv("USER_CENTER_CLIENT_ID", "crawler-client")
-    monkeypatch.setenv("USER_CENTER_CLIENT_SECRET", "crawler-secret")
-    monkeypatch.setenv("USER_CENTER_SCOPE", "basic")
-    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/api/auth/callback")
-    monkeypatch.setenv("USER_CENTER_FRONTEND_URL", "http://testserver")
-    monkeypatch.delenv("ENV", raising=False)
-
-    ensure_schema()
-    with get_cursor() as cur:
-        cur.execute("DELETE FROM task_assets")
-        cur.execute("DELETE FROM tasks")
-        cur.execute("DELETE FROM users")
-
-
-@pytest.fixture()
-def client():
-    with TestClient(app) as c:
-        yield c
 
 
 def _extract_state(location: str) -> str:
@@ -254,7 +221,7 @@ def test_logout_deletes_session(client: TestClient, monkeypatch: pytest.MonkeyPa
     assert me_response.status_code == 401
 
 
-def test_logout_uses_frontend_fallback_when_frontend_url_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_logout_no_longer_returns_logout_uri_config(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     response, _ = _perform_login_callback(client, monkeypatch)
     session_id = _extract_session_id_from_redirect(response.headers["location"])
 
@@ -264,8 +231,10 @@ def test_logout_uses_frontend_fallback_when_frontend_url_missing(client: TestCli
 
     response = client.post("/api/auth/logout", headers={"Authorization": f"Bearer {session_id}"})
     assert response.status_code == 200
-    logout_uri = response.json()["data"]["logoutUriConfig"]["crawler-client"]
-    assert "redirectUri=https%3A%2F%2Fapp.example.com%2F%23%2F" in logout_uri
+    payload = response.json()["data"]
+    assert payload["loggedOut"] is True
+    # Logout no longer redirects to user-center; logoutUriConfig is absent
+    assert "logoutUriConfig" not in payload
 
 
 def test_logout_rejects_invalid_session(client: TestClient):

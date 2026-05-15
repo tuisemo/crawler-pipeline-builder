@@ -5,36 +5,15 @@ regardless of the underlying domain. They require authentication.
 """
 
 from fastapi.testclient import TestClient
-import fakeredis
 
 from backend.auth.session import create_session, upsert_user
-from backend.database import get_cursor, ensure_schema
 from server import app
-
 
 client = TestClient(app)
 
 
-def _mock_redis(monkeypatch):
-    fake_r = fakeredis.FakeRedis(decode_responses=True)
-    monkeypatch.setattr("backend.auth.redis_client.get_redis", lambda: fake_r)
-    return fake_r
-
-
 def _setup_auth(monkeypatch):
     """Set up authenticated session for tests that need auth."""
-    _mock_redis(monkeypatch)
-    monkeypatch.setenv("USER_CENTER_BASE_URI", "https://user-center.example.com")
-    monkeypatch.setenv("USER_CENTER_CLIENT_ID", "crawler-client")
-    monkeypatch.setenv("USER_CENTER_CLIENT_SECRET", "crawler-secret")
-    monkeypatch.setenv("USER_CENTER_SCOPE", "basic")
-    monkeypatch.setenv("USER_CENTER_REDIRECT_URI", "http://testserver/auth/callback")
-    monkeypatch.delenv("ENV", raising=False)
-    ensure_schema()
-    with get_cursor() as cur:
-        cur.execute("DELETE FROM task_assets")
-        cur.execute("DELETE FROM tasks")
-        cur.execute("DELETE FROM users")
     user = upsert_user(
         external_id="envelope_test_user",
         display_name="Envelope Test User",
