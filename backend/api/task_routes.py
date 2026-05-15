@@ -15,6 +15,7 @@ from backend.core.api_response import api_response
 from backend.tasks.schemas import (
     CreateTaskRequest,
     GetAssetResponse,
+    RollbackAssetRequest,
     SaveAssetRequest,
     TaskDetailResponse,
     TaskListResponse,
@@ -26,8 +27,11 @@ from backend.tasks.services import (
     create_task,
     delete_task,
     get_asset,
+    get_asset_by_version,
+    get_asset_history,
     get_task,
     list_tasks,
+    rollback_asset,
     save_assets,
     update_task,
 )
@@ -163,3 +167,67 @@ def get_asset_endpoint(task_id: int, asset_type: str, current_user: CurrentUser)
             status_code=500, success=False,
             error_code="get_asset_error", error=_INTERNAL_ERROR_MSG,
         )
+
+
+@router.get("/{task_id}/assets/{asset_type}/history")
+def get_asset_history_endpoint(task_id: int, asset_type: str, current_user: CurrentUser):
+    """Get version history metadata for a specific asset type. No content is returned."""
+    try:
+        result = get_asset_history(task_id, asset_type, owner_user_id=current_user.user_id)
+        return api_response(result.model_dump())
+    except TaskNotFoundError as e:
+        return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
+    except ValueError as e:
+        error_str = str(e)
+        if "not found" in error_str.lower():
+            return api_response(status_code=404, success=False, error_code="not_found", error=error_str)
+        return api_response(status_code=400, success=False, error_code="invalid_asset", error=error_str)
+    except Exception:
+        logger.exception("Unexpected error getting history for asset %s on task %s", asset_type, task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="get_asset_history_error", error=_INTERNAL_ERROR_MSG,
+        )
+
+
+@router.get("/{task_id}/assets/{asset_type}/versions/{version}")
+def get_asset_version_endpoint(task_id: int, asset_type: str, version: int, current_user: CurrentUser):
+    """Get the content of a specific asset version by version number."""
+    try:
+        result = get_asset_by_version(task_id, asset_type, version, owner_user_id=current_user.user_id)
+        return api_response(result)
+    except TaskNotFoundError as e:
+        return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
+    except ValueError as e:
+        error_str = str(e)
+        if "not found" in error_str.lower():
+            return api_response(status_code=404, success=False, error_code="not_found", error=error_str)
+        return api_response(status_code=400, success=False, error_code="invalid_asset", error=error_str)
+    except Exception:
+        logger.exception("Unexpected error getting asset %s v%s for task %s", asset_type, version, task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="get_asset_version_error", error=_INTERNAL_ERROR_MSG,
+        )
+
+
+@router.post("/{task_id}/assets/{asset_type}/rollback")
+def rollback_asset_endpoint(task_id: int, asset_type: str, request: RollbackAssetRequest, current_user: CurrentUser):
+    """Roll back an asset to a previous version (re-inserts as a new latest version)."""
+    try:
+        result = rollback_asset(task_id, asset_type, request.version, owner_user_id=current_user.user_id)
+        return api_response({"saved_count": result.saved_count, "versions": result.versions})
+    except TaskNotFoundError as e:
+        return api_response(status_code=404, success=False, error_code="task_not_found", error=str(e))
+    except ValueError as e:
+        error_str = str(e)
+        if "not found" in error_str.lower():
+            return api_response(status_code=404, success=False, error_code="not_found", error=error_str)
+        return api_response(status_code=400, success=False, error_code="invalid_asset", error=error_str)
+    except Exception:
+        logger.exception("Unexpected error rolling back asset %s for task %s", asset_type, task_id)
+        return api_response(
+            status_code=500, success=False,
+            error_code="rollback_asset_error", error=_INTERNAL_ERROR_MSG,
+        )
+

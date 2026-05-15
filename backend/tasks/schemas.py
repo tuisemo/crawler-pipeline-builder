@@ -142,3 +142,29 @@ class GetAssetResponse(BaseModel):
     asset_type: str
     version: int
     created_at: Optional[str] = None
+
+
+# ----------------------------------------------------------------------
+# Asset version history models
+# ----------------------------------------------------------------------
+
+
+class AssetVersionMeta(BaseModel):
+    """Metadata for a single asset version (no content)."""
+
+    version: int
+    created_at: str
+    content_size: int  # byte length of content
+
+
+class AssetHistoryResponse(BaseModel):
+    """Full version history for one asset type."""
+
+    asset_type: str
+    versions: list[AssetVersionMeta]
+
+
+class RollbackAssetRequest(BaseModel):
+    """Request body for rolling back an asset to a previous version."""
+
+    version: int = Field(..., ge=1, description="Version number to roll back to")

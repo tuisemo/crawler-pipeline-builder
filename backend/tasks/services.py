@@ -16,6 +16,8 @@ from backend.database.db import get_cursor
 from backend.tasks.schemas import (
     VALID_ASSET_TYPES,
     VALID_TASK_STATUSES,
+    AssetHistoryResponse,
+    AssetVersionMeta,
     CreateTaskRequest,
     SaveAssetResponse,
     TaskAssetResponse,
@@ -305,3 +307,79 @@ def _row_to_task_response(row: dict) -> TaskResponse:
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
+
+
+# -- Asset version history services -----------------------------------------
+
+
+def get_asset_history(task_id: int, asset_type: str, owner_user_id: int) -> AssetHistoryResponse:
+    """Return all version metadata for a given asset type (no content payload)."""
+    if asset_type not in VALID_ASSET_TYPES:
+        raise ValueError(
+            f"Invalid asset type: {asset_type}. "
+            f"Must be one of {sorted(VALID_ASSET_TYPES)}"
+        )
+
+    with get_cursor() as cursor:
+        _check_task_owner(cursor, task_id, owner_user_id)
+
+        cursor.execute(
+            """SELECT version, created_at, CHAR_LENGTH(COALESCE(content, '')) AS content_size
+               FROM task_assets
+               WHERE task_id = %s AND asset_type = %s
+               ORDER BY version DESC""",
+            (task_id, asset_type),
+        )
+        rows = cursor.fetchall()
+
+    versions = [
+        AssetVersionMeta(
+            version=r["version"],
+            created_at=str(r["created_at"]),
+            content_size=r["content_size"],
+        )
+        for r in rows
+    ]
+    return AssetHistoryResponse(asset_type=asset_type, versions=versions)
+
+
+def get_asset_by_version(
+    task_id: int, asset_type: str, version: int, owner_user_id: int
+) -> dict[str, Any]:
+    """Return the content of a specific asset version."""
+    if asset_type not in VALID_ASSET_TYPES:
+        raise ValueError(
+            f"Invalid asset type: {asset_type}. "
+            f"Must be one of {sorted(VALID_ASSET_TYPES)}"
+        )
+
+    with get_cursor() as cursor:
+        _check_task_owner(cursor, task_id, owner_user_id)
+
+        cursor.execute(
+            """SELECT content, asset_type, version, created_at
+               FROM task_assets
+               WHERE task_id = %s AND asset_type = %s AND version = %s""",
+            (task_id, asset_type, version),
+        )
+        row = cursor.fetchone()
+
+    if row is None:
+        raise ValueError(f"Asset '{asset_type}' version {version} not found for task {task_id}")
+
+    return {
+        "content": row["content"],
+        "asset_type": row["asset_type"],
+        "version": row["version"],
+        "created_at": str(row["created_at"]),
+    }
+
+
+def rollback_asset(
+    task_id: int, asset_type: str, target_version: int, owner_user_id: int
+) -> SaveAssetResponse:
+    """Roll back an asset to a previous version by re-inserting its content as the newest version."""
+    versioned = get_asset_by_version(task_id, asset_type, target_version, owner_user_id)
+    content = versioned["content"] or ""
+    return save_assets(task_id, {asset_type: content}, owner_user_id=owner_user_id)
+

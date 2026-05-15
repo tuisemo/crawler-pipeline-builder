@@ -137,3 +137,46 @@ export async function saveTaskAssets(
 export async function getTaskAsset(taskId: number, assetType: string): Promise<AssetItem | null> {
   return requestOrNull<AssetItem>(`/api/tasks/${taskId}/assets/${encodeURIComponent(assetType)}`)
 }
+
+// ── Version history types ────────────────────────────────────────────
+
+export interface AssetVersionMeta {
+  version: number
+  created_at: string
+  content_size: number
+}
+
+export interface AssetHistory {
+  asset_type: string
+  versions: AssetVersionMeta[]
+}
+
+// ── Version history API ──────────────────────────────────────────────
+
+export async function getAssetHistory(taskId: number, assetType: string): Promise<AssetHistory> {
+  return request<AssetHistory>(
+    `/api/tasks/${taskId}/assets/${encodeURIComponent(assetType)}/history`
+  )
+}
+
+export async function getAssetByVersion(
+  taskId: number,
+  assetType: string,
+  version: number
+): Promise<AssetItem> {
+  return request<AssetItem>(
+    `/api/tasks/${taskId}/assets/${encodeURIComponent(assetType)}/versions/${version}`
+  )
+}
+
+export async function rollbackAsset(
+  taskId: number,
+  assetType: string,
+  version: number
+): Promise<SaveAssetsResponse> {
+  return request<SaveAssetsResponse>(
+    `/api/tasks/${taskId}/assets/${encodeURIComponent(assetType)}/rollback`,
+    { method: 'POST', body: JSON.stringify({ version }) }
+  )
+}
+
