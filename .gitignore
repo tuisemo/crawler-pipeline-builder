@@ -4,18 +4,21 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 .pytest_cache/
 
 # Runtime / agent-generated files
-logs/
 .factory/
 .worktrees/
+
+# Backend runtime
+backend/logs/
+backend/output/
 
 # Validation files
 *.png
 .tmp_*.json
-tests/.tmp/
+backend/tests/.tmp/
 
 # Frontend
 frontend/dist/
