@@ -10,7 +10,7 @@ import {
   LoginOutlined
 } from '@ant-design/icons'
 import { useAuth } from '../auth/useAuth'
-import logoUrl from '../../public/logo_128.webp'
+const logoUrl = '/logo_128.webp'
 
 Typography
 

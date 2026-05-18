@@ -2,7 +2,7 @@ import { Layout as AntdLayout, Button, Space, Typography, Avatar, Alert } from '
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
-import logoUrl from '../../public/logo_128.webp'
+const logoUrl = '/logo_128.webp'
 
 const { Content, Header } = AntdLayout
 const { Text } = Typography
