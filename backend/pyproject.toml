@@ -33,7 +33,7 @@ backend = "app:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-py-modules = ["app"]
+py-modules = ["app", "main"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

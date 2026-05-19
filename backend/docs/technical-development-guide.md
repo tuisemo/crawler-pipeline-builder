@@ -34,7 +34,7 @@
 
 ```mermaid
 flowchart TD
-    FE["React Workbench<br/>frontend/src"] --> API["FastAPI App<br/>main.py / backend/app.py"]
+    FE["React Workbench<br/>frontend/src"] --> API["FastAPI App<br/>src/main.py / src/app.py"]
     API --> WF["Workflow API<br/>/api/workflows/*"]
     API --> AS["Assist API<br/>/api/assist/*"]
 
@@ -71,8 +71,8 @@ flowchart TD
 
 | 路径 | 当前职责 |
 | --- | --- |
-| `main.py` | 应用启动入口 |
-| `backend/app.py` | FastAPI 应用创建、路由挂载、生命周期清理 |
+| `src/main.py` | 应用启动入口 |
+| `src/app.py` | FastAPI 应用创建、路由挂载、生命周期清理 |
 | `backend/api/` | HTTP 路由层 |
 | `backend/workflow/` | 工作流编译、执行、脚本生成、详情批处理生成 |
 | `backend/assist/` | AI 辅助任务、JSON 协议、分页恢复策略 |
@@ -106,7 +106,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A["python main.py"] --> B["backend.app:app / main"]
+    A["python src/main.py"] --> B["src/app.py:app / main"]
     B --> C["FastAPI"]
     C --> D["/api/workflows/*"]
     C --> E["/api/assist/*"]

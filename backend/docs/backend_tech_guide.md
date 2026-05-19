@@ -198,7 +198,7 @@ graph LR
 
 ```mermaid
 flowchart TD
-    CMD["python main.py --port 8000"] --> MAIN["main.py → backend.app.main(port)"]
+    CMD["python src/main.py --port 8000"] --> MAIN["src/main.py → app.main(port)"]
     MAIN --> APP["backend/app.py"]
     APP --> LOG["configure_logging()"]
     APP --> FAPI["FastAPI(lifespan=lifespan)"]
