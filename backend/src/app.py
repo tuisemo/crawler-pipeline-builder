@@ -86,8 +86,9 @@ app.include_router(task_router)
 app.include_router(auth_router)
 
 
-def main(port: int | None = None):
+def main(host: str | None = None, port: int | None = None):
     settings = get_settings()
+    resolved_host = host if host is not None else settings.backend_host
     resolved_port = port if port is not None else settings.backend_port
-    logger.info("Starting Scraper Flow Studio API at http://%s:%s", settings.backend_host, resolved_port)
-    uvicorn.run(app, host=settings.backend_host, port=resolved_port, reload=False)
+    logger.info("Starting Scraper Flow Studio API at http://%s:%s", resolved_host, resolved_port)
+    uvicorn.run(app, host=resolved_host, port=resolved_port, reload=False)

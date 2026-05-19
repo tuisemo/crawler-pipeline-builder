@@ -10,6 +10,7 @@ if __name__ == "__main__":
 
     settings = get_settings()
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default=settings.backend_host)
     parser.add_argument("--port", "-p", type=int, default=settings.backend_port)
     args = parser.parse_args()
-    main(port=args.port)
+    main(host=args.host, port=args.port)
