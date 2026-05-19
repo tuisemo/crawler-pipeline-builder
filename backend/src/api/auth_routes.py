@@ -43,6 +43,28 @@ class ExchangeCodeRequest(BaseModel):
     state: str
 
 
+def _resolve_oauth_state_cookie_path(settings) -> str:
+    """Derive the cookie path from the configured redirect URI.
+
+    When the app is deployed under a sub-path (e.g. ``/crawler-studio``),
+    the cookie path must include that prefix so the browser sends the
+    cookie on the callback request.  We derive it from the redirect URI
+    so that it adapts automatically to any deployment path.
+
+    Example:
+        redirect_uri = ``https://test.zhongshu.tech/crawler-studio/api/auth/callback``
+        → cookie path  = ``/crawler-studio/api/auth``
+    """
+    parsed = urlparse(settings.user_center_redirect_uri)
+    path = parsed.path or "/api/auth/callback"
+    # Strip the callback suffix to get the base auth path
+    for suffix in ("/callback",):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    return path.rstrip("/") or "/api/auth"
+
+
 def _build_frontend_home_url(settings) -> str:
     """Build the frontend home URL for post-logout redirect."""
     return _resolve_frontend_base_url(settings) + "/#/"
@@ -122,19 +144,19 @@ def _needs_refresh_soon(access_token_expires_at: str | None, skew_seconds: int =
     return (expires_at - datetime.now(timezone.utc)).total_seconds() <= skew_seconds
 
 
-def _clear_oauth_state_cookie(response) -> None:
-    response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path="/api/auth")
+def _clear_oauth_state_cookie(response, *, cookie_path: str = "/api/auth") -> None:
+    response.delete_cookie(OAUTH_STATE_COOKIE_NAME, path=cookie_path)
 
 
 def _auth_error_redirect(
-    frontend_url: str, error_code: str, error_message: str
+    frontend_url: str, error_code: str, error_message: str, *, cookie_path: str = "/api/auth"
 ) -> RedirectResponse:
     """Build an error redirect response with the OAuth state cookie cleared."""
     response = RedirectResponse(
         url=_build_frontend_callback_error_url(frontend_url, error_code, error_message),
         status_code=302,
     )
-    _clear_oauth_state_cookie(response)
+    _clear_oauth_state_cookie(response, cookie_path=cookie_path)
     return response
 
 
@@ -142,6 +164,7 @@ def _auth_error_redirect(
 async def login(request: Request, next: str = Query("/", alias="next")):
     """Redirect the browser to the user-center authorize URL."""
     settings = get_settings()
+    cookie_path = _resolve_oauth_state_cookie_path(settings)
     next_path = _sanitize_next_path(next)
     code_verifier = generate_code_verifier()
     state = store_oauth_state(next_path=next_path, code_verifier=code_verifier)
@@ -158,7 +181,7 @@ async def login(request: Request, next: str = Query("/", alias="next")):
         httponly=True,
         samesite="lax",
         secure=request.url.scheme == "https",
-        path="/api/auth",
+        path=cookie_path,
     )
     return response
 
@@ -186,16 +209,17 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     """OAuth callback: validate state, exchange code, create session, redirect to frontend."""
     settings = get_settings()
     frontend_url = _resolve_frontend_base_url(settings)
+    cookie_path = _resolve_oauth_state_cookie_path(settings)
 
     state_cookie = request.cookies.get(OAUTH_STATE_COOKIE_NAME)
     if not state_cookie or state_cookie != state:
         logger.warning("OAuth callback rejected: state mismatch")
-        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired")
+        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired", cookie_path=cookie_path)
 
     oauth_state = consume_oauth_state(state)
     if not oauth_state:
         logger.warning("OAuth callback rejected: state consumed or missing")
-        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired")
+        return _auth_error_redirect(frontend_url, "invalid_oauth_state", "OAuth state is invalid or expired", cookie_path=cookie_path)
 
     logger.info("OAuth callback received")
     try:
@@ -210,7 +234,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
             exc.error_code,
             str(exc),
         )
-        return _auth_error_redirect(frontend_url, exc.error_code, "登录失败，请重试")
+        return _auth_error_redirect(frontend_url, exc.error_code, "登录失败，请重试", cookie_path=cookie_path)
 
     user_details = derive_local_user_profile_from_token(token)
     logger.info(
@@ -251,7 +275,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
 
     if not user_details.get("external_id"):
         logger.warning("OAuth callback missing openId from all sources")
-        return _auth_error_redirect(frontend_url, "oauth_subject_missing", "登录失败，请重试")
+        return _auth_error_redirect(frontend_url, "oauth_subject_missing", "登录失败，请重试", cookie_path=cookie_path)
     external_id = user_details["external_id"]
     display_name = user_details["display_name"]
 
@@ -280,7 +304,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     )
 
     response = RedirectResponse(url=redirect_url, status_code=302)
-    _clear_oauth_state_cookie(response)
+    _clear_oauth_state_cookie(response, cookie_path=cookie_path)
     return response
 
 
