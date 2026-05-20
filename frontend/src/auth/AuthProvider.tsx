@@ -10,7 +10,7 @@ import {
   type AuthUser,
   type AuthStatus,
 } from '../services/authApi'
-import { clearStoredSessionId, getStoredSessionId, setStoredSessionId, setOnUnauthorized } from '../services/apiClient'
+import { clearStoredSessionId, getApiPathCandidates, getStoredSessionId, setStoredSessionId, setOnUnauthorized } from '../services/apiClient'
 
 // ── Context shape ────────────────────────────────────────
 
@@ -154,15 +154,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Best-effort server logout (keepalive) without relying on backend redirects.
     if (sessionId) {
-      void fetch('./api/auth/logout', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionId}`,
-        },
-        keepalive: true,
-      }).catch(() => {
-        // Ignore network failures; client-side logout must still complete.
-      })
+      for (const path of getApiPathCandidates('/api/auth/logout')) {
+        void fetch(path, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${sessionId}`,
+          },
+          keepalive: true,
+        }).catch(() => {
+          // Ignore network failures; client-side logout must still complete.
+        })
+      }
     }
 
     // Force a full-page reload back to the app root so all in-memory auth

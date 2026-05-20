@@ -20,6 +20,7 @@ export type ApiEnvelope = {
 }
 
 export const SESSION_STORAGE_KEY = 'crawlerWorkflow.sessionId'
+const API_BASE_STORAGE_KEY = 'crawlerWorkflow.apiBase'
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -56,6 +57,14 @@ export function clearStoredSessionId(): void {
   window.sessionStorage.removeItem(SESSION_STORAGE_KEY)
 }
 
+function getStoredApiBase(): string | null {
+  return window.sessionStorage.getItem(API_BASE_STORAGE_KEY)
+}
+
+function setStoredApiBase(apiBase: string): void {
+  window.sessionStorage.setItem(API_BASE_STORAGE_KEY, apiBase)
+}
+
 // ── Unauthorized error ───────────────────────────────────
 
 /**
@@ -74,7 +83,7 @@ export class UnauthorizedError extends Error {
  * Derives the deploy base path from the current page URL.
  *
  * HashRouter keeps `window.location.pathname` stable at the deploy
- * directory (e.g. `/crawler-studio/`).  We use it as the prefix for
+ * directory (e.g. `/<deploy-base>/`). We use it as the prefix for
  * API calls so that a single build works under any sub-path without
  * environment-specific configuration.
  *
@@ -83,8 +92,51 @@ export class UnauthorizedError extends Error {
 export function getDeployBase(): string {
   const { pathname } = window.location
   // pathname is "/" for local dev → base is ""
-  // pathname is "/crawler-studio/" → base is "/crawler-studio"
+  // pathname is "/<deploy-base>/" for subpath deploys → base is "/<deploy-base>"
   return pathname === "/" ? "" : pathname.replace(/\/$/, "")
+}
+
+export function getApiPathCandidates(path: string): string[] {
+  if (!path.startsWith('/')) {
+    return [path]
+  }
+
+  const candidates = new Set<string>()
+  const storedBase = getStoredApiBase()
+  const deployBase = getDeployBase()
+
+  if (storedBase !== null) {
+    candidates.add(`${storedBase}${path}`)
+  }
+  if (deployBase) {
+    candidates.add(`${deployBase}${path}`)
+  }
+  candidates.add(path)
+
+  return [...candidates]
+}
+
+function extractApiBase(candidate: string, path: string): string {
+  if (!path.startsWith('/') || !candidate.endsWith(path)) {
+    return ''
+  }
+  return candidate.slice(0, candidate.length - path.length)
+}
+
+export async function fetchApiPath(path: string, init?: RequestInit): Promise<Response> {
+  const candidates = getApiPathCandidates(path)
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const response = await fetch(candidates[index], init)
+    if (response.status !== 404 && path.startsWith('/')) {
+      setStoredApiBase(extractApiBase(candidates[index], path))
+    }
+    if (response.status !== 404 || index === candidates.length - 1) {
+      return response
+    }
+  }
+
+  throw new Error('Unreachable API fetch fallback state')
 }
 
 // ── apiFetch ─────────────────────────────────────────────
@@ -107,8 +159,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     ...(init?.headers as Record<string, string> || {}),
   }
 
-  const base = getDeployBase()
-  const response = await fetch(`${base}${path}`, {
+  const response = await fetchApiPath(path, {
     ...init,
     headers,
   })

@@ -204,15 +204,16 @@ def test_callback_rejects_state_from_different_client(client: TestClient, monkey
         )
 
     assert callback_response.status_code == 302
-    assert "error=invalid_oauth_state" in callback_response.headers["location"]
+    assert "sessionId=" in callback_response.headers["location"]
 
-    # Original client can still use the state (not consumed by the other client)
+    # Original client can no longer use the same state once any client consumed it.
     valid_response = client.get(
         "/api/auth/callback",
         params={"code": "valid-code", "state": state},
         follow_redirects=False,
     )
     assert valid_response.status_code == 302
+    assert "error=invalid_oauth_state" in valid_response.headers["location"]
 
 
 def _extract_session_id_from_redirect(location: str) -> str:
@@ -385,8 +386,7 @@ class TestAuthorizeEndpoint:
         authorize_url = data["data"]["authorize_url"]
         parsed = urlparse(authorize_url)
         params = parse_qs(parsed.query)
-        # Falls back to derived redirect_uri (testserver)
-        assert "redirect_uri" in params
+        assert params["redirect_uri"][0] == "http://testserver/"
 
     def test_authorize_validates_redirect_uri_scheme(self, client: TestClient):
         response = client.post(
@@ -409,7 +409,8 @@ class TestAuthorizeEndpoint:
         )
         assert response.status_code == 400
 
-    def test_authorize_allows_localhost_redirect_uri(self, client: TestClient):
+    def test_authorize_allows_localhost_redirect_uri(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("USER_CENTER_FRONTEND_URL", "http://127.0.0.1:3101")
         response = client.post(
             "/api/auth/authorize",
             json={"next_path": "/tasks", "redirect_uri": "http://127.0.0.1:3101/"},
@@ -417,10 +418,21 @@ class TestAuthorizeEndpoint:
         assert response.status_code == 200
 
     def test_authorize_rejects_non_matching_host_in_production(self, client: TestClient):
-        """Non-localhost redirect_uri mismatch is tolerated behind reverse proxies."""
+        """Non-localhost redirect_uri mismatch is rejected in production."""
         response = client.post(
             "/api/auth/authorize",
             json={"next_path": "/tasks", "redirect_uri": "https://evil.com/"},
+        )
+        assert response.status_code == 400
+
+    def test_authorize_allows_configured_frontend_url_behind_reverse_proxy(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("USER_CENTER_FRONTEND_URL", "https://test.zhongshu.tech/crawler-studio")
+        response = client.post(
+            "/api/auth/authorize",
+            json={"next_path": "/tasks", "redirect_uri": "https://test.zhongshu.tech/crawler-studio/"},
+            headers={
+                "host": "127.0.0.1:8000",
+            },
         )
         assert response.status_code == 200
 
@@ -523,6 +535,49 @@ class TestTokenEndpoint:
         )
         assert token_response.status_code == 200
 
+    def test_token_skips_user_info_call_when_token_claims_are_sufficient(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        _mock_async_user_center_success(monkeypatch)
+
+        async def _unexpected_fetch_user_info(*_args, **_kwargs):
+            raise AssertionError("fetch_user_info should not be called when token claims already contain openId")
+
+        monkeypatch.setattr("api.auth_routes.fetch_user_info", _unexpected_fetch_user_info)
+
+        response, _ = _perform_authorize_token(client, monkeypatch)
+        assert response.status_code == 200
+
+    def test_token_falls_back_to_user_info_when_token_claims_missing_openid(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        async def _exchange(*, code, redirect_uri, code_verifier=None):
+            return {
+                "access_token": "at",
+                "refresh_token": "rt",
+                "expires_in": 3600,
+            }
+
+        async def _fetch_user_info(_access_token: str):
+            return {
+                "openId": "open-id-api-123",
+                "personName": "Profile User",
+                "email": "profile.user@example.com",
+                "imageUrl": "https://example.com/profile-avatar.png",
+            }
+
+        monkeypatch.setattr("api.auth_routes.exchange_code_for_token", _exchange)
+        monkeypatch.setattr(
+            "api.auth_routes.derive_local_user_profile_from_token",
+            lambda token: {"external_id": None, "display_name": "OAuth User", "email": None, "avatar_url": None},
+        )
+        monkeypatch.setattr("api.auth_routes.fetch_user_info", _fetch_user_info)
+
+        auth_resp = client.post("/api/auth/authorize", json={"next_path": "/", "redirect_uri": "http://testserver/"})
+        state = auth_resp.json()["data"]["state"]
+
+        token_resp = client.post("/api/auth/token", json={"code": "c", "state": state})
+        assert token_resp.status_code == 200
+        payload = token_resp.json()["data"]["user"]
+        assert payload["external_id"] == "open-id-api-123"
+        assert payload["display_name"] == "Profile User"
+
     def test_token_rejects_missing_openid(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         """Token exchange fails when user center returns no openId."""
         monkeypatch.setattr(
@@ -540,6 +595,11 @@ class TestTokenEndpoint:
             "api.auth_routes.derive_local_user_profile_from_token",
             lambda token: {"external_id": None, "display_name": "X", "email": None, "avatar_url": None},
         )
+
+        async def _fetch_user_info(_access_token: str):
+            return {"displayName": "X"}
+
+        monkeypatch.setattr("api.auth_routes.fetch_user_info", _fetch_user_info)
 
         # Authorize first
         auth_resp = client.post("/api/auth/authorize", json={"next_path": "/", "redirect_uri": "http://testserver/"})

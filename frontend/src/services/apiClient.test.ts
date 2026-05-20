@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   apiFetch,
   clearStoredSessionId,
+  fetchApiPath,
   setOnUnauthorized,
   setStoredSessionId,
   UnauthorizedError,
@@ -10,17 +11,24 @@ import {
 
 describe('apiClient', () => {
   const originalFetch = globalThis.fetch
+  const originalLocation = window.location
 
   beforeEach(() => {
     vi.restoreAllMocks()
     setOnUnauthorized(null)
     clearStoredSessionId()
+    window.sessionStorage.removeItem('crawlerWorkflow.apiBase')
   })
 
   afterEach(() => {
     globalThis.fetch = originalFetch
     setOnUnauthorized(null)
     clearStoredSessionId()
+    window.sessionStorage.removeItem('crawlerWorkflow.apiBase')
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      writable: true,
+    })
   })
 
   // ── Authorization header ────────────────────────────────
@@ -212,5 +220,93 @@ describe('apiClient', () => {
 
     const response = await apiFetch('/api/tasks')
     expect(response).toBe(mockResponse)
+  })
+
+  it('retries API requests at root path after a 404 under a deploy subpath', async () => {
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        pathname: '/crawler-studio/',
+      },
+      writable: true,
+    })
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ success: false, error: 'Not found' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: {} }),
+      } as Response)
+
+    const response = await apiFetch('/api/auth/authorize', { method: 'POST' })
+
+    expect(response.status).toBe(200)
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      1,
+      '/crawler-studio/api/auth/authorize',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/auth/authorize',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(window.sessionStorage.getItem('crawlerWorkflow.apiBase')).toBe('')
+  })
+
+  it('fetchApiPath reuses the same root fallback for non-auth callers', async () => {
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        pathname: '/crawler-studio/',
+      },
+      writable: true,
+    })
+
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      } as Response)
+
+    const response = await fetchApiPath('/api/auth/logout', { method: 'POST' })
+
+    expect(response.status).toBe(204)
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1, '/crawler-studio/api/auth/logout', { method: 'POST' })
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/api/auth/logout', { method: 'POST' })
+  })
+
+  it('reuses a cached root API base on later subpath requests', async () => {
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        pathname: '/another-deploy/',
+      },
+      writable: true,
+    })
+    window.sessionStorage.setItem('crawlerWorkflow.apiBase', '')
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: {} }),
+    } as Response)
+
+    await apiFetch('/api/auth/token', { method: 'POST' })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/auth/token',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })

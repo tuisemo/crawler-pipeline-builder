@@ -13,19 +13,16 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from typing import Annotated, Any
 from urllib.parse import quote, urlparse
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
 
 from auth.dependencies import AuthenticatedUser, require_auth
 from auth.session import (
     consume_oauth_state,
     create_session,
-    derive_local_user_profile_from_token,
     delete_session,
+    derive_local_user_profile_from_token,
     generate_code_verifier,
     store_oauth_state,
     upsert_user,
@@ -39,6 +36,9 @@ from auth.user_center_client import (
 )
 from core.api_response import api_response
 from core.settings import get_settings
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +168,9 @@ def _resolve_access_token_expires_at(token: dict) -> str | None:
     return None
 
 
-def _needs_refresh_soon(access_token_expires_at: str | None, skew_seconds: int = 300) -> bool:
+def _needs_refresh_soon(
+    access_token_expires_at: str | None, skew_seconds: int = 300
+) -> bool:
     if not access_token_expires_at:
         return False
     try:
@@ -187,7 +189,9 @@ def _auth_error_redirect(
 ) -> RedirectResponse:
     """Build an error redirect response to the frontend."""
     return RedirectResponse(
-        url=_build_frontend_callback_error_url(frontend_base_path, error_code, error_message),
+        url=_build_frontend_callback_error_url(
+            frontend_base_path, error_code, error_message
+        ),
         status_code=302,
     )
 
@@ -195,7 +199,7 @@ def _auth_error_redirect(
 # ── Frontend-driven OAuth helpers ────────────────────────
 
 
-def _validate_frontend_redirect_uri(request: Request, redirect_uri: str) -> str:
+def _validate_frontend_redirect_uri(request: Request, redirect_uri: str, settings) -> str:
     """Validate a frontend-declared redirect_uri for the OAuth authorize flow.
 
     Security rules:
@@ -222,31 +226,57 @@ def _validate_frontend_redirect_uri(request: Request, redirect_uri: str) -> str:
             detail="redirect_uri must not contain query params or fragments",
         )
 
-    # Allow localhost / 127.0.0.1 for local development without host matching
+    configured_frontend_url = settings.user_center_frontend_url.strip()
+    configured_redirect_uri = (
+        configured_frontend_url.rstrip("/") + "/" if configured_frontend_url else ""
+    )
+
+    # Allow localhost redirect URIs only when the configured frontend URL is
+    # also localhost-like (local development).
     if parsed.hostname in ("localhost", "127.0.0.1", "::1"):
+        if configured_frontend_url:
+            configured = urlparse(configured_frontend_url)
+            if configured.hostname not in ("localhost", "127.0.0.1", "::1"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="redirect_uri does not match the configured frontend callback URL",
+                )
+            if redirect_uri != configured_redirect_uri:
+                raise HTTPException(
+                    status_code=400,
+                    detail="redirect_uri does not match the configured frontend callback URL",
+                )
         return redirect_uri
 
-    # Production: host should match the request's derived host.
-    # Log a warning on mismatch but do NOT reject — behind Nginx the derived
-    # host may be the internal host:port, not the public-facing one.
-    request_host = _derive_host(request)
-    if parsed.netloc != request_host:
-        logger.warning(
-            "redirect_uri host mismatch: parsed.netloc=%s, derived_host=%s. "
-            "Allowing because backend is likely behind a reverse proxy.",
-            parsed.netloc, request_host,
-        )
+    if configured_frontend_url:
+        configured = urlparse(configured_frontend_url)
+        if (
+            configured.scheme not in ("http", "https")
+            or not configured.netloc
+            or redirect_uri != configured_redirect_uri
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="redirect_uri does not match the configured frontend callback URL",
+            )
+        return redirect_uri
 
-    return redirect_uri
+    raise HTTPException(
+        status_code=400,
+        detail="redirect_uri is required unless USER_CENTER_FRONTEND_URL is configured",
+    )
 
 
 async def _resolve_user_details_async(token: dict) -> dict:
-    """Resolve user identity from token claims + user center API."""
+    """Resolve user identity from token claims, falling back to user center API."""
     user_details = derive_local_user_profile_from_token(token)
     logger.info(
         "Token-derived external_id=%s (source=token_claims)",
         user_details.get("external_id"),
     )
+
+    if user_details.get("external_id"):
+        return user_details
 
     try:
         profile = await fetch_user_info(token.get("access_token", ""))
@@ -257,7 +287,8 @@ async def _resolve_user_details_async(token: dict) -> dict:
             if token_open_id and token_open_id != api_open_id:
                 logger.warning(
                     "external_id mismatch — token=%s api=%s, using api openId",
-                    token_open_id, api_open_id,
+                    token_open_id,
+                    api_open_id,
                 )
             user_details = {
                 "external_id": api_open_id,
@@ -273,7 +304,9 @@ async def _resolve_user_details_async(token: dict) -> dict:
             }
             logger.info("resolved external_id=%s (source=user_center_api)", api_open_id)
     except UserCenterError as exc:
-        logger.warning("User center user info API failed, using token-derived identity: %s", exc)
+        logger.warning(
+            "User center user info API failed, using token-derived identity: %s", exc
+        )
 
     return user_details
 
@@ -299,11 +332,16 @@ async def authorize(request: Request, body: AuthorizeRequest):
     next_path = _sanitize_next_path(body.next_path)
     code_verifier = generate_code_verifier()
 
-    # redirect_uri: frontend-declared (validated) > .env config > derived
+    # redirect_uri: frontend-declared (validated) > configured frontend URL
     if body.redirect_uri and body.redirect_uri.strip():
-        redirect_uri = _validate_frontend_redirect_uri(request, body.redirect_uri)
+        redirect_uri = _validate_frontend_redirect_uri(request, body.redirect_uri, settings)
+    elif settings.user_center_frontend_url.strip():
+        redirect_uri = settings.user_center_frontend_url.rstrip("/") + "/"
     else:
-        redirect_uri = _resolve_redirect_uri(request, settings)
+        raise HTTPException(
+            status_code=400,
+            detail="redirect_uri is required unless USER_CENTER_FRONTEND_URL is configured",
+        )
 
     state = store_oauth_state(
         next_path=next_path,
@@ -319,14 +357,18 @@ async def authorize(request: Request, body: AuthorizeRequest):
 
     logger.info(
         "OAuth authorize: redirect_uri=%s, next_path=%s, state=%s... (len=%d)",
-        redirect_uri, next_path,
-        state[:12], len(state),
+        redirect_uri,
+        next_path,
+        state[:12],
+        len(state),
     )
 
-    return api_response({
-        "authorize_url": authorize_url,
-        "state": state,
-    })
+    return api_response(
+        {
+            "authorize_url": authorize_url,
+            "state": state,
+        }
+    )
 
 
 @router.post("/token")
@@ -358,10 +400,14 @@ async def exchange_token(request: Request, body: TokenExchangeRequest):
             detail="OAuth state is invalid or expired. Please try logging in again.",
         )
 
-    redirect_uri = oauth_state.get("redirect_uri") or _resolve_redirect_uri(request, settings)
+    redirect_uri = oauth_state.get("redirect_uri") or _resolve_redirect_uri(
+        request, settings
+    )
 
     logger.info("OAuth token exchange received")
+    total_started = perf_counter()
     try:
+        token_exchange_started = perf_counter()
         token = await exchange_code_for_token(
             code=body.code,
             redirect_uri=redirect_uri,
@@ -370,7 +416,8 @@ async def exchange_token(request: Request, body: TokenExchangeRequest):
     except UserCenterError as exc:
         logger.warning(
             "Token exchange failed: error_code=%s, message=%s",
-            exc.error_code, str(exc),
+            exc.error_code,
+            str(exc),
         )
         raise HTTPException(
             status_code=400,
@@ -378,7 +425,10 @@ async def exchange_token(request: Request, body: TokenExchangeRequest):
         ) from exc
 
     # Resolve user identity (token claims + user center API)
+    token_exchange_ms = round((perf_counter() - token_exchange_started) * 1000, 2)
+    user_resolution_started = perf_counter()
     user_details = await _resolve_user_details_async(token)
+    user_resolution_ms = round((perf_counter() - user_resolution_started) * 1000, 2)
 
     if not user_details.get("external_id"):
         logger.warning("Token exchange missing openId from all sources")
@@ -390,13 +440,16 @@ async def exchange_token(request: Request, body: TokenExchangeRequest):
     external_id = user_details["external_id"]
     display_name = user_details["display_name"]
 
+    user_upsert_started = perf_counter()
     user = upsert_user(
         external_id=external_id,
         display_name=display_name,
         email=user_details.get("email"),
         avatar_url=user_details.get("avatar_url"),
     )
+    user_upsert_ms = round((perf_counter() - user_upsert_started) * 1000, 2)
 
+    session_create_started = perf_counter()
     session_id = create_session(
         user_id=user["id"],
         access_token=token.get("access_token"),
@@ -404,32 +457,42 @@ async def exchange_token(request: Request, body: TokenExchangeRequest):
         access_token_expires_at=_resolve_access_token_expires_at(token),
         user_row=user,
     )
+    session_create_ms = round((perf_counter() - session_create_started) * 1000, 2)
 
     next_path = oauth_state.get("next_path") or "/"
+    total_ms = round((perf_counter() - total_started) * 1000, 2)
 
     logger.info(
-        "Token exchange success: user_id=%s external_id=%s",
-        user["id"], external_id,
+        "Token exchange success: user_id=%s external_id=%s timings_ms={token_exchange=%s,user_resolution=%s,user_upsert=%s,session_create=%s,total=%s}",
+        user["id"],
+        external_id,
+        token_exchange_ms,
+        user_resolution_ms,
+        user_upsert_ms,
+        session_create_ms,
+        total_ms,
     )
 
-    return api_response({
-        "session_id": session_id,
-        "next_path": next_path,
-        "user": {
-            "id": user["id"],
-            "display_name": user["display_name"],
-            "external_id": user["external_id"],
-            "openId": user["external_id"],
-            "email": user.get("email"),
-            "avatar_url": user.get("avatar_url"),
-        },
-        "auth": {
-            "session_status": "active",
-            "token_expires_at": _resolve_access_token_expires_at(token),
-            "needs_refresh_soon": False,
-            "has_refresh_token": bool(token.get("refresh_token")),
-        },
-    })
+    return api_response(
+        {
+            "session_id": session_id,
+            "next_path": next_path,
+            "user": {
+                "id": user["id"],
+                "display_name": user["display_name"],
+                "external_id": user["external_id"],
+                "openId": user["external_id"],
+                "email": user.get("email"),
+                "avatar_url": user.get("avatar_url"),
+            },
+            "auth": {
+                "session_status": "active",
+                "token_expires_at": _resolve_access_token_expires_at(token),
+                "needs_refresh_soon": False,
+                "has_refresh_token": bool(token.get("refresh_token")),
+            },
+        }
+    )
 
 
 # ── Legacy BFF-redirect endpoints (backward compatible) ─
@@ -461,7 +524,8 @@ async def login(request: Request, next: str = Query("/", alias="next")):
     )
     logger.info(
         "OAuth login: derived redirect_uri=%s, next_path=%s",
-        redirect_uri, next_path,
+        redirect_uri,
+        next_path,
     )
     return RedirectResponse(url=authorize_url, status_code=302)
 
@@ -502,9 +566,15 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     oauth_state = consume_oauth_state(state)
     if not oauth_state:
         logger.warning("OAuth callback rejected: state consumed, missing, or expired")
-        return _auth_error_redirect(frontend_base_path, "invalid_oauth_state", "OAuth state is invalid or expired")
+        return _auth_error_redirect(
+            frontend_base_path,
+            "invalid_oauth_state",
+            "OAuth state is invalid or expired",
+        )
 
-    redirect_uri = oauth_state.get("redirect_uri") or _resolve_redirect_uri(request, settings)
+    redirect_uri = oauth_state.get("redirect_uri") or _resolve_redirect_uri(
+        request, settings
+    )
 
     logger.info("OAuth callback received")
     try:
@@ -519,48 +589,17 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
             exc.error_code,
             str(exc),
         )
-        return _auth_error_redirect(frontend_base_path, exc.error_code, "登录失败，请重试")
+        return _auth_error_redirect(
+            frontend_base_path, exc.error_code, "登录失败，请重试"
+        )
 
-    user_details = derive_local_user_profile_from_token(token)
-    logger.info(
-        "OAuth callback: token-derived external_id=%s (source=token_claims)",
-        user_details.get("external_id"),
-    )
-
-    # Always verify/override with user center API — it is the authoritative source of openId
-    try:
-        profile = await fetch_user_info(token.get("access_token", ""))
-        api_open_id = profile.get("openId") or profile.get("open_id")
-        if api_open_id:
-            api_open_id = str(api_open_id)
-            token_open_id = user_details.get("external_id")
-            if token_open_id and token_open_id != api_open_id:
-                logger.warning(
-                    "OAuth callback: external_id mismatch — token=%s api=%s, using api openId",
-                    token_open_id, api_open_id,
-                )
-            user_details = {
-                "external_id": api_open_id,
-                "display_name": (
-                    profile.get("personName")
-                    or profile.get("displayName")
-                    or profile.get("nickName")
-                    or user_details.get("display_name")
-                    or api_open_id
-                ),
-                "email": profile.get("email") or user_details.get("email"),
-                "avatar_url": profile.get("imageUrl") or user_details.get("avatar_url"),
-            }
-            logger.info(
-                "OAuth callback: resolved external_id=%s (source=user_center_api)",
-                api_open_id,
-            )
-    except UserCenterError as exc:
-        logger.warning("User center user info API failed, using token-derived identity: %s", exc)
+    user_details = await _resolve_user_details_async(token)
 
     if not user_details.get("external_id"):
         logger.warning("OAuth callback missing openId from all sources")
-        return _auth_error_redirect(frontend_base_path, "oauth_subject_missing", "登录失败，请重试")
+        return _auth_error_redirect(
+            frontend_base_path, "oauth_subject_missing", "登录失败，请重试"
+        )
     external_id = user_details["external_id"]
     display_name = user_details["display_name"]
 
@@ -580,7 +619,9 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     )
 
     next_path = oauth_state.get("next_path") or "/"
-    redirect_url = _build_frontend_callback_url(frontend_base_path, session_id, next_path)
+    redirect_url = _build_frontend_callback_url(
+        frontend_base_path, session_id, next_path
+    )
     logger.info(
         "OAuth callback success: user_id=%s external_id=%s next_path=%s",
         user["id"],
@@ -607,7 +648,9 @@ def me(current_user: CurrentUser):
             "auth": {
                 "session_status": current_user.token_status or "active",
                 "token_expires_at": current_user.access_token_expires_at,
-                "needs_refresh_soon": _needs_refresh_soon(current_user.access_token_expires_at),
+                "needs_refresh_soon": _needs_refresh_soon(
+                    current_user.access_token_expires_at
+                ),
                 "has_refresh_token": current_user.refresh_token_present,
             },
         }
@@ -643,15 +686,20 @@ async def logout(current_user: CurrentUser):
     if access_token:
         try:
             await call_usercenter_logout(access_token=access_token)
-            logger.info("User center gateway logout completed for user_id=%s", current_user.user_id)
+            logger.info(
+                "User center gateway logout completed for user_id=%s",
+                current_user.user_id,
+            )
         except (UserCenterError, Exception) as exc:
             logger.warning("User center gateway logout failed (non-fatal): %s", exc)
 
     delete_session(current_user.session_id)
 
-    return api_response({
-        "loggedOut": True,
-    })
+    return api_response(
+        {
+            "loggedOut": True,
+        }
+    )
 
 
 @router.get("/logout")
@@ -680,6 +728,7 @@ async def logout_redirect(request: Request):
     raw_session = None
     if token:
         from auth.session import get_session_by_token
+
         raw_session = get_session_by_token(token)
         delete_session(token)
 
@@ -690,7 +739,9 @@ async def logout_redirect(request: Request):
             await call_usercenter_logout(access_token=access_token)
             logger.info("User center gateway logout completed (GET logout)")
         except (UserCenterError, Exception) as exc:
-            logger.warning("User center gateway logout failed (non-fatal, GET): %s", exc)
+            logger.warning(
+                "User center gateway logout failed (non-fatal, GET): %s", exc
+            )
 
     logger.info("Redirecting to frontend home after logout: %s", frontend_home_url)
     return RedirectResponse(url=frontend_home_url, status_code=302)

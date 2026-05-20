@@ -1,5 +1,29 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
+import { execSync } from "node:child_process";
+
+
+function gitCommitHash(): string {
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+function injectVersionMeta(): Plugin {
+  const commitHash = gitCommitHash();
+  return {
+    name: "inject-version-meta",
+    transformIndexHtml(html) {
+      return html.replace(
+        "</head>",
+        `  <meta name="git-commit" content="${commitHash}" />\n</head>`,
+      );
+    },
+  };
+}
 
 function getNodeModulePackageName(id: string): string | null {
   const normalized = id.replace(/\\/g, "/");
@@ -14,7 +38,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: "./",
-    plugins: [react()],
+    plugins: [react(), injectVersionMeta()],
     server: {
       host: "127.0.0.1",
       port: 3101,

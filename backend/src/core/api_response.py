@@ -7,8 +7,9 @@ from typing import Any
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from core.version import get_git_commit_hash
 
-ENVELOPE_KEYS = {"success", "error_code", "error", "data", "warnings", "meta"}
+ENVELOPE_KEYS = {"success", "error_code", "error", "data", "warnings", "meta", "version"}
 
 
 def _to_plain_payload(payload: Any) -> dict[str, Any]:
@@ -39,6 +40,7 @@ def build_api_envelope(
     data = {key: value for key, value in body.items() if key not in ENVELOPE_KEYS}
 
     return {
+        "version": get_git_commit_hash(),
         "success": resolved_success,
         "error_code": resolved_error_code,
         "error": resolved_error,

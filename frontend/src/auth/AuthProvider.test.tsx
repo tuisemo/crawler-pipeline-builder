@@ -297,7 +297,7 @@ describe('AuthProvider', () => {
 
     // logout() should send best-effort POST /api/auth/logout with bearer token
     const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
-    const logoutCall = calls.find((call) => call[0] === './api/auth/logout')
+    const logoutCall = calls.find((call) => call[0] === '/api/auth/logout')
     expect(logoutCall).toBeTruthy()
     expect(logoutCall?.[1]).toEqual(
       expect.objectContaining({
@@ -305,6 +305,39 @@ describe('AuthProvider', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer logout-session' }),
       }),
     )
+  })
+
+  it('logout() dispatches both subpath and root logout requests under a subpath deploy', async () => {
+    setStoredSessionId('logout-session')
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        pathname: '/crawler-studio/',
+        search: '',
+        replace: vi.fn(),
+      },
+      writable: true,
+    })
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
+
+    renderWithRouter(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true')
+    })
+
+    await act(async () => {
+      screen.getByTestId('logout-btn').click()
+    })
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.some((call) => call[0] === '/crawler-studio/api/auth/logout')).toBe(true)
+    expect(calls.some((call) => call[0] === '/api/auth/logout')).toBe(true)
+    expect(window.location.replace).toHaveBeenCalledWith('/crawler-studio/')
   })
 
   it('sends Authorization header when sessionId is stored', async () => {
