@@ -3,11 +3,14 @@
 import { createContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import {
   fetchMe,
-  login as apiLogin,
+  authorize,
+  exchangeCode,
+  detectOAuthCallback,
+  cleanOAuthCallbackParams,
   type AuthUser,
   type AuthStatus,
 } from '../services/authApi'
-import { clearStoredSessionId, getStoredSessionId, setOnUnauthorized } from '../services/apiClient'
+import { clearStoredSessionId, getStoredSessionId, setStoredSessionId, setOnUnauthorized } from '../services/apiClient'
 
 // ── Context shape ────────────────────────────────────────
 
@@ -33,36 +36,89 @@ interface AuthProviderProps {
   children: ReactNode
 }
 
+let oauthCallbackRequest:
+  | { key: string; promise: Promise<Awaited<ReturnType<typeof exchangeCode>>> }
+  | null = null
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
-  const [isLoading, setIsLoading] = useState(() => getStoredSessionId() !== null)
+  const [isLoading, setIsLoading] = useState(() => {
+    // Loading if we have a stored session OR an OAuth callback in the URL
+    const hasSession = getStoredSessionId() !== null
+    const hasCallback = detectOAuthCallback() !== null
+    return hasSession || hasCallback
+  })
   const [authError, setAuthError] = useState<string | null>(null)
 
-  // Restore auth from stored sessionId
+  // Handle OAuth callback (code exchange) or restore session from storage
   useEffect(() => {
     let cancelled = false
-    const sessionId = getStoredSessionId()
-    if (!sessionId) {
-      return
+
+    async function initAuth() {
+      // Priority 1: Check for OAuth callback in URL (?code=xxx&state=yyy)
+      const callback = detectOAuthCallback()
+      if (callback) {
+        try {
+          const requestKey = `${callback.code}:${callback.state}`
+          if (!oauthCallbackRequest || oauthCallbackRequest.key !== requestKey) {
+            oauthCallbackRequest = {
+              key: requestKey,
+              promise: exchangeCode(callback.code, callback.state).finally(() => {
+                if (oauthCallbackRequest?.key === requestKey) {
+                  oauthCallbackRequest = null
+                }
+              }),
+            }
+          }
+
+          const result = await oauthCallbackRequest.promise
+          if (cancelled) return
+          setStoredSessionId(result.session_id)
+          setUser(result.user)
+          setAuthStatus(result.auth)
+          setIsLoading(false)
+          // Clean up URL — remove code/state params, keep hash route
+          cleanOAuthCallbackParams()
+          // Navigate to the stored next_path if not root
+          if (result.next_path && result.next_path !== '/') {
+            window.location.hash = '#' + result.next_path
+          }
+        } catch (err) {
+          if (cancelled) return
+          cleanOAuthCallbackParams()
+          setAuthError(err instanceof Error ? err.message : '登录失败，请重试')
+          setIsLoading(false)
+        }
+        return
+      }
+
+      // Priority 2: Restore session from sessionStorage
+      const sessionId = getStoredSessionId()
+      if (!sessionId) {
+        return
+      }
+
+      try {
+        const me = await fetchMe()
+        if (cancelled) return
+        if (!me) {
+          clearStoredSessionId()
+          setUser(null)
+          setAuthStatus(null)
+        } else {
+          setUser(me.user)
+          setAuthStatus(me.auth)
+        }
+        setIsLoading(false)
+      } catch {
+        if (cancelled) return
+        setAuthError('登录状态校验失败，请刷新后重试')
+        setIsLoading(false)
+      }
     }
 
-    fetchMe().then((me) => {
-      if (cancelled) return
-      if (!me) {
-        clearStoredSessionId()
-        setUser(null)
-        setAuthStatus(null)
-      } else {
-        setUser(me.user)
-        setAuthStatus(me.auth)
-      }
-      setIsLoading(false)
-    }).catch(() => {
-      if (cancelled) return
-      setAuthError('登录状态校验失败，请刷新后重试')
-      setIsLoading(false)
-    })
+    initAuth()
     return () => {
       cancelled = true
     }
@@ -82,33 +138,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const login = useCallback((nextPath?: string) => {
     const currentPath = window.location.hash.replace('#', '') || '/'
-    apiLogin(nextPath ?? currentPath)
+    authorize(nextPath ?? currentPath).catch((err) => {
+      setAuthError(err instanceof Error ? err.message : '登录失败，请重试')
+    })
   }, [])
 
   const logoutFn = useCallback(async () => {
-    // Use browser redirect to GET /api/auth/logout so the backend can:
-    // 1. Delete the local Redis session
-    // 2. Notify user-center /public/logout to clean gateway session
-    // 3. Redirect browser to the frontend home page
-    //
     // CRITICAL: Clear sessionStorage and navigate away BEFORE any React state
     // update. If we call setUser(null) first, React re-renders and RequireAuth
-    // detects !isAuthenticated, which calls login() → overwrites
-    // window.location.href with /api/auth/login → auto-re-login because SSO
-    // session is still active on the user-center domain.
+    // may trigger login() unexpectedly while SSO session is still active.
     const sessionId = getStoredSessionId()
 
     // Clear sessionStorage first so the reloaded app knows there is no session
     clearStoredSessionId()
 
-    // Navigate away immediately — do NOT call setUser/setAuthStatus here
-    // because that would trigger a React re-render before navigation completes.
-    // Uses a relative path so it works under any deploy sub-path.
+    // Best-effort server logout (keepalive) without relying on backend redirects.
     if (sessionId) {
-      window.location.href = `./api/auth/logout?sessionId=${encodeURIComponent(sessionId)}`
-    } else {
-      window.location.href = './api/auth/logout'
+      void fetch('./api/auth/logout', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionId}`,
+        },
+        keepalive: true,
+      }).catch(() => {
+        // Ignore network failures; client-side logout must still complete.
+      })
     }
+
+    // Force a full-page reload back to the app root so all in-memory auth
+    // state is discarded immediately instead of relying on a hash-only
+    // navigation that may keep the SPA mounted.
+    window.location.replace(window.location.pathname + window.location.search)
   }, [])
 
   const clearAuthErrorFn = useCallback(() => {

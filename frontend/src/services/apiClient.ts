@@ -80,7 +80,7 @@ export class UnauthorizedError extends Error {
  *
  * In local dev (Vite proxy, root path) this returns "".
  */
-function getDeployBase(): string {
+export function getDeployBase(): string {
   const { pathname } = window.location
   // pathname is "/" for local dev → base is ""
   // pathname is "/crawler-studio/" → base is "/crawler-studio"

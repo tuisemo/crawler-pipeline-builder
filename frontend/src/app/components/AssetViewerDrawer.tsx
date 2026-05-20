@@ -55,20 +55,39 @@ export function AssetViewerDrawer({
 }: AssetViewerDrawerProps) {
   const [history, setHistory] = useState<AssetVersionMeta[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [selectedVersion, setSelectedVersion] = useState<number>(latestVersion)
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [content, setContent] = useState<string>('')
   const [contentLoading, setContentLoading] = useState(false)
   const [rollbackLoading, setRollbackLoading] = useState(false)
+  const activeVersion = selectedVersion ?? latestVersion
 
   // Load version history when drawer opens
   useEffect(() => {
     if (!open || !assetType) return
-    setSelectedVersion(latestVersion)
-    setHistoryLoading(true)
-    getAssetHistory(taskId, assetType)
-      .then((res) => setHistory(res.versions))
-      .catch(() => message.error('加载历史版本失败'))
-      .finally(() => setHistoryLoading(false))
+    let cancelled = false
+
+    const loadHistory = async () => {
+      setHistoryLoading(true)
+      try {
+        const res = await getAssetHistory(taskId, assetType)
+        if (!cancelled) {
+          setHistory(res.versions)
+        }
+      } catch {
+        if (!cancelled) {
+          message.error('加载历史版本失败')
+        }
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false)
+        }
+      }
+    }
+
+    void loadHistory()
+    return () => {
+      cancelled = true
+    }
   }, [open, taskId, assetType, latestVersion])
 
   // Load content when selected version changes
@@ -94,10 +113,15 @@ export function AssetViewerDrawer({
   }, [taskId, assetType])
 
   useEffect(() => {
-    if (open && selectedVersion > 0) {
-      loadContent(selectedVersion)
-    }
-  }, [open, selectedVersion, loadContent])
+    if (!open || activeVersion <= 0) return
+
+    void Promise.resolve().then(() => loadContent(activeVersion))
+  }, [open, activeVersion, loadContent])
+
+  function handleClose() {
+    setSelectedVersion(null)
+    onClose()
+  }
 
   function handleCopy() {
     if (!content) return
@@ -110,7 +134,7 @@ export function AssetViewerDrawer({
   function handleDownload() {
     if (!content) return
     const ext = assetType.includes('script') ? 'py' : assetType === 'workflow_graph' ? 'json' : 'txt'
-    const filename = `${assetType}_rev${String(selectedVersion).padStart(2, '0')}.${ext}`
+    const filename = `${assetType}_rev${String(activeVersion).padStart(2, '0')}.${ext}`
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -121,12 +145,12 @@ export function AssetViewerDrawer({
   }
 
   function handleRollback() {
-    if (selectedVersion === latestVersion) return
+    if (activeVersion === latestVersion) return
     Modal.confirm({
       title: '确认版本回滚',
       content: (
         <div>
-          <p>将把 <strong>REV_{String(selectedVersion).padStart(2, '0')}</strong> 的内容重新写入为最新版本。</p>
+          <p>将把 <strong>REV_{String(activeVersion).padStart(2, '0')}</strong> 的内容重新写入为最新版本。</p>
           <p style={{ color: '#999', fontSize: 12 }}>当前最新版本 REV_{String(latestVersion).padStart(2, '0')} 不会被删除，仅新增一条记录。</p>
         </div>
       ),
@@ -136,10 +160,10 @@ export function AssetViewerDrawer({
       onOk: async () => {
         setRollbackLoading(true)
         try {
-          await rollbackAsset(taskId, assetType, selectedVersion)
-          message.success(`已成功回滚至 REV_${String(selectedVersion).padStart(2, '0')} 内容，新版本已创建`)
+          await rollbackAsset(taskId, assetType, activeVersion)
+          message.success(`已成功回滚至 REV_${String(activeVersion).padStart(2, '0')} 内容，新版本已创建`)
           onRollbackSuccess()
-          onClose()
+          handleClose()
         } catch {
           message.error('回滚失败，请重试')
         } finally {
@@ -151,7 +175,7 @@ export function AssetViewerDrawer({
 
   const label = assetTypeLabel[assetType] || assetType
   const language = getMonacoLanguage(assetType)
-  const isLatest = selectedVersion === latestVersion
+  const isLatest = activeVersion === latestVersion
 
   return (
     <Drawer
@@ -167,7 +191,7 @@ export function AssetViewerDrawer({
         </div>
       }
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       width={960}
       styles={{ body: { padding: 0, display: 'flex', height: '100%', overflow: 'hidden' } }}
     >
@@ -201,7 +225,7 @@ export function AssetViewerDrawer({
                       cursor: 'pointer',
                       padding: '8px 12px',
                       borderRadius: 8,
-                      background: selectedVersion === v.version ? '#000' : 'transparent',
+                      background: activeVersion === v.version ? '#000' : 'transparent',
                       transition: 'all 0.15s ease',
                       marginBottom: 4,
                     }}
@@ -210,19 +234,19 @@ export function AssetViewerDrawer({
                       fontFamily: 'var(--sd-font-mono)',
                       fontSize: 13,
                       fontWeight: 600,
-                      color: selectedVersion === v.version ? '#fff' : '#000',
+                      color: activeVersion === v.version ? '#fff' : '#000',
                     }}>
                       REV_{String(v.version).padStart(2, '0')}
                       {v.version === latestVersion && (
-                        <Tag style={{ marginLeft: 6, fontSize: 9, lineHeight: '14px', border: 'none', background: selectedVersion === v.version ? 'rgba(255,255,255,0.2)' : '#e8f5e9', color: selectedVersion === v.version ? '#fff' : '#16a34a', padding: '0 5px' }}>
+                        <Tag style={{ marginLeft: 6, fontSize: 9, lineHeight: '14px', border: 'none', background: activeVersion === v.version ? 'rgba(255,255,255,0.2)' : '#e8f5e9', color: activeVersion === v.version ? '#fff' : '#16a34a', padding: '0 5px' }}>
                           最新
                         </Tag>
                       )}
                     </div>
-                    <div style={{ fontSize: 11, color: selectedVersion === v.version ? 'rgba(255,255,255,0.6)' : '#bbb', marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: activeVersion === v.version ? 'rgba(255,255,255,0.6)' : '#bbb', marginTop: 3 }}>
                       {new Date(v.created_at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
-                    <div style={{ fontSize: 11, color: selectedVersion === v.version ? 'rgba(255,255,255,0.5)' : '#ccc', marginTop: 1 }}>
+                    <div style={{ fontSize: 11, color: activeVersion === v.version ? 'rgba(255,255,255,0.5)' : '#ccc', marginTop: 1 }}>
                       {formatBytes(v.content_size)}
                     </div>
                   </div>
@@ -244,7 +268,7 @@ export function AssetViewerDrawer({
             background: '#fff',
           }}>
             <Text style={{ fontFamily: 'var(--sd-font-mono)', fontSize: 12, color: '#999' }}>
-              预览 REV_{String(selectedVersion).padStart(2, '0')} · {language}
+              预览 REV_{String(activeVersion).padStart(2, '0')} · {language}
             </Text>
             <Space size={8}>
               <Tooltip title="复制代码">

@@ -2,7 +2,7 @@ import { Layout as AntdLayout, Button, Space, Typography, Avatar, Alert } from '
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
-const logoUrl = '/logo_128.webp'
+import { getPublicAssetUrl } from '../utils/assetUrl'
 
 const { Content, Header } = AntdLayout
 const { Text } = Typography
@@ -10,6 +10,7 @@ const { Text } = Typography
 function AppHeader() {
   const navigate = useNavigate()
   const { isAuthenticated, user, isLoading, login, logout, authError, clearAuthError } = useAuth()
+  const logoUrl = getPublicAssetUrl('logo.svg')
 
   return (
     <>
@@ -45,7 +46,7 @@ function AppHeader() {
             <img
               src={logoUrl}
               alt="Scraper Flow Studio"
-              style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6 }}
+              style={{ width: 28, height: 28, borderRadius: 6 }}
             />
             <span style={{ 
               fontFamily: 'var(--sd-font-logo)', 

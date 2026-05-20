@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act, cleanup } from '@testing-library/react'
 import { HashRouter } from 'react-router-dom'
@@ -84,6 +85,7 @@ describe('AuthProvider', () => {
       value: {
         ...originalLocation,
         assign: vi.fn(),
+        replace: vi.fn(),
         href: '',
         search: '',
       },
@@ -151,7 +153,13 @@ describe('AuthProvider', () => {
     expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
   })
 
-  it('login() navigates to /api/auth/login with next path', async () => {
+  it('login() calls authorize API and navigates to user center', async () => {
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=abc123'
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({
+      authorize_url: mockAuthorizeUrl,
+      state: 'abc123',
+    }))
+
     renderWithRouter(
       <AuthProvider>
         <AuthConsumer />
@@ -163,11 +171,106 @@ describe('AuthProvider', () => {
       loginBtn.click()
     })
 
-    // login() should set window.location.href to ./api/auth/login?next=...
-    expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks')
+    // Should have called POST /api/auth/authorize
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/auth/authorize'),
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    // Should have stored OAuth meta in sessionStorage
+    const oauthMeta = window.sessionStorage.getItem('crawlerWorkflow.oauthMeta')
+    expect(oauthMeta).toBeTruthy()
+
+    // Should have redirected to user center authorize URL
+    await waitFor(() => {
+      expect(window.location.href).toBe(mockAuthorizeUrl)
+    })
   })
 
-  it('logout() clears sessionStorage and navigates to GET /api/auth/logout', async () => {
+  it('deduplicates OAuth token exchange under StrictMode remounts', async () => {
+    window.sessionStorage.setItem(
+      'crawlerWorkflow.oauthMeta',
+      JSON.stringify({ state: 'oauth-state-123', nextPath: '/tasks' }),
+    )
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        href: 'http://localhost/?code=oauth-code-123&state=oauth-state-123',
+        search: '?code=oauth-code-123&state=oauth-state-123',
+        pathname: '/',
+        hash: '',
+      },
+      writable: true,
+    })
+    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({
+      session_id: 'session-from-token',
+      next_path: '/tasks',
+      user: mockUser,
+      auth: mockAuthStatus,
+    }))
+
+    render(
+      <StrictMode>
+        <HashRouter>
+          <AuthProvider>
+            <AuthConsumer />
+          </AuthProvider>
+        </HashRouter>
+      </StrictMode>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated').textContent).toBe('true')
+    })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/auth/token',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ code: 'oauth-code-123', state: 'oauth-state-123' }),
+      }),
+    )
+    expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBe('session-from-token')
+    expect(window.sessionStorage.getItem('crawlerWorkflow.oauthMeta')).toBeNull()
+  })
+
+  it('rejects OAuth callback when stored state mismatches URL state', async () => {
+    window.sessionStorage.setItem(
+      'crawlerWorkflow.oauthMeta',
+      JSON.stringify({ state: 'stored-state-123', nextPath: '/tasks' }),
+    )
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...originalLocation,
+        href: 'http://localhost/?code=oauth-code-123&state=url-state-123',
+        search: '?code=oauth-code-123&state=url-state-123',
+        pathname: '/',
+        hash: '',
+      },
+      writable: true,
+    })
+    globalThis.fetch = vi.fn()
+
+    renderWithRouter(
+      <AuthProvider>
+        <AuthConsumer />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loading').textContent).toBe('false')
+    })
+
+    expect(screen.getByTestId('authenticated').textContent).toBe('false')
+    expect(screen.getByTestId('auth-error').textContent).toBe('登录状态校验失败，请重新登录')
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(window.sessionStorage.getItem('crawlerWorkflow.oauthMeta')).toBeNull()
+  })
+
+  it('logout() clears sessionStorage, sends POST /api/auth/logout, and reloads app root', async () => {
     setStoredSessionId('logout-session')
     globalThis.fetch = vi.fn().mockResolvedValue(mockFetchSuccess({ user: mockUser, auth: mockAuthStatus }))
 
@@ -189,8 +292,19 @@ describe('AuthProvider', () => {
     // logout() should clear sessionStorage immediately
     expect(window.sessionStorage.getItem('crawlerWorkflow.sessionId')).toBeNull()
 
-    // logout() should set window.location.href to GET ./api/auth/logout with sessionId
-    expect(window.location.href).toBe('./api/auth/logout?sessionId=logout-session')
+    // logout() should force a reload at the app root
+    expect(window.location.replace).toHaveBeenCalledWith(window.location.pathname + window.location.search)
+
+    // logout() should send best-effort POST /api/auth/logout with bearer token
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    const logoutCall = calls.find((call) => call[0] === './api/auth/logout')
+    expect(logoutCall).toBeTruthy()
+    expect(logoutCall?.[1]).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer logout-session' }),
+      }),
+    )
   })
 
   it('sends Authorization header when sessionId is stored', async () => {

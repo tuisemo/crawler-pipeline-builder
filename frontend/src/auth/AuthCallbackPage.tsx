@@ -3,6 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Alert, Spin } from 'antd'
 import { setStoredSessionId } from '../services/apiClient'
 
+/**
+ * AuthCallbackPage — handles the legacy BFF-redirect callback flow.
+ *
+ * In the current frontend-driven OAuth flow, the AuthProvider handles
+ * code exchange on app startup (detecting ?code=xxx&state=yyy in the URL).
+ * This page handles the older flow where the backend redirects to
+ * /#/auth/callback?sessionId=xxx&nextPath=/tasks.
+ */
 export default function AuthCallbackPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()

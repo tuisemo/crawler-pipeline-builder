@@ -34,6 +34,20 @@ def _redis_key(prefix: str, namespace: str, key: str) -> str:
     return f"{prefix}:{namespace}:{key}"
 
 
+def _summarize_state(value: str | None) -> str:
+    if not value:
+        return "missing"
+    return f"{value[:12]}..."
+
+
+def _summarize_state_keys(keys: list[str]) -> list[str]:
+    summaries: list[str] = []
+    for key in keys:
+        state = key.rsplit(":", 1)[-1] if ":" in key else key
+        summaries.append(_summarize_state(state))
+    return summaries
+
+
 def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value or not isinstance(value, str):
         return None
@@ -115,9 +129,11 @@ def store_oauth_state(
     *,
     next_path: str,
     code_verifier: str | None = None,
+    redirect_uri: str | None = None,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a one-time OAuth state record in Redis and return its value."""
+    import logging
     from auth.redis_client import get_redis
 
     settings = get_settings()
@@ -125,22 +141,61 @@ def store_oauth_state(
     payload = {
         "next_path": next_path,
         "code_verifier": code_verifier,
+        "redirect_uri": redirect_uri,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     effective_ttl_seconds = ttl_seconds if ttl_seconds is not None else settings.oauth_state_ttl_seconds
     key = _redis_key(settings.redis_key_prefix, "auth:state", state)
-    get_redis().set(key, json.dumps(payload), ex=effective_ttl_seconds if effective_ttl_seconds > 0 else 1)
+    redis_client = get_redis()
+    redis_client.set(key, json.dumps(payload), ex=effective_ttl_seconds if effective_ttl_seconds > 0 else 1)
+
+    logger = logging.getLogger(__name__)
+    try:
+        stored_payload = redis_client.get(key)
+        stored_ttl = redis_client.ttl(key)
+    except Exception as exc:
+        logger.warning(
+            "OAuth state write verification failed: namespace=auth:state state=%s error=%s",
+            _summarize_state(state),
+            exc,
+        )
+    else:
+        if stored_payload is None:
+            logger.error(
+                "OAuth state write verification missing value immediately after set: namespace=auth:state state=%s",
+                _summarize_state(state),
+            )
+        else:
+            logger.info(
+                "Verified OAuth state write: namespace=auth:state state=%s ttl=%s bytes=%d",
+                _summarize_state(state),
+                stored_ttl,
+                len(stored_payload),
+            )
+
+    logger.info(
+        "Stored OAuth state: namespace=auth:state state=%s (len=%d) ttl=%ds",
+        _summarize_state(state), len(state), effective_ttl_seconds,
+    )
     return state
 
 
 def consume_oauth_state(state: str) -> dict[str, Any] | None:
     """Return and delete a one-time OAuth state payload atomically."""
+    import logging
     from auth.redis_client import get_redis
 
     settings = get_settings()
     key = _redis_key(settings.redis_key_prefix, "auth:state", state)
     r = get_redis()
+
+    log = logging.getLogger(__name__)
+    log.info(
+        "Consuming OAuth state: namespace=auth:state state=%s (len=%d)",
+        _summarize_state(state), len(state) if state else 0,
+    )
+
     # Use Lua script for atomic GET+DELETE (compatible with Redis < 6.2 which lacks GETDEL)
     lua_script = """
     local v = redis.call('GET', KEYS[1])
@@ -157,6 +212,21 @@ def consume_oauth_state(state: str) -> dict[str, Any] | None:
         if raw is not None:
             r.delete(key)
     if raw is None:
+        # Extra diagnostic: check if the key exists with a different prefix
+        log.warning(
+            "OAuth state NOT found in Redis: namespace=auth:state state=%s. Checking for similar keys...",
+            _summarize_state(state),
+        )
+        try:
+            pattern = _redis_key(settings.redis_key_prefix, "auth:state", "*")
+            existing = list(r.scan_iter(match=pattern, count=10))
+            log.warning(
+                "Existing OAuth state keys: count=%d sample=%s",
+                len(existing),
+                _summarize_state_keys(existing[:5]),
+            )
+        except Exception as scan_err:
+            log.warning("Could not scan for existing keys: %s", scan_err)
         return None
     try:
         return json.loads(raw)

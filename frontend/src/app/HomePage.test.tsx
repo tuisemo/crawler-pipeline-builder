@@ -95,6 +95,7 @@ describe('HomePage auth UX', () => {
       value: {
         ...originalLocation,
         assign: vi.fn(),
+        replace: vi.fn(),
         href: '',
       },
       writable: true,
@@ -152,8 +153,12 @@ describe('HomePage auth UX', () => {
     expect(screen.queryByText('登录')).toBeNull()
   })
 
-  it('clicking 登录 button in hero triggers login flow', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+  it('clicking 登录 button in hero triggers authorize flow', async () => {
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=abc'
+    // The authorize() call is the only fetch that happens (no session, no OAuth callback)
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockFetchSuccess({ authorize_url: mockAuthorizeUrl, state: 'abc' })
+    )
 
     renderHomePage()
 
@@ -166,7 +171,9 @@ describe('HomePage auth UX', () => {
       loginBtn.click()
     })
 
-    // login() should set window.location.href to /api/auth/login?next=...
-    expect(window.location.href).toContain('/api/auth/login')
+    // Should have called POST /api/auth/authorize and navigated to user center
+    await waitFor(() => {
+      expect(window.location.href).toBe(mockAuthorizeUrl)
+    })
   })
 })

@@ -98,6 +98,7 @@ describe('Layout AppHeader', () => {
       value: {
         ...originalLocation,
         assign: vi.fn(),
+        replace: vi.fn(),
         href: '',
       },
       writable: true,
@@ -137,8 +138,12 @@ describe('Layout AppHeader', () => {
     })
   })
 
-  it('clicking 登录 navigates to /api/auth/login', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+  it('clicking 登录 triggers authorize flow', async () => {
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=abc'
+    // The authorize() call is the only fetch that happens (no session, no OAuth callback)
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockFetchSuccess({ authorize_url: mockAuthorizeUrl, state: 'abc' })
+    )
 
     renderApp()
 
@@ -151,7 +156,10 @@ describe('Layout AppHeader', () => {
       loginBtn.click()
     })
 
-    expect(window.location.href).toContain('/api/auth/login')
+    // Should have called POST /api/auth/authorize and navigated to user center
+    await waitFor(() => {
+      expect(window.location.href).toBe(mockAuthorizeUrl)
+    })
   })
 
   it('clicking 退出 calls logout and navigates home', async () => {

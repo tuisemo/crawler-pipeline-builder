@@ -1,4 +1,4 @@
-import { Button, Space, Typography, Row, Col } from 'antd'
+import { Button, Space, Row, Col } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import './HomePage.css'
 import { 
@@ -10,9 +10,7 @@ import {
   LoginOutlined
 } from '@ant-design/icons'
 import { useAuth } from '../auth/useAuth'
-const logoUrl = '/logo_128.webp'
-
-Typography
+import { getPublicAssetUrl } from '../utils/assetUrl'
 
 const GridBackground = () => (
   <div style={{ 
@@ -46,6 +44,7 @@ import { TechScene } from '../components/TechScene'
 export default function HomePage() {
   const navigate = useNavigate()
   const { isAuthenticated, isLoading, login } = useAuth()
+  const logoUrl = getPublicAssetUrl('logo.svg')
 
   return (
     <div className="home-root" style={{ background: '#FFFFFF', overflow: 'hidden' }}>

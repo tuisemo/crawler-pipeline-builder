@@ -147,39 +147,50 @@ describe('RequireAuth', () => {
     })
   })
 
-  it('redirects to login when unauthenticated on /tasks', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+  it('triggers authorize when unauthenticated on /tasks', async () => {
+    // First call: /api/auth/me returns 401 (unauthenticated)
+    // Second call: POST /api/auth/authorize returns authorize URL
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=xyz'
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(mockFetchError(401, 'Not authenticated'))
+      .mockResolvedValueOnce(mockFetchSuccess({ authorize_url: mockAuthorizeUrl, state: 'xyz' }))
 
     renderApp('/tasks')
 
     await waitFor(() => {
-      // login() should set window.location.href to ./api/auth/login?next=/tasks
-      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks')
+      // Should have navigated to the user center authorize URL
+      expect(window.location.href).toBe(mockAuthorizeUrl)
     })
 
     // Protected content should NOT be rendered
     expect(screen.queryByTestId('protected-page')).toBeNull()
   })
 
-  it('redirects to login with next=/tasks/:taskId when unauthenticated on task detail', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+  it('triggers authorize with next=/tasks/:taskId when unauthenticated on task detail', async () => {
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=xyz'
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(mockFetchError(401, 'Not authenticated'))
+      .mockResolvedValueOnce(mockFetchSuccess({ authorize_url: mockAuthorizeUrl, state: 'xyz' }))
 
     renderApp('/tasks/42')
 
     await waitFor(() => {
-      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks%2F42')
+      expect(window.location.href).toBe(mockAuthorizeUrl)
     })
 
     expect(screen.queryByTestId('task-detail-page')).toBeNull()
   })
 
-  it('redirects to login with next=/tasks/:taskId/workbench when unauthenticated', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockFetchError(401, 'Not authenticated'))
+  it('triggers authorize with next=/tasks/:taskId/workbench when unauthenticated', async () => {
+    const mockAuthorizeUrl = 'https://user-center.example.com/oauth/authorize?state=xyz'
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(mockFetchError(401, 'Not authenticated'))
+      .mockResolvedValueOnce(mockFetchSuccess({ authorize_url: mockAuthorizeUrl, state: 'xyz' }))
 
     renderApp('/tasks/42/workbench')
 
     await waitFor(() => {
-      expect(window.location.href).toBe('./api/auth/login?next=%2Ftasks%2F42%2Fworkbench')
+      expect(window.location.href).toBe(mockAuthorizeUrl)
     })
 
     expect(screen.queryByTestId('workbench-page')).toBeNull()
