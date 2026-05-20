@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react'
 import { detectExtension, type ExtensionStatus } from '../features/runtime/extensionBridge'
 import './extension.css'
 
-const EXTENSION_ZIP_PATH = '/extensions/browser-bridge-extension.zip'
+const EXTENSION_ZIP_PATH = './extensions/browser-bridge-extension.zip'
 
 export default function ExtensionPage() {
   const navigate = useNavigate()

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from workflow.schemas import (
-    LegacyFieldAliasError,
     ValidateWorkflowRequest,
     WorkflowGraph,
     WorkflowNode,
@@ -50,11 +49,6 @@ def _find_duplicates(values: Iterable[str]) -> list[str]:
 def _validate_field_schema(raw_field: object, index: int) -> None:
     try:
         normalized = normalize_field_payload(raw_field, index=index)
-    except LegacyFieldAliasError as e:
-        raise WorkflowValidationError(
-            error_code="extract_field_legacy_aliases_not_supported",
-            error=str(e),
-        ) from e
     except Exception as e:
         raise WorkflowValidationError(
             error_code="extract_field_invalid_field",

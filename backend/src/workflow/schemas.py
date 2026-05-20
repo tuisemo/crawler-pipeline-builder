@@ -34,45 +34,18 @@ class FieldSchema(BaseModel):
         return self.type or "text"
 
 
-DEPRECATED_EXTRACTION_FIELD_KEYS = {"sample_value", "clean_data_type", "normalized_sample"}
-FIELD_ALIAS_KEYS = {"field_name", "css", "extraction_type"}
-FIELD_CANONICAL_KEYS = {"name", "selector", "type"}
-REMOVED_FIELD_KEYS = DEPRECATED_EXTRACTION_FIELD_KEYS | FIELD_ALIAS_KEYS | FIELD_CANONICAL_KEYS
-
-
-class LegacyFieldAliasError(ValueError):
-    """Raised when removed legacy field aliases are still provided."""
-
-
 def normalize_field_payload(raw_field: Any, index: int | None = None) -> dict[str, Any]:
-    if isinstance(raw_field, dict):
-        legacy_aliases = sorted(key for key in FIELD_ALIAS_KEYS if key in raw_field)
-        if legacy_aliases:
-            raise LegacyFieldAliasError(
-                "Legacy field aliases are no longer supported: "
-                f"{', '.join(legacy_aliases)}. Use name, selector, and type."
-            )
     field = raw_field if isinstance(raw_field, FieldSchema) else FieldSchema.model_validate(raw_field)
-    normalized: dict[str, Any] = {}
-    if isinstance(raw_field, dict):
-        normalized = {
-            key: value
-            for key, value in raw_field.items()
-            if key not in REMOVED_FIELD_KEYS
-        }
 
     name = field.resolved_name()
     if not name and index is not None:
         name = f"field_{index + 1}"
-    if name:
-        normalized["name"] = name
 
-    selector = field.resolved_selector()
-    if selector:
-        normalized["selector"] = selector
-
-    normalized["type"] = field.resolved_type() or "text"
-    return normalized
+    return {
+        "name": name,
+        "selector": field.resolved_selector(),
+        "type": field.resolved_type(),
+    }
 
 
 def normalize_field_payloads(fields: List[Any] | None, assign_fallback_names: bool = False) -> List[Any] | None:
