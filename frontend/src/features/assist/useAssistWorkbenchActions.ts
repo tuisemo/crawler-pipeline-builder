@@ -200,19 +200,6 @@ export function useAssistWorkbenchActions({
         html_fragment: htmlFragment,
       })
 
-      const inferredItemSelector = typeof result.item_selector === 'string' ? result.item_selector.trim() : ''
-      if (assistApplyMode === 'related-nodes' && inferredItemSelector) {
-        setNodes((current) => {
-          let patched = false
-          return current.map((node) => {
-            if (!patched && node.type === 'select_list') {
-              patched = true
-              return { ...node, data: { ...node.data, item_selector: inferredItemSelector } }
-            }
-            return node
-          })
-        })
-      }
       notify.success('AI 字段推断已应用')
     })
   }

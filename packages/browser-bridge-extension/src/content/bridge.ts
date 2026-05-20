@@ -42,6 +42,7 @@ type PageBridgeResponse = {
 const TRUSTED_WORKBENCH_ORIGINS = new Set([
   'http://127.0.0.1:3101',
   'http://localhost:3101',
+  'https://test.zhongshu.tech',
 ])
 
 function isBridgeRequest(value: unknown): value is PageBridgeRequest {

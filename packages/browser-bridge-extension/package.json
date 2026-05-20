@@ -9,7 +9,9 @@
     "package:unpacked": "node ./scripts/package.mjs unpacked",
     "package:zip": "node ./scripts/package.mjs zip",
     "build:unpacked": "npm run build && npm run package:unpacked",
-    "build:zip": "npm run build:unpacked && npm run package:zip"
+    "build:zip": "npm run build:unpacked && npm run package:zip",
+    "copy:frontend": "node ./scripts/package.mjs frontend",
+    "build:frontend": "npm run build && npm run copy:frontend"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.29",

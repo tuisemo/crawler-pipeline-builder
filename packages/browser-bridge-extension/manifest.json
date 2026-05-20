@@ -3,24 +3,16 @@
   "name": "Scraper Flow Studio Bridge",
   "version": "1.0.0",
   "description": "Browser Bridge for Scraper Flow Studio workbench.",
-  "permissions": [
-    "tabs",
-    "scripting",
-    "storage",
-    "activeTab"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "permissions": ["tabs", "scripting", "storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
       "matches": [
         "http://127.0.0.1:3101/*",
-        "http://localhost:3101/*"
+        "http://localhost:3101/*",
+        "https://test.zhongshu.tech/*"
       ],
-      "js": [
-        "dist/content.js"
-      ],
+      "js": ["dist/content.js"],
       "run_at": "document_idle"
     }
   ],

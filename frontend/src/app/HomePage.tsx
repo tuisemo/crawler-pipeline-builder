@@ -4,7 +4,7 @@ import './HomePage.css'
 import { 
   ArrowRightOutlined, 
   ThunderboltFilled, 
-  GithubOutlined,
+  ChromeOutlined,
   DatabaseOutlined,
   DeploymentUnitOutlined,
   LoginOutlined
@@ -100,11 +100,12 @@ export default function HomePage() {
                 登录
               </Button>
             )}
-            <Button 
-              size="large" 
+            <Button
+              size="large"
+              onClick={() => navigate('/extension')}
               style={{ height: 48, padding: '0 28px', fontSize: 15, border: '1.5px solid #CBD5E1', borderRadius: 10, fontWeight: 500, background: '#fff' }}
             >
-              <GithubOutlined /> Explore OSS
+              <ChromeOutlined /> 浏览器扩展
             </Button>
           </Space>
         </div>
@@ -180,9 +181,9 @@ export default function HomePage() {
             <span style={{ color: '#CBD5E1', fontSize: 12 }}>© 2026 SEA DATA WORKBENCH</span>
           </div>
           <Space size={32}>
-            <a href="#" style={{ color: '#64748B', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>文档中心</a>
+            <a onClick={() => navigate('/extension')} style={{ color: '#64748B', fontSize: 13, fontWeight: 500, textDecoration: 'none', cursor: 'pointer' }}>浏览器扩展</a>
             <a href="#" style={{ color: '#64748B', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>企业方案</a>
-            <a href="#" style={{ color: '#64748B', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>GITHUB</a>
+            <a href="#" style={{ color: '#64748B', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>GitHub</a>
           </Space>
         </div>
       </footer>

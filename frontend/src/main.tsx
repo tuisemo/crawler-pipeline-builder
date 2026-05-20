@@ -15,6 +15,7 @@ import NotFoundPage from './app/NotFoundPage'
 import TaskListPage from './app/TaskListPage'
 import TaskDetailPage from './app/TaskDetailPage'
 import WorkbenchPage from './app/WorkbenchPage'
+import ExtensionPage from './app/ExtensionPage'
 
 const rootEl = document.getElementById('root')
 if (!rootEl) {
@@ -35,6 +36,7 @@ createRoot(rootEl).render(
                   <Route path="tasks" element={<RequireAuth><TaskListPage /></RequireAuth>} />
                   <Route path="tasks/:taskId" element={<RequireAuth><TaskDetailPage /></RequireAuth>} />
                   <Route path="tasks/:taskId/workbench" element={<RequireAuth><WorkbenchPage /></RequireAuth>} />
+                  <Route path="extension" element={<ExtensionPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Route>
               </Routes>

@@ -72,8 +72,23 @@ function createZipArchive() {
   })
 }
 
+const frontendPublicExtensionsDir = join(packageRoot, '..', '..', 'frontend', 'public', 'extensions')
+
+async function copyToFrontend() {
+  await rm(frontendPublicExtensionsDir, { recursive: true, force: true })
+  await mkdir(frontendPublicExtensionsDir, { recursive: true })
+  const targetDir = join(frontendPublicExtensionsDir, 'browser-bridge-extension')
+  await cp(unpackedDir, targetDir, { recursive: true })
+  console.log(`Copied unpacked extension to: ${targetDir}`)
+
+  createZipArchive()
+  const zipFileName = 'browser-bridge-extension.zip'
+  await copyFile(zipPath, join(frontendPublicExtensionsDir, zipFileName))
+  console.log(`Copied zip package to: ${join(frontendPublicExtensionsDir, zipFileName)}`)
+}
+
 async function main() {
-  if (!['unpacked', 'zip'].includes(mode)) {
+  if (!['unpacked', 'zip', 'frontend'].includes(mode)) {
     throw new Error(`Unsupported packaging mode: ${mode}`)
   }
 
@@ -89,6 +104,10 @@ async function main() {
   }
 
   console.log(`Created unpacked extension: ${unpackedDir}`)
+
+  if (mode === 'frontend') {
+    await copyToFrontend()
+  }
 }
 
 main().catch((error) => {
