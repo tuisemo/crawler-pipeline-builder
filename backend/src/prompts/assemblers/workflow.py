@@ -54,7 +54,10 @@ def build_output_strategy_prompt(plan_dict: dict) -> str:
             "```\n"
             "Implement local SQLite persistence with `sqlite3`.\n"
             "Keep schema creation, safe identifier handling, metadata columns, and deterministic upsert behavior.\n"
-            "If dedupe keys are configured, preserve them as the primary conflict target; otherwise fall back to a record hash.\n\n"
+            "Each configured extraction field must map to its own flat SQLite column; do not store full records as a JSON blob.\n"
+            "Preserve `_identity_key` as the deterministic conflict target and keep `_run_id`, `_source_url`, `_emitted_at`, and `_record_hash` metadata columns.\n"
+            "Persist each page batch before pagination so already extracted rows survive interruptions.\n"
+            "If dedupe keys are configured, use them to derive `_identity_key`; otherwise fall back to a record hash.\n\n"
         )
 
     json_strategy = {
@@ -121,7 +124,13 @@ def build_quality_gate_prompt(plan_dict: dict) -> str:
     )
 
 
-def build_review_prompt(plan_dict: dict, generated_script: str) -> str:
+def build_review_prompt(plan_dict: dict, editable_prompt: str, generated_script: str) -> str:
+    user_intent_section = ""
+    if editable_prompt.strip():
+        user_intent_section = (
+            "## User Intent\n"
+            f"{editable_prompt.strip()}\n\n"
+        )
     return (
         "## Review Target\n"
         "Audit the crawler draft against the execution plan and output strategy.\n\n"
@@ -129,6 +138,7 @@ def build_review_prompt(plan_dict: dict, generated_script: str) -> str:
         "- Approve only if all critical contracts are satisfied.\n"
         "- Prefer specific, evidence-based findings over style commentary.\n"
         "- If uncertain, mark the issue as medium/low severity with clear rationale.\n\n"
+        f"{user_intent_section}"
         "## Execution Plan\n"
         "```json\n"
         f"{json.dumps(plan_dict, ensure_ascii=False, indent=2)}\n"

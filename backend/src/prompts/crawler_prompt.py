@@ -6,8 +6,81 @@ Generates structured, execution-plan-aligned prompts for LLM crawler generation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from html import escape
+from html.parser import HTMLParser
 import json
+import re
 from typing import Any
+
+
+class _HtmlEvidenceCompressor(HTMLParser):
+    def __init__(self, *, allowed_attrs: set[str], max_text_chars: int):
+        super().__init__(convert_charrefs=True)
+        self.allowed_attrs = allowed_attrs
+        self.max_text_chars = max(0, max_text_chars)
+        self.parts: list[str] = []
+        self._skip_depth = 0
+        self._text_budget_used = 0
+
+    def _should_keep_attr(self, name: str) -> bool:
+        lowered = name.lower()
+        return lowered in self.allowed_attrs or lowered.startswith("data-") or lowered.startswith("aria-")
+
+    def _format_attrs(self, attrs: list[tuple[str, str | None]]) -> str:
+        kept: list[str] = []
+        for name, value in attrs:
+            if not self._should_keep_attr(name):
+                continue
+            if value is None:
+                kept.append(name)
+                continue
+            kept.append(f'{name}="{escape(value, quote=True)}"')
+        return f" {' '.join(kept)}" if kept else ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lowered = tag.lower()
+        if lowered in {"script", "style"}:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        self.parts.append(f"<{tag}{self._format_attrs(attrs)}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lowered = tag.lower()
+        if lowered in {"script", "style"} or self._skip_depth:
+            return
+        self.parts.append(f"<{tag}{self._format_attrs(attrs)} />")
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered = tag.lower()
+        if lowered in {"script", "style"}:
+            if self._skip_depth:
+                self._skip_depth -= 1
+            return
+        if self._skip_depth:
+            return
+        self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        text = re.sub(r"\s+", " ", data).strip()
+        if not text or self._text_budget_used >= self.max_text_chars:
+            return
+        remaining = self.max_text_chars - self._text_budget_used
+        clipped = text[:remaining].strip()
+        if not clipped:
+            return
+        self._text_budget_used += len(clipped)
+        self.parts.append(escape(clipped))
+
+    def handle_comment(self, data: str) -> None:
+        return
+
+    def compressed_html(self) -> str:
+        html = "".join(self.parts)
+        return re.sub(r">\s+<", "><", html).strip()
 
 
 @dataclass
@@ -87,6 +160,63 @@ class CrawlerPromptGenerator:
     conditions: list[dict[str, Any]] = field(default_factory=list)
     node_types: list[str] = field(default_factory=list)
     special_instructions: str = ""
+
+    @staticmethod
+    def _compress_html_evidence(html: str) -> str:
+        compression_profiles = [
+            (
+                {
+                    "id",
+                    "class",
+                    "href",
+                    "src",
+                    "name",
+                    "role",
+                    "rel",
+                    "type",
+                    "title",
+                    "placeholder",
+                    "value",
+                    "alt",
+                },
+                2000,
+            ),
+            (
+                {
+                    "id",
+                    "class",
+                    "href",
+                    "src",
+                    "name",
+                    "role",
+                    "rel",
+                    "type",
+                },
+                600,
+            ),
+            (
+                {
+                    "id",
+                    "class",
+                    "href",
+                    "src",
+                    "name",
+                    "role",
+                },
+                0,
+            ),
+        ]
+        for allowed_attrs, max_text_chars in compression_profiles:
+            parser = _HtmlEvidenceCompressor(
+                allowed_attrs=allowed_attrs,
+                max_text_chars=max_text_chars,
+            )
+            parser.feed(html)
+            parser.close()
+            compressed = parser.compressed_html()
+            if compressed and len(compressed) <= 12000:
+                return compressed
+        return compressed if compressed else html.strip()
 
     def generate(self) -> str:
         parts: list[str] = []
@@ -322,7 +452,13 @@ class CrawlerPromptGenerator:
         ]
 
         if mode == "sqlite":
-            parts.append("- Persist records with local `sqlite3`, keep schema creation deterministic, and preserve dedupe/upsert behavior.")
+            parts.extend([
+                "- Persist records with local `sqlite3` and keep schema creation deterministic.",
+                "- Store one flat SQLite column per configured field; do not collapse full records into a JSON blob column.",
+                "- Preserve metadata columns for `_identity_key`, `_run_id`, `_source_url`, `_emitted_at`, and `_record_hash`.",
+                "- Use `_identity_key` as the deterministic conflict target for upsert behavior.",
+                "- Persist each extracted page batch before attempting pagination so interruptions do not lose prior pages.",
+            ])
         elif mode == "json_file":
             parts.append("- Persist records to the configured local JSON file and keep the output document valid and deterministic.")
         else:
@@ -335,14 +471,12 @@ class CrawlerPromptGenerator:
         if not self.html_fragment:
             return []
 
-        html_sample = self.html_fragment[:12000]
+        html_sample = self._compress_html_evidence(self.html_fragment)
         parts = [
-            "## Page Evidence (HTML Sample)",
+            "## Page Evidence (Compressed HTML Sample)",
             "```html",
             html_sample,
         ]
-        if len(self.html_fragment) > len(html_sample):
-            parts.append("<!-- HTML truncated -->")
         parts.extend(["```", ""])
         return parts
 
@@ -351,8 +485,7 @@ class CrawlerPromptGenerator:
             "## Implementation Requirements",
             "- Use Playwright for Python and keep the script runnable end-to-end.",
             "- Preserve the deterministic execution plan, field schema, and output contract.",
-            "- Reuse the validated selectors from the execution plan exactly as provided whenever possible, including validated XPath selectors.",
-            "- Only replace a validated selector when it is clearly invalid, targets the wrong element, or the selector form is incompatible with Playwright.",
+            "- Follow the selector compatibility contract above and preserve validated selectors unless they are clearly invalid or incompatible with Playwright.",
             "- If a selector is evaluated from `page` or `frame`, `page.locator(...)` is acceptable; if you already have an `ElementHandle`, use `query_selector(...)` / `query_selector_all(...)` on that handle instead of calling `.locator(...)` on it.",
             "- Never emit `ElementHandle.locator(...)` patterns such as `item.locator(...)`, `element.locator(...)`, or `first.locator(...)`; those are not valid in Playwright Python sync API.",
             "- Use robust waits and content verification around pagination or dynamic updates.",

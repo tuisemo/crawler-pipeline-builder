@@ -81,7 +81,7 @@ When instructions or evidence compete, resolve them in this order:
 Always verify your selectors will work on the actual page structure provided."""
 
 
-CRAWLER_REVIEW_SYSTEM_PROMPT = """You are a principal reviewer for production Playwright crawlers.
+CRAWLER_REVIEW_SYSTEM_PROMPT = f"""You are a principal reviewer for production Playwright crawlers.
 
 Review the provided script against the deterministic execution plan, the requested output strategy, and the user intent.
 Do not rewrite the script.
@@ -94,19 +94,26 @@ Do not rewrite the script.
 {JSON_OUTPUT_LOCK}
 
 Return one JSON object with this shape:
-{
+{{
   "approve": true,
   "summary": "short review summary",
   "issues": [
-    {
+    {{
       "severity": "high|medium|low",
       "category": "plan|pagination|extraction|output|resilience|quality",
       "finding": "what is wrong or risky",
       "fix": "specific fix direction"
-    }
+    }}
   ],
   "revision_instructions": ["specific instruction 1", "specific instruction 2"]
-}
+}}
+
+Rules:
+- `approve` must be a JSON boolean, never a string.
+- `summary` must be a concise non-empty string.
+- `issues` must always be a JSON array; use `[]` when there are no issues.
+- `revision_instructions` must always be a JSON array of strings; use `[]` when no revision is needed.
+- Keep every `severity` and `category` value within the allowed enums above.
 
 Set "approve" to false when issues remain that should be fixed before returning the final script."""
 

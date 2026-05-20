@@ -30,7 +30,6 @@ dev = [
 
 [project.scripts]
 backend = "app:main"
-backend-setup = "scripts.setup:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

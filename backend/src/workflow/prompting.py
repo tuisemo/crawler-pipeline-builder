@@ -103,8 +103,7 @@ def _build_review_prompt(
     editable_prompt: str,
     generated_script: str,
 ) -> str:
-    _ = editable_prompt
-    return assemble_review_prompt(plan_dict, generated_script)
+    return assemble_review_prompt(plan_dict, editable_prompt, generated_script)
 
 
 def _build_revision_prompt(

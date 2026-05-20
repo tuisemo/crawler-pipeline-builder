@@ -53,7 +53,7 @@ import { resolveNextNodeId, resolveNextNodePosition, autoLayoutNodes } from '../
 import { useTaskContext, useWorkflowAsset } from './useTaskContext'
 import { saveTaskAssets } from '../services/taskApi'
 
-loader.config({ paths: { vs: '/monaco-editor/min/vs' } })
+loader.config({ paths: { vs: `${import.meta.env.BASE_URL}monaco-editor/min/vs` } })
 
 export default function WorkbenchPage() {
   const { message } = AntdApp.useApp()

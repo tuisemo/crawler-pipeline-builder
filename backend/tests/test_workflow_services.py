@@ -13,6 +13,7 @@ import shutil
 import sys
 import threading
 from pathlib import Path
+import types
 
 import pytest
 from workflow.schemas import (
@@ -47,6 +48,7 @@ from workflow.detail_batch_prompting import (
     build_detail_batch_runner_prompt,
 )
 from workflow.detail_batch_codegen import generate_detail_batch_runner_skeleton
+from prompts.tasks.crawler_system import CRAWLER_REVIEW_SYSTEM_PROMPT
 
 
 def make_test_workspace(name: str) -> Path:
@@ -249,9 +251,75 @@ def test_graph_to_prompt_includes_html_and_field_samples():
     result = graph_to_prompt(request)
 
     assert result["success"] is True
-    assert "Page Evidence (HTML Sample)" in result["prompt"]
-    assert "<article class='item'>" in result["prompt"]
+    assert "Page Evidence (Compressed HTML Sample)" in result["prompt"]
+    assert '<article class="item">' in result["prompt"]
     assert "`price` from `.price` as `text`" in result["prompt"]
+
+
+def test_graph_to_prompt_strips_script_and_style_noise_from_html_evidence():
+    request = ToPromptRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(
+                        html_fragment=(
+                            "<style>.hidden{display:none}</style>"
+                            "<article class='item'>Visible content</article>"
+                            "<script>console.log('noise')</script>"
+                        ),
+                        fields=[{"name": "title", "selector": ".item", "type": "text"}],
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = graph_to_prompt(request)
+
+    assert result["success"] is True
+    assert "Visible content" in result["prompt"]
+    assert "console.log('noise')" not in result["prompt"]
+    assert ".hidden{display:none}" not in result["prompt"]
+
+
+def test_graph_to_prompt_includes_explicit_sqlite_contract():
+    request = ToPromptRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(
+                    id="n3",
+                    type="extract_field",
+                    data=NodeData(fields=[{"name": "title", "selector": ".title", "type": "text"}]),
+                ),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(
+                        output_mode="sqlite",
+                        sqlite_path="output/items.db",
+                        sqlite_table="items",
+                        write_mode="upsert",
+                        dedupe_keys=["title"],
+                    ),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = graph_to_prompt(request)
+
+    assert result["success"] is True
+    assert "Store one flat SQLite column per configured field" in result["prompt"]
+    assert "Each configured extraction field must map to its own flat SQLite column" in result["effective_prompt"]
+    assert "_identity_key" in result["effective_prompt"]
 
 
 def test_graph_to_prompt_strips_deprecated_max_steps_from_plan_and_prompt():
@@ -587,6 +655,90 @@ def test_generate_crawler_uses_prompt_override(monkeypatch):
     assert "max_tokens" not in captured_calls[0]["kwargs"]
 
 
+def test_generate_crawler_includes_user_intent_in_review_prompt(monkeypatch):
+    captured_calls = []
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm import LLMResponse
+
+            captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 1, "completion_tokens": 1},
+                )
+            return LLMResponse(
+                content="print('draft')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("workflow.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        ),
+        generation_mode="pro",
+        prompt_override="Keep retries conservative and preserve operator naming.",
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert len(captured_calls) == 2
+    assert "## User Intent" in captured_calls[1]["user"]
+    assert "Keep retries conservative and preserve operator naming." in captured_calls[1]["user"]
+
+
+def test_generate_crawler_omits_user_intent_section_without_prompt_override(monkeypatch):
+    captured_calls = []
+
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm import LLMResponse
+
+            captured_calls.append({"system": system, "user": user, "kwargs": kwargs})
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": true, "summary": "looks good", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 1, "completion_tokens": 1},
+                )
+            return LLMResponse(
+                content="print('draft')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("workflow.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        ),
+        generation_mode="pro",
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert len(captured_calls) == 2
+    assert "## User Intent" not in captured_calls[1]["user"]
+
+
 def test_generate_crawler_strips_deprecated_max_steps_from_generation_prompt(monkeypatch):
     captured_calls = []
 
@@ -746,6 +898,115 @@ def test_generate_crawler_revises_script_when_review_requests_changes(monkeypatc
         "workflow_generate_crawler_review",
         "workflow_generate_crawler_revision",
     ]
+
+
+def test_generate_crawler_normalizes_review_summary_before_revision(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm import LLMResponse
+
+            self.calls.append({"system": system, "kwargs": kwargs})
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content=(
+                        "```json\n"
+                        '{"approve": "false", "summary": "needs output fix", '
+                        '"issues": [{"severity": "HIGH", "category": "OUTPUT", "finding": "missing upsert", '
+                        '"fix": "restore sqlite helper"}], '
+                        '"revision_instructions": "restore sqlite helper"}\n'
+                        "```"
+                    ),
+                    model="fake-model",
+                    usage={"prompt_tokens": 2, "completion_tokens": 2},
+                )
+            if "revise the provided crawler draft" in system.lower():
+                return LLMResponse(
+                    content="print('revised')",
+                    model="fake-model",
+                    usage={"prompt_tokens": 3, "completion_tokens": 3},
+                )
+            return LLMResponse(
+                content="print('draft')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("workflow.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/products.db", sqlite_table="products"),
+                ),
+            ],
+            edges=[],
+        ),
+        generation_mode="pro",
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is True
+    assert result.script == "print('revised')"
+    assert result.review_summary == {
+        "approve": False,
+        "summary": "needs output fix",
+        "issues": [
+            {
+                "severity": "high",
+                "category": "output",
+                "finding": "missing upsert",
+                "fix": "restore sqlite helper",
+            }
+        ],
+        "revision_instructions": ["restore sqlite helper"],
+    }
+
+
+def test_generate_crawler_rejects_invalid_review_schema(monkeypatch):
+    class FakeClient:
+        def generate_with_system(self, system: str, user: str, **kwargs):
+            from llm import LLMResponse
+
+            if "principal reviewer" in system.lower():
+                return LLMResponse(
+                    content='{"approve": "maybe", "summary": "invalid review", "issues": [], "revision_instructions": []}',
+                    model="fake-model",
+                    usage={"prompt_tokens": 2, "completion_tokens": 2},
+                )
+            return LLMResponse(
+                content="print('draft')",
+                model="fake-model",
+                usage={"prompt_tokens": 1, "completion_tokens": 1},
+            )
+
+    monkeypatch.setattr("workflow.generation_pipeline.get_default_client", lambda: FakeClient())
+
+    request = GenerateCrawlerRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        ),
+        generation_mode="pro",
+    )
+
+    result = generate_crawler(request)
+
+    assert result.success is False
+    assert "review field `approve` must be a boolean" in (result.error or "")
 
 
 def test_generate_crawler_reports_token_limit_warning_in_lite_mode(monkeypatch):
@@ -1017,6 +1278,11 @@ def test_generate_detail_batch_runner_returns_valid_script():
     assert "--save-markdown" in result.script
 
 
+def test_crawler_review_system_prompt_inlines_json_output_rules():
+    assert "{JSON_OUTPUT_LOCK}" not in CRAWLER_REVIEW_SYSTEM_PROMPT
+    assert "Return JSON only." in CRAWLER_REVIEW_SYSTEM_PROMPT
+
+
 def test_generate_detail_batch_runner_rejects_non_sqlite_database_type():
     request = GenerateDetailBatchRunnerRequest(
         database={
@@ -1233,6 +1499,48 @@ def test_detail_batch_runner_prompt_includes_payload_and_reference_skeleton():
     assert "page-extractor" in skeleton
 
 
+def test_detail_batch_runner_skeleton_batches_task_sync_inserts():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    )
+
+    script = generate_detail_batch_runner_skeleton(request)
+
+    assert "conn.executemany(" in script
+    assert "before_changes = conn.total_changes" in script
+    assert script.index("if self.config.dry_run:") < script.index("claimed = self.repo.claim_tasks(batch)")
+
+
+def test_detail_batch_runner_skeleton_rejects_invalid_sql_identifiers():
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": "output/crawler_output.db",
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        }
+    )
+
+    script = generate_detail_batch_runner_skeleton(request)
+    module = types.ModuleType("identifier_probe")
+    sys.modules[module.__name__] = module
+    try:
+        exec(script, module.__dict__)
+
+        normalize_sql_identifier = module.__dict__["normalize_sql_identifier"]
+        with pytest.raises(ValueError):
+            normalize_sql_identifier("bad-name", field_name="list_table")
+    finally:
+        sys.modules.pop(module.__name__, None)
+
+
 def test_generate_skeleton_embeds_sqlite_output_config():
     request = GenerateSkeletonRequest(
         graph=WorkflowGraph(
@@ -1269,6 +1577,333 @@ def test_generate_skeleton_embeds_sqlite_output_config():
     assert "DEDUPE_KEYS = [" in result.script
     assert "_identity_key" in result.script
     assert 'ON CONFLICT ({", ".join(quote_ident(column) for column in conflict_columns)})' in result.script
+
+
+def test_generate_skeleton_uses_unique_index_for_sqlite_upsert():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/items.db", sqlite_table="items", write_mode="upsert"),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert '"_identity_key": "TEXT NOT NULL"' in result.script
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS" in result.script
+    assert "TEXT PRIMARY KEY" not in result.script
+
+
+def test_generate_skeleton_uses_runtime_run_id_for_sqlite_rows():
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/items.db", sqlite_table="items"),
+                ),
+            ],
+            edges=[],
+        )
+    )
+
+    result = generate_skeleton(request)
+
+    assert result.success is True
+    assert "RUN_ID," in result.script
+    assert '"standalone-run"' not in result.script
+
+
+def test_generate_skeleton_keeps_memory_mode_in_memory_only(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+            ],
+            edges=[],
+        )
+    )
+    workspace_root = make_test_workspace("skeleton-memory-mode")
+    monkeypatch.chdir(workspace_root)
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "memory_mode_probe"}
+    exec(result.script, namespace)
+
+    persist_records = namespace["persist_records"]
+    persist_info = persist_records([{"title": "Example"}], "http://example.com")
+
+    assert result.success is True
+    assert persist_info["mode"] == "memory"
+    assert persist_info["target"] == "in-memory"
+    assert not (workspace_root / "output" / "crawler_output.json").exists()
+
+
+def test_generate_skeleton_allows_sqlite_append_mode_repeated_identity(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/items.db", sqlite_table="items", write_mode="append"),
+                ),
+            ],
+            edges=[],
+        )
+    )
+    workspace_root = make_test_workspace("skeleton-sqlite-append")
+    monkeypatch.chdir(workspace_root)
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "sqlite_append_probe"}
+    exec(result.script, namespace)
+
+    persist_sqlite_records = namespace["persist_sqlite_records"]
+    persist_sqlite_records([{"title": "Example"}], "http://example.com")
+    persist_sqlite_records([{"title": "Example"}], "http://example.com")
+
+    with sqlite3.connect(workspace_root / "output" / "items.db") as conn:
+        stored_count = conn.execute('SELECT COUNT(*) FROM "items"').fetchone()[0]
+
+    assert result.success is True
+    assert stored_count == 2
+
+
+def test_generate_skeleton_backfills_existing_sqlite_table_without_metadata(monkeypatch):
+    request = GenerateSkeletonRequest(
+        graph=WorkflowGraph(
+            nodes=[
+                WorkflowNode(id="n1", type="open_page", data=NodeData(url="http://example.com")),
+                WorkflowNode(id="n2", type="select_list", data=NodeData(item_selector=".item")),
+                WorkflowNode(id="n3", type="extract_field", data=NodeData(fields=[{"name": "title", "selector": "h1"}])),
+                WorkflowNode(
+                    id="n4",
+                    type="emit_record",
+                    data=NodeData(output_mode="sqlite", sqlite_path="output/items.db", sqlite_table="items", write_mode="upsert"),
+                ),
+            ],
+            edges=[],
+        )
+    )
+    workspace_root = make_test_workspace("skeleton-sqlite-backfill")
+    monkeypatch.chdir(workspace_root)
+    db_path = workspace_root / "output" / "items.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute('CREATE TABLE items ("title" TEXT)')
+        conn.commit()
+
+    result = generate_skeleton(request)
+    namespace: dict[str, object] = {"__name__": "sqlite_backfill_probe"}
+    exec(result.script, namespace)
+
+    persist_sqlite_records = namespace["persist_sqlite_records"]
+    persist_sqlite_records([{"title": "Example"}], "http://example.com")
+
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute('PRAGMA table_info("items")').fetchall()}
+        stored_count = conn.execute('SELECT COUNT(*) FROM "items"').fetchone()[0]
+
+    assert result.success is True
+    assert {"_identity_key", "_run_id", "_source_url", "_emitted_at", "_record_hash"}.issubset(columns)
+    assert stored_count == 1
+
+
+def test_generated_detail_batch_runner_dry_run_keeps_tasks_pending(tmp_path):
+    db_path = tmp_path / "crawler_output.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE records (
+                record_id TEXT PRIMARY KEY,
+                detail_url TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO records (record_id, detail_url)
+            VALUES (?, ?)
+            """,
+            ("record-1", "https://example.com/detail"),
+        )
+        conn.commit()
+
+    detail_output_root = tmp_path / "detail-output"
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": str(db_path),
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        },
+        detail_cli={
+            "executable": sys.executable,
+            "command_prefix": [sys.executable, "-m", "page_extractor.cli"],
+            "subcommand": "collect",
+            "output_root": str(detail_output_root),
+        },
+    )
+
+    result = generate_detail_batch_runner(request)
+    script_path = tmp_path / "run_detail_batch.py"
+    script_path.write_text(result.script or "", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(script_path), "--db", str(db_path), "--output-root", str(detail_output_root), "--dry-run"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT status, attempt_count
+            FROM detail_collection_tasks
+            WHERE record_id = ?
+            """,
+            ("record-1",),
+        ).fetchone()
+
+    assert completed.returncode == 0, completed.stderr
+    assert row is not None
+    assert row["status"] == "pending"
+    assert row["attempt_count"] == 0
+
+
+def test_generated_detail_batch_runner_honors_global_limit(tmp_path):
+    db_path = tmp_path / "crawler_output.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE records (
+                record_id TEXT PRIMARY KEY,
+                detail_url TEXT NOT NULL
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO records (record_id, detail_url)
+            VALUES (?, ?)
+            """,
+            [
+                ("record-1", "https://example.com/detail-1"),
+                ("record-2", "https://example.com/detail-2"),
+            ],
+        )
+        conn.commit()
+
+    detail_output_root = tmp_path / "detail-output"
+    request = GenerateDetailBatchRunnerRequest(
+        database={
+            "type": "sqlite",
+            "path": str(db_path),
+            "list_table_name": "records",
+            "record_id_field": "record_id",
+            "detail_url_field": "detail_url",
+        },
+        detail_cli={
+            "executable": sys.executable,
+            "command_prefix": [
+                sys.executable,
+                "-c",
+                (
+                    "import json; "
+                    "print(json.dumps({'result_summary_path':'summary.json','content_markdown_path':'content.md',"
+                    "'pdf_snapshot_path':'snapshot.pdf','attachments_dir':'attachments','task_dir':'task','detail_cli_version':'test'}))"
+                ),
+            ],
+            "subcommand": "collect",
+            "output_root": str(detail_output_root),
+        },
+    )
+
+    result = generate_detail_batch_runner(request)
+    script_path = tmp_path / "run_detail_batch.py"
+    script_path.write_text(result.script or "", encoding="utf-8")
+    module = types.ModuleType("limit_probe")
+    sys.modules[module.__name__] = module
+    try:
+        exec(result.script or "", module.__dict__)
+        Config = module.__dict__["Config"]
+        BatchExecutor = module.__dict__["BatchExecutor"]
+        build_run_log_path = module.__dict__["build_run_log_path"]
+
+        run_log_path = build_run_log_path(detail_output_root, "limit-test")
+        config = Config(
+            database_path=db_path,
+            list_table_name="records",
+            task_table_name="detail_collection_tasks",
+            record_id_field="record_id",
+            detail_url_field="detail_url",
+            source_url_field=None,
+            title_field=None,
+            detail_cli_executable=sys.executable,
+            detail_cli_command_prefix=[
+                sys.executable,
+                "-c",
+                (
+                    "import json; "
+                    "print(json.dumps({'result_summary_path':'summary.json','content_markdown_path':'content.md',"
+                    "'pdf_snapshot_path':'snapshot.pdf','attachments_dir':'attachments','task_dir':'task','detail_cli_version':'test'}))"
+                ),
+            ],
+            detail_cli_subcommand="collect",
+            output_root=detail_output_root,
+            concurrency=1,
+            batch_size=1,
+            max_attempts=3,
+            subprocess_timeout_seconds=30,
+            log_level="INFO",
+            run_log_path=run_log_path,
+            dry_run=False,
+            limit=1,
+            batch_run_id="limit-test",
+        )
+
+        summary = BatchExecutor(config).run()
+    finally:
+        sys.modules.pop(module.__name__, None)
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM detail_collection_tasks
+            GROUP BY status
+            """
+        ).fetchall()
+
+    counts = {status: count for status, count in rows}
+    assert summary.selected_count == 1
+    assert counts.get("succeeded", 0) == 1
+    assert counts.get("pending", 0) == 1
 
 
 def test_generate_skeleton_strips_deprecated_max_steps_from_output():

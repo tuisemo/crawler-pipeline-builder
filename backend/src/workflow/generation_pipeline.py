@@ -27,13 +27,15 @@ from .script_sandbox import run_generated_script_sandbox
 SUPPORTED_GENERATION_MODES = {"lite", "pro"}
 from workflow._shared import sanitize_graph as _sanitize_graph
 
+REVIEW_SEVERITIES = {"high", "medium", "low"}
+REVIEW_CATEGORIES = {"plan", "pagination", "extraction", "output", "resilience", "quality"}
+
 
 def _extract_json_object(content: str) -> dict:
     raw = (content or "").strip()
     if not raw:
         raise ValueError("empty response")
 
-    # Try to find JSON block in markdown fences
     fenced_match = re.search(r"```json\s*(\{.*?\})\s*```", raw, re.DOTALL)
     if fenced_match:
         try:
@@ -41,18 +43,106 @@ def _extract_json_object(content: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Try to find any JSON object
-    try:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start >= 0 and end > start:
-            # Try to parse the largest possible JSON object found
-            candidate = raw[start:end + 1]
-            return json.loads(candidate)
-    except Exception:
-        pass
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", raw):
+        try:
+            candidate, end_index = decoder.raw_decode(raw[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            trailing = raw[match.start() + end_index:].strip()
+            if not trailing or trailing.startswith("```"):
+                return candidate
 
     raise ValueError("response did not contain a valid JSON object")
+
+
+def _normalize_review_approve(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    raise ValueError("review field `approve` must be a boolean")
+
+
+def _normalize_review_string_list(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if not isinstance(value, list):
+        raise ValueError(f"review field `{field_name}` must be a list of strings")
+
+    normalized: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ValueError(f"review field `{field_name}` item[{index}] must be a string")
+        text = item.strip()
+        if text:
+            normalized.append(text)
+    return normalized
+
+
+def _normalize_review_issue(issue: Any, index: int) -> dict[str, str]:
+    if not isinstance(issue, dict):
+        raise ValueError(f"review issue[{index}] must be an object")
+
+    severity = str(issue.get("severity", "")).strip().lower()
+    if severity not in REVIEW_SEVERITIES:
+        raise ValueError(
+            f"review issue[{index}] severity must be one of: {', '.join(sorted(REVIEW_SEVERITIES))}"
+        )
+
+    category = str(issue.get("category", "")).strip().lower()
+    if category not in REVIEW_CATEGORIES:
+        raise ValueError(
+            f"review issue[{index}] category must be one of: {', '.join(sorted(REVIEW_CATEGORIES))}"
+        )
+
+    finding = str(issue.get("finding", "")).strip()
+    if not finding:
+        raise ValueError(f"review issue[{index}] finding must be a non-empty string")
+
+    fix = str(issue.get("fix", "")).strip()
+    if not fix:
+        raise ValueError(f"review issue[{index}] fix must be a non-empty string")
+
+    return {
+        "severity": severity,
+        "category": category,
+        "finding": finding,
+        "fix": fix,
+    }
+
+
+def _normalize_review_summary(summary: Any) -> dict[str, Any]:
+    if not isinstance(summary, dict):
+        raise ValueError("review response must be a JSON object")
+
+    review_summary = str(summary.get("summary", "")).strip()
+    if not review_summary:
+        raise ValueError("review field `summary` must be a non-empty string")
+
+    raw_issues = summary.get("issues", [])
+    if raw_issues is None:
+        raw_issues = []
+    if not isinstance(raw_issues, list):
+        raise ValueError("review field `issues` must be a list")
+
+    return {
+        "approve": _normalize_review_approve(summary.get("approve")),
+        "summary": review_summary,
+        "issues": [_normalize_review_issue(item, index) for index, item in enumerate(raw_issues)],
+        "revision_instructions": _normalize_review_string_list(
+            summary.get("revision_instructions"),
+            "revision_instructions",
+        ),
+    }
 
 
 def _review_requires_revision(review_summary: dict) -> bool:
@@ -208,6 +298,7 @@ def _run_final_script_sandbox(
 def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse:
     """Generate a Playwright crawler script from a DSL workflow graph."""
     generation_mode = _resolve_generation_mode(request.generation_mode)
+    operator_notes = str(request.prompt_override or "").strip()
     try:
         sanitized_graph = _sanitize_graph(request.graph)
     except ValueError as e:
@@ -221,7 +312,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
     audit_event(
         "workflow_generate_crawler_started",
         generation_mode=generation_mode,
-        has_prompt_override=bool((request.prompt_override or "").strip()),
+        has_prompt_override=bool(operator_notes),
         graph_summary=_graph_summary(sanitized_graph),
     )
     try:
@@ -369,7 +460,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
                 warnings=warnings,
             )
 
-        review_prompt = _build_review_prompt(plan_dict, editable_prompt, draft_script)
+        review_prompt = _build_review_prompt(plan_dict, operator_notes, draft_script)
         review_response = client.generate_with_system(
             system=CRAWLER_REVIEW_SYSTEM_PROMPT,
             user=review_prompt,
@@ -419,7 +510,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
             warnings.append(review_length_warning)
 
         try:
-            review_summary = _extract_json_object(review_response.content)
+            review_summary = _normalize_review_summary(_extract_json_object(review_response.content))
         except Exception as e:
             audit_event(
                 "workflow_generate_crawler_failed",
@@ -448,7 +539,7 @@ def generate_crawler(request: GenerateCrawlerRequest) -> GenerateCrawlerResponse
         total_usage = _merge_usage(draft_response.usage, review_response.usage)
 
         if _review_requires_revision(review_summary):
-            revision_prompt = _build_revision_prompt(plan_dict, editable_prompt, draft_script, review_summary)
+            revision_prompt = _build_revision_prompt(plan_dict, operator_notes, draft_script, review_summary)
             revision_response = client.generate_with_system(
                 system=CRAWLER_REVISION_SYSTEM_PROMPT,
                 user=revision_prompt,

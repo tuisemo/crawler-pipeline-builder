@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sqlite3
 import subprocess
 import sys
@@ -69,6 +70,17 @@ def is_valid_detail_url(url: str) -> bool:
         return False
     parsed = urlparse(url.strip())
     return parsed.scheme in {{"http", "https"}} and bool(parsed.netloc)
+
+
+def normalize_sql_identifier(value: str, *, field_name: str) -> str:
+    candidate = str(value or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", candidate):
+        raise ValueError(f"Invalid SQL identifier for {{field_name}}: {{value!r}}")
+    return candidate
+
+
+def quote_ident(value: str, *, field_name: str = "identifier") -> str:
+    return f'"{{normalize_sql_identifier(value, field_name=field_name)}}"'
 
 
 def build_run_log_path(output_root: Path, batch_run_id: str) -> Path:
@@ -167,12 +179,12 @@ class Config:
         run_log_path = build_run_log_path(output_root, batch_run_id)
         return cls(
             database_path=Path(args.db).resolve(),
-            list_table_name=args.list_table,
-            task_table_name=args.task_table,
-            record_id_field=args.record_id_field,
-            detail_url_field=args.detail_url_field,
-            source_url_field=args.source_url_field,
-            title_field=args.title_field,
+            list_table_name=normalize_sql_identifier(args.list_table, field_name="list_table"),
+            task_table_name=normalize_sql_identifier(args.task_table, field_name="task_table"),
+            record_id_field=normalize_sql_identifier(args.record_id_field, field_name="record_id_field"),
+            detail_url_field=normalize_sql_identifier(args.detail_url_field, field_name="detail_url_field"),
+            source_url_field=normalize_sql_identifier(args.source_url_field, field_name="source_url_field") if args.source_url_field else None,
+            title_field=normalize_sql_identifier(args.title_field, field_name="title_field") if args.title_field else None,
             detail_cli_executable=args.cli_executable,
             detail_cli_command_prefix=list(args.cli_command_prefix or []),
             detail_cli_subcommand=args.cli_subcommand,
@@ -199,10 +211,11 @@ class TaskRepository:
         return conn
 
     def ensure_schema(self) -> None:
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             conn.execute(
                 f'''
-                CREATE TABLE IF NOT EXISTS "{{self.config.task_table_name}}" (
+                CREATE TABLE IF NOT EXISTS {{task_table}} (
                     task_id TEXT PRIMARY KEY,
                     record_id TEXT NOT NULL,
                     detail_url TEXT NOT NULL,
@@ -229,10 +242,10 @@ class TaskRepository:
                 '''
             )
             conn.execute(
-                f'CREATE INDEX IF NOT EXISTS idx_{{self.config.task_table_name}}_status ON "{{self.config.task_table_name}}"(status)'
+                f'CREATE INDEX IF NOT EXISTS {{quote_ident(f"idx_{{self.config.task_table_name}}_status", field_name="task_status_index")}} ON {{task_table}}(status)'
             )
             conn.execute(
-                f'CREATE INDEX IF NOT EXISTS idx_{{self.config.task_table_name}}_record_id ON "{{self.config.task_table_name}}"(record_id)'
+                f'CREATE INDEX IF NOT EXISTS {{quote_ident(f"idx_{{self.config.task_table_name}}_record_id", field_name="task_record_id_index")}} ON {{task_table}}(record_id)'
             )
             conn.commit()
 
@@ -243,15 +256,21 @@ class TaskRepository:
         if self.config.title_field:
             source_fields.append(self.config.title_field)
         select_fields = ", ".join(
-            ['"' + self.config.record_id_field + '"', '"' + self.config.detail_url_field + '"']
-            + ['"' + field + '"' for field in source_fields]
+            [
+                quote_ident(self.config.record_id_field, field_name="record_id_field"),
+                quote_ident(self.config.detail_url_field, field_name="detail_url_field"),
+            ]
+            + [quote_ident(field, field_name="source_field") for field in source_fields]
         )
 
         synced_count = 0
+        list_table = quote_ident(self.config.list_table_name, field_name="list_table")
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             rows = conn.execute(
-                f'SELECT {{select_fields}} FROM "{{self.config.list_table_name}}"'
+                f'SELECT {{select_fields}} FROM {{list_table}}'
             ).fetchall()
+            insert_rows: list[tuple[str, str, str, str, str, str]] = []
             for row in rows:
                 detail_url = str(row[self.config.detail_url_field] or "").strip()
                 if not is_valid_detail_url(detail_url):
@@ -259,31 +278,36 @@ class TaskRepository:
                 record_id = str(row[self.config.record_id_field])
                 now = utc_now_iso()
                 task_id = uuid.uuid5(uuid.NAMESPACE_URL, f"{{record_id}}|{{detail_url}}").hex
-                cursor = conn.execute(
+                insert_rows.append((task_id, record_id, detail_url, "pending", now, now))
+
+            if insert_rows:
+                before_changes = conn.total_changes
+                conn.executemany(
                     f'''
-                    INSERT OR IGNORE INTO "{{self.config.task_table_name}}"
+                    INSERT OR IGNORE INTO {{task_table}}
                     (task_id, record_id, detail_url, status, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     ''',
-                    (task_id, record_id, detail_url, "pending", now, now),
+                    insert_rows,
                 )
-                if cursor.rowcount:
-                    synced_count += 1
+                synced_count = conn.total_changes - before_changes
             conn.commit()
         return synced_count
 
-    def fetch_runnable_tasks(self) -> list[TaskRow]:
+    def fetch_runnable_tasks(self, *, limit: int | None = None) -> list[TaskRow]:
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         query = (
             f'''
             SELECT task_id, record_id, detail_url, attempt_count, status
-            FROM "{{self.config.task_table_name}}"
+            FROM {{task_table}}
             WHERE status = 'pending'
                OR (status = 'failed_retryable' AND attempt_count < ?)
             ORDER BY priority DESC, created_at ASC
             LIMIT ?
             '''
         )
-        params = (self.config.max_attempts, self.config.limit or self.config.batch_size)
+        effective_limit = limit if isinstance(limit, int) and limit > 0 else self.config.batch_size
+        params = (self.config.max_attempts, effective_limit)
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [
@@ -302,11 +326,12 @@ class TaskRepository:
             return []
         claimed: list[TaskRow] = []
         now = utc_now_iso()
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             for task in tasks:
                 cursor = conn.execute(
                     f'''
-                    UPDATE "{{self.config.task_table_name}}"
+                    UPDATE {{task_table}}
                     SET status = 'running',
                         attempt_count = attempt_count + 1,
                         batch_run_id = ?,
@@ -332,10 +357,11 @@ class TaskRepository:
 
     def mark_task_succeeded(self, result: TaskExecutionResult) -> None:
         summary = result.summary
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             conn.execute(
                 f'''
-                UPDATE "{{self.config.task_table_name}}"
+                UPDATE {{task_table}}
                 SET status = 'succeeded',
                     completed_at = ?,
                     updated_at = ?,
@@ -364,10 +390,11 @@ class TaskRepository:
             conn.commit()
 
     def mark_task_failed(self, result: TaskExecutionResult) -> None:
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             conn.execute(
                 f'''
-                UPDATE "{{self.config.task_table_name}}"
+                UPDATE {{task_table}}
                 SET status = ?,
                     completed_at = ?,
                     updated_at = ?,
@@ -388,10 +415,11 @@ class TaskRepository:
 
     def mark_task_skipped(self, task_id: str, error_message: str) -> None:
         now = utc_now_iso()
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             conn.execute(
                 f'''
-                UPDATE "{{self.config.task_table_name}}"
+                UPDATE {{task_table}}
                 SET status = 'skipped',
                     completed_at = ?,
                     updated_at = ?,
@@ -405,9 +433,10 @@ class TaskRepository:
 
     def count_tasks_by_status(self) -> dict[str, int]:
         counts = {{status: 0 for status in SUPPORTED_TASK_STATUSES}}
+        task_table = quote_ident(self.config.task_table_name, field_name="task_table")
         with self.connect() as conn:
             rows = conn.execute(
-                f'SELECT status, COUNT(*) AS count FROM "{{self.config.task_table_name}}" GROUP BY status'
+                f'SELECT status, COUNT(*) AS count FROM {{task_table}} GROUP BY status'
             ).fetchall()
         for row in rows:
             status = str(row["status"])
@@ -600,16 +629,27 @@ class BatchExecutor:
         selected_count = 0
 
         while True:
-            runnable = self.repo.fetch_runnable_tasks()
+            remaining_limit = None if self.config.limit is None else self.config.limit - selected_count
+            if remaining_limit is not None and remaining_limit <= 0:
+                break
+            fetch_limit = self.config.batch_size if remaining_limit is None else min(self.config.batch_size, remaining_limit)
+            runnable = self.repo.fetch_runnable_tasks(limit=fetch_limit)
             if not runnable:
                 break
-            claimed = self.repo.claim_tasks(runnable[:self.config.batch_size])
+            batch = runnable[:fetch_limit]
+            if self.config.dry_run:
+                selected_count += len(batch)
+                self.logger.info(
+                    "Dry run selected %s detail tasks for batch_run_id=%s without claiming them",
+                    len(batch),
+                    self.config.batch_run_id,
+                )
+                break
+            claimed = self.repo.claim_tasks(batch)
             if not claimed:
                 break
             selected_count += len(claimed)
             self.logger.info("Claimed %s detail tasks for batch_run_id=%s", len(claimed), self.config.batch_run_id)
-            if self.config.dry_run:
-                break
             results = self._run_one_batch(claimed)
             for result in results:
                 self._persist_worker_result(result)

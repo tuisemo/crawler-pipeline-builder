@@ -289,11 +289,44 @@ def chunk_records(records: list[dict[str, Any]], size: int) -> list[list[dict[st
     return [records[index:index + chunk_size] for index in range(0, len(records), chunk_size)]
 
 
+def persist_memory_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    LOGGER.info("Keeping %s records in memory only", len(records))
+    return {{
+        "mode": "memory",
+        "target": "in-memory",
+        "stored_count": len(records),
+    }}
+
+
+def backfill_sqlite_identity_keys(conn: sqlite3.Connection, table_name: str, user_columns: list[str]) -> None:
+    existing_rows = conn.execute(
+        f'SELECT rowid, {{", ".join(quote_ident(column) for column in user_columns)}} '
+        f'FROM {{quote_ident(table_name)}} '
+        f'WHERE {{quote_ident("_identity_key")}} IS NULL OR {{quote_ident("_identity_key")}} = ""'
+    ).fetchall()
+    if not existing_rows:
+        return
+
+    update_sql = (
+        f'UPDATE {{quote_ident(table_name)}} '
+        f'SET {{quote_ident("_identity_key")}} = ?, {{quote_ident("_record_hash")}} = COALESCE({{quote_ident("_record_hash")}}, ?) '
+        f'WHERE rowid = ?'
+    )
+    update_rows = []
+    for row in existing_rows:
+        record = {{
+            column: row[index + 1]
+            for index, column in enumerate(user_columns)
+        }}
+        update_rows.append((record_identity_key(record), record_hash(record), row[0]))
+    conn.executemany(update_sql, update_rows)
+
+
 def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: list[dict[str, Any]]) -> list[str]:
     user_columns = sorted({{key for record in records for key in record.keys() if isinstance(key, str) and key}})
     user_columns = sorted(set(user_columns) | set(DEDUPE_KEYS) | set(PLANNED_FIELD_NAMES))
     metadata_columns = {{
-        "_identity_key": "TEXT PRIMARY KEY",
+        "_identity_key": "TEXT NOT NULL",
         "_run_id": "TEXT",
         "_source_url": "TEXT",
         "_emitted_at": "TEXT",
@@ -324,9 +357,16 @@ def ensure_sqlite_schema(conn: sqlite3.Connection, table_name: str, records: lis
         conn.execute(f'ALTER TABLE {{quote_ident(table_name)}} ADD COLUMN {{quote_ident(column)}} {{infer_sqlite_affinity(values)}}')
     for column, affinity in metadata_columns.items():
         if column not in existing:
-            conn.execute(f'ALTER TABLE {{quote_ident(table_name)}} ADD COLUMN {{quote_ident(column)}} {{affinity}}')
+            alter_affinity = "TEXT" if column == "_identity_key" else affinity
+            conn.execute(f'ALTER TABLE {{quote_ident(table_name)}} ADD COLUMN {{quote_ident(column)}} {{alter_affinity}}')
 
-    # Primary key already acts as unique index for _identity_key.
+    if WRITE_MODE == "upsert":
+        backfill_sqlite_identity_keys(conn, table_name, user_columns)
+        conn.execute(
+            f'CREATE UNIQUE INDEX IF NOT EXISTS {{quote_ident(f"uq_{{table_name}}_identity_key")}} '
+            f'ON {{quote_ident(table_name)}} ({{quote_ident("_identity_key")}})'
+        )
+
     conn.commit()
     return user_columns
 
@@ -370,7 +410,7 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
                 row = [encode_sqlite_value(record.get(column)) for column in user_columns]
                 row.extend([
                     record_identity_key(record),
-                    "standalone-run" if "run_id" in metadata_columns else None, # Placeholder for standalone run
+                    RUN_ID,
                     source_url or None,
                     created_at,
                     record_hash(record),
@@ -389,7 +429,9 @@ def persist_sqlite_records(records: list[dict[str, Any]], source_url: str) -> di
 
 
 def persist_records(records: list[dict[str, Any]], source_url: str) -> dict[str, Any]:
-    mode = OUTPUT_MODE if OUTPUT_MODE in {{"json_file", "sqlite"}} else "json_file"
+    mode = OUTPUT_MODE if OUTPUT_MODE in {{"memory", "json_file", "sqlite"}} else "json_file"
+    if mode == "memory":
+        return persist_memory_records(records)
     if mode == "sqlite":
         return persist_sqlite_records(records, source_url)
     return persist_json_records(records)

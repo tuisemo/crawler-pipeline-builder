@@ -7,43 +7,57 @@ Idempotent setup script that installs Playwright browsers if missing.
 
 Usage:
     uv run python scripts/setup.py
-    # or after `pip install -e .`:
-    backend-setup
 """
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 def _playwright_cli() -> list[str]:
-    """Return the playwright CLI command prefix (handles venv / uvx)."""
-    # Prefer the playwright executable next to the current Python
-    import playwright
-    bin_dir = playwright.__file__
-    # playwright package is installed; use the CLI from the same env
     return [sys.executable, "-m", "playwright"]
 
 
-def _browsers_installed() -> bool:
-    """Check if chromium is already installed."""
+def _chromium_executable_path() -> str | None:
+    """Resolve the expected chromium executable path without launching anything."""
+    try:
+        from playwright._impl._driver import compute_driver_executable  # type: ignore[import-untyped]
+    except (ImportError, Exception):
+        return None
     try:
         result = subprocess.run(
             _playwright_cli() + ["install", "--dry-run", "chromium"],
             capture_output=True, text=True,
         )
-        # --dry-run returns 0 when already installed
-        return result.returncode == 0
+        # --dry-run prints the path and exits 0 when already installed
+        if result.returncode == 0:
+            return "ok"
     except Exception:
-        return False
+        pass
+    return None
+
+
+def _is_chromium_installed() -> bool:
+    """Check if Playwright chromium browser binary exists on disk."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path or ''); p.stop()"],
+            capture_output=True, text=True, timeout=10,
+        )
+        exe_path = result.stdout.strip()
+        if exe_path and Path(exe_path).exists():
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def install_playwright_browsers() -> None:
     """Install Playwright chromium browser if not already present."""
     print("[setup] Checking Playwright browsers...")
-    if _browsers_installed():
+    if _is_chromium_installed():
         print("[setup] Playwright chromium already installed, skipping.")
         return
 
