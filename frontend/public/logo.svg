@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!--
+    Scraper Flow Studio — Logo Mark
+    Concept: Two source nodes flow into a single collector node.
+    Represents data scraping (multiple sources) → workflow → output.
+    Style: Ollama-inspired minimal — pure black, white, no gradients.
+  -->
+
+  <!-- Rounded square background -->
+  <rect width="128" height="128" rx="28" fill="#000"/>
+
+  <!-- Flow connections (curved paths from sources to collector) -->
+  <path d="M 42 40 Q 60 40, 82 58"
+        stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M 42 88 Q 60 88, 82 70"
+        stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+  <!-- Source nodes (inputs — smaller) -->
+  <circle cx="42" cy="40" r="10" fill="#fff"/>
+  <circle cx="42" cy="88" r="10" fill="#fff"/>
+
+  <!-- Collector node (output — larger, represents gathered data) -->
+  <circle cx="88" cy="64" r="14" fill="#fff"/>
+  <!-- Inner ring — suggests a capture/target, adds depth without gradients -->
+  <circle cx="88" cy="64" r="6" fill="#000"/>
+</svg>
