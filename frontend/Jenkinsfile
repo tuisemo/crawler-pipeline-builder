@@ -1,4 +1,4 @@
 @Library('shared-library') _
 node {
-  nodejs.npm()
+  nodejs.pnpm()
 }
